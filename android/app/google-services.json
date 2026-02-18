@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "433871743225",
+    "project_id": "refund-tracker-app",
+    "storage_bucket": "refund-tracker-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:433871743225:android:50c97ea3ea9552acebda28",
+        "android_client_info": {
+          "package_name": "com.example.refund_tracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdyhL8G7JErVL5qvZ2lIbR42uHmFsZU34"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
