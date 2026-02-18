@@ -4,6 +4,21 @@ import 'package:google_sign_in/google_sign_in.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  // SEND PASSWORD RESET EMAIL
+  // Returns null on success, otherwise returns FirebaseAuthException.code
+  Future<String?> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      return null; // success
+    } on FirebaseAuthException catch (e) {
+      print("PASSWORD RESET ERROR: ${e.code} - ${e.message}");
+      return e.code;
+    } catch (e) {
+      print("PASSWORD RESET ERROR (unknown): $e");
+      return 'unknown-error';
+    }
+  }
+
   // GOOGLE SIGN-IN
   Future<User?> signInWithGoogle() async {
     try {
