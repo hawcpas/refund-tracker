@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/centered_form.dart';
+import '../widgets/centered_section.dart';
 
 class VerifyEmailScreen extends StatefulWidget {
   const VerifyEmailScreen({super.key});
@@ -19,7 +21,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         .showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // ✅ KEEP: This logic is correct and Outlook‑safe
   Future<void> _checkVerified() async {
     setState(() => _checking = true);
 
@@ -39,7 +40,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     }
   }
 
-  // ✅ KEEP: Same logic, improved messaging
   Future<void> _resend() async {
     setState(() => _resending = true);
 
@@ -49,9 +49,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     setState(() => _resending = false);
 
     if (code == null) {
-      _snack(
-        "Verification email sent. Please use the most recent email.",
-      );
+      _snack("Verification email sent. Please use the most recent email.");
     } else if (code == 'too-many-requests') {
       _snack("Too many requests. Please wait a minute and try again.");
     } else if (code == 'operation-not-allowed') {
@@ -80,91 +78,125 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       appBar: AppBar(
         title: const Text("Verify your email"),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 12),
 
-            // ✅ Visual cue
-            Icon(
-              Icons.mark_email_unread_outlined,
-              size: 48,
-              color: theme.colorScheme.primary,
-            ),
-
-            const SizedBox(height: 16),
-
-            Text(
-              "Check your inbox",
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+      body: Stack(
+        children: [
+          // ✅ Soft background for desktop polish
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primary.withOpacity(0.15),
+                  theme.colorScheme.surface,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
+          ),
 
-            const SizedBox(height: 8),
-
-            Text(
-              "We’ve sent you a verification email.\n\n"
-              "If you use Outlook or a corporate email, the verification page "
-              "may show an error — that’s expected. After clicking the link, "
-              "return here and tap “I’ve verified my email”.",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.4,
+          ListView(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            children: [
+              // ✅ Instruction section (readable width)
+              CenteredSection(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.mark_email_unread_outlined,
+                      size: 48,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      "Check your inbox",
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "We’ve sent you a verification email.\n\n"
+                      "If you use Outlook or a corporate email, the verification "
+                      "page may show an error — that’s expected. After clicking "
+                      "the link, return here and tap “I’ve verified my email”.",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // ✅ Primary action
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: FilledButton(
-                onPressed: _checking ? null : _checkVerified,
-                child: _checking
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text("I’ve verified my email"),
+              // ✅ Action card (form width)
+              CenteredForm(
+                child: Card(
+                  elevation: 0,
+                  color: theme.colorScheme.surfaceContainerHigh,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton(
+                            onPressed:
+                                _checking ? null : _checkVerified,
+                            child: _checking
+                                ? const SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Text("I’ve verified my email"),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: OutlinedButton(
+                            onPressed:
+                                _resending ? null : _resend,
+                            child: _resending
+                                ? const SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Text("Resend verification email"),
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        TextButton(
+                          onPressed: _backToLogin,
+                          child: const Text("Back to login"),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // ✅ Secondary action
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: OutlinedButton(
-                onPressed: _resending ? null : _resend,
-                child: _resending
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text("Resend verification email"),
-              ),
-            ),
-
-            const Spacer(),
-
-            // ✅ Escape hatch
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: TextButton(
-                onPressed: _backToLogin,
-                child: const Text("Back to login"),
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }

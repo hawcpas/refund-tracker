@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:refund_tracker/widgets/centered_section.dart';
 import '../services/auth_service.dart';
 import '../widgets/centered_form.dart';
+import '../widgets/centered_section.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -19,12 +19,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final AuthService _auth = AuthService();
 
   bool _isLoading = false;
-
-  // visibility toggles
   bool _obscureNew = true;
   bool _obscureConfirm = true;
-
-  // show validation messages only after submit attempt
   bool _submitted = false;
 
   @override
@@ -45,21 +41,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   void _clearSubmitErrorsOnType() {
     if (_submitted) {
-      setState(() {
-        _submitted = false; // hides errors until next submit attempt
-      });
+      setState(() => _submitted = false);
     }
   }
 
   String? _validateNewPassword(String? value) {
-    if (!_submitted) return null; // don't show while typing
+    if (!_submitted) return null;
     final v = (value ?? '').trim();
     if (v.length < 6) return "Password must be at least 6 characters";
     return null;
   }
 
   String? _validateConfirmPassword(String? value) {
-    if (!_submitted) return null; // don't show while typing
+    if (!_submitted) return null;
     final p1 = newPasswordController.text.trim();
     final p2 = (value ?? '').trim();
     if (p2.isEmpty) return "Please re-enter the new password";
@@ -70,13 +64,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   Future<void> _updatePassword() async {
     setState(() => _submitted = true);
 
-    final formOk = _formKey.currentState?.validate() ?? false;
-    if (!formOk) {
+    if (!(_formKey.currentState?.validate() ?? false)) {
       _showSnack("Please fix the highlighted fields.");
       return;
     }
 
-    // ✅ NEW: Check verification first
     final verified = await _auth.isEmailVerified();
     if (!mounted) return;
 
@@ -86,15 +78,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       return;
     }
 
-    final newPassword = newPasswordController.text.trim();
     setState(() => _isLoading = true);
-
+    final code = await _auth.updatePassword(
+      newPasswordController.text.trim(),
+    );
     setState(() => _isLoading = false);
-    if (!mounted) return;
 
-    final code = await _auth.updatePassword(newPassword);
-
-    setState(() => _isLoading = false);
     if (!mounted) return;
 
     if (code == null) {
@@ -118,137 +107,146 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text("Change Password")),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+      body: Stack(
         children: [
-          CenteredSection(
-            child: Text(
-              "Update your password",
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+          // ✅ Consistent background with other auth screens
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primary.withOpacity(0.15),
+                  theme.colorScheme.surface,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
           ),
-          const SizedBox(height: 6),
-          CenteredSection(
-            child: Text(
-              "Choose a strong password that you don’t use elsewhere.",
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
 
-          CenteredForm(
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                  color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+          ListView(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            children: [
+              // ✅ Header block
+              CenteredSection(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Update your password",
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Choose a strong password that you don’t use elsewhere.",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      // NEW PASSWORD
-                      TextFormField(
-                        controller: newPasswordController,
-                        obscureText: _obscureNew,
-                        textInputAction: TextInputAction.next,
-                        keyboardType: TextInputType.visiblePassword,
-                        onChanged: (_) => _clearSubmitErrorsOnType(),
-                        decoration: InputDecoration(
-                          labelText: "New password",
-                          helperText: "Minimum 6 characters",
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            tooltip: _obscureNew
-                                ? "Show password"
-                                : "Hide password",
-                            icon: Icon(
-                              _obscureNew
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                            ),
-                            onPressed: () {
-                              setState(() => _obscureNew = !_obscureNew);
-                            },
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        validator: _validateNewPassword,
-                      ),
 
-                      const SizedBox(height: 14),
+              const SizedBox(height: 20),
 
-                      // CONFIRM PASSWORD
-                      TextFormField(
-                        controller: confirmPasswordController,
-                        obscureText: _obscureConfirm,
-                        textInputAction: TextInputAction.done,
-                        keyboardType: TextInputType.visiblePassword,
-                        onChanged: (_) => _clearSubmitErrorsOnType(),
-                        onFieldSubmitted: (_) =>
-                            _isLoading ? null : _updatePassword(),
-                        decoration: InputDecoration(
-                          labelText: "Confirm new password",
-                          prefixIcon: const Icon(Icons.lock_reset),
-                          suffixIcon: IconButton(
-                            tooltip: _obscureConfirm
-                                ? "Show password"
-                                : "Hide password",
-                            icon: Icon(
-                              _obscureConfirm
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                            ),
-                            onPressed: () {
-                              setState(
-                                () => _obscureConfirm = !_obscureConfirm,
-                              );
-                            },
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        validator: _validateConfirmPassword,
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: _isLoading
-                            ? const Center(child: CircularProgressIndicator())
-                            : FilledButton.icon(
-                                onPressed: _updatePassword,
-                                icon: const Icon(Icons.check_circle_outline),
-                                label: const Text("Update Password"),
+              // ✅ Form card
+              CenteredForm(
+                child: Card(
+                  elevation: 0,
+                  color: theme.colorScheme.surfaceContainerHigh,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        children: [
+                          TextFormField(
+                            controller: newPasswordController,
+                            obscureText: _obscureNew,
+                            onChanged: (_) => _clearSubmitErrorsOnType(),
+                            decoration: InputDecoration(
+                              labelText: "New password",
+                              helperText: "Minimum 6 characters",
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscureNew
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _obscureNew = !_obscureNew),
                               ),
+                            ),
+                            validator: _validateNewPassword,
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          TextFormField(
+                            controller: confirmPasswordController,
+                            obscureText: _obscureConfirm,
+                            onChanged: (_) => _clearSubmitErrorsOnType(),
+                            onFieldSubmitted: (_) =>
+                                _isLoading ? null : _updatePassword(),
+                            decoration: InputDecoration(
+                              labelText: "Confirm new password",
+                              prefixIcon: const Icon(Icons.lock_reset),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscureConfirm
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                onPressed: () => setState(
+                                    () => _obscureConfirm = !_obscureConfirm),
+                              ),
+                            ),
+                            validator: _validateConfirmPassword,
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: _isLoading
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : FilledButton.icon(
+                                    onPressed: _updatePassword,
+                                    icon: const Icon(
+                                        Icons.check_circle_outline),
+                                    label:
+                                        const Text("Update Password"),
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          CenteredSection(
-            child: Text(
-              "Tip: Using a longer password with a mix of letters and numbers improves security.",
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+
+              const SizedBox(height: 14),
+
+              CenteredSection(
+                child: Text(
+                  "Tip: Using a longer password with a mix of letters and numbers improves security.",
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
