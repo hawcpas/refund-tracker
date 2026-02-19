@@ -25,6 +25,62 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
+  Future<void> _forgotPassword() async {
+    final email = emailController.text.trim();
+
+    // If email field is empty, ask for it via dialog input
+    final TextEditingController dialogEmailController = TextEditingController(
+      text: email,
+    );
+
+    final submittedEmail = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Reset password"),
+          content: TextField(
+            controller: dialogEmailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: "Email",
+              hintText: "you@example.com",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(context, dialogEmailController.text.trim()),
+              child: const Text("Send reset link"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (submittedEmail == null || submittedEmail.isEmpty) return;
+
+    setState(() => isLoading = true);
+    final code = await _auth.sendPasswordResetEmail(submittedEmail);
+    setState(() => isLoading = false);
+    if (!mounted) return;
+
+    if (code == null) {
+      _showError("Password reset email sent. Check your inbox.");
+    } else if (code == 'invalid-email') {
+      _showError("Please enter a valid email address.");
+    } else if (code == 'too-many-requests') {
+      _showError("Too many requests. Please wait a minute and try again.");
+    } else {
+      // Note: some platforms/projects may not reveal user-not-found (enumeration protection),
+      // so keep this generic for security.
+      _showError("Could not send reset email ($code).");
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -220,6 +276,21 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
 
                           const SizedBox(height: 30),
+
+                          // FORGOT PASSWORD BUITON
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: isLoading ? null : _forgotPassword,
+                              child: Text(
+                                "Forgot password?",
+                                style: TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
 
                           // LOGIN BUTTON OR LOADING SPINNER
                           SizedBox(
