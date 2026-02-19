@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:refund_tracker/widgets/centered_section.dart';
 import '../services/auth_service.dart';
 import '../widgets/centered_form.dart';
 
@@ -120,17 +121,21 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(
-            "Update your password",
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+          CenteredSection(
+            child: Text(
+              "Update your password",
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            "Choose a strong password that you don’t use elsewhere.",
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          CenteredSection(
+            child: Text(
+              "Choose a strong password that you don’t use elsewhere.",
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           const SizedBox(height: 18),
@@ -237,11 +242,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             ),
           ),
           const SizedBox(height: 14),
-
-          Text(
-            "Tip: Using a longer password with a mix of letters and numbers improves security.",
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+          CenteredSection(
+            child: Text(
+              "Tip: Using a longer password with a mix of letters and numbers improves security.",
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],

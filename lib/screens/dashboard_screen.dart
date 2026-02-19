@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/centered_form.dart';
+import '../widgets/centered_section.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -27,70 +28,75 @@ class DashboardScreen extends StatelessWidget {
           // HEADER (no emoji)
           Text(
             "Welcome back",
+            textAlign: TextAlign.center,
             style: theme.textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            "Manage your refunds and account settings in one place.",
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+
+          CenteredSection(
+            child: Text(
+              "Manage your refunds and account settings in one place.",
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-
           const SizedBox(height: 22),
 
           // PRIMARY ACTION (Refund Status)
-          _PrimaryActionCard(
-            icon: Icons.receipt_long,
-            title: "Check refund status",
-            subtitle: "View current progress and updates",
-            onTap: () {
-              // TODO: Navigate to refund status screen
-            },
+          CenteredSection(
+            child: _PrimaryActionCard(
+              icon: Icons.receipt_long,
+              title: "Check refund status",
+              subtitle: "View current progress and updates",
+              onTap: () {},
+            ),
           ),
 
           const SizedBox(height: 22),
 
           // SECTION: Account
-          Text(
-            "Account",
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+          CenteredSection(
+            child: Text(
+              "Account",
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           const SizedBox(height: 10),
 
-          Card(
-            elevation: 0,
-            color: theme.colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+          CenteredSection(
+            child: Card(
+              elevation: 0,
+              color: theme.colorScheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                ),
               ),
-            ),
-            child: Column(
-              children: [
-                _SettingsRow(
-                  icon: Icons.lock_reset,
-                  title: "Change password",
-                  subtitle: "Update your login credentials",
-                  onTap: () {
-                    Navigator.pushNamed(context, '/change-password');
-                  },
-                ),
-                const Divider(height: 1),
-                _SettingsRow(
-                  icon: Icons.support_agent,
-                  title: "Support",
-                  subtitle: "Contact help or view FAQs",
-                  onTap: () {
-                    // TODO: Support screen
-                  },
-                ),
-              ],
+              child: Column(
+                children: [
+                  _SettingsRow(
+                    icon: Icons.lock_reset,
+                    title: "Change password",
+                    subtitle: "Update your login credentials",
+                    onTap: () {
+                      Navigator.pushNamed(context, '/change-password');
+                    },
+                  ),
+                  const Divider(height: 1),
+                  _SettingsRow(
+                    icon: Icons.support_agent,
+                    title: "Support",
+                    subtitle: "Contact help or view FAQs",
+                    onTap: () {},
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -121,14 +127,6 @@ class DashboardScreen extends StatelessWidget {
           ),
 
           const SizedBox(height: 10),
-
-          // Optional subtle note or version text
-          Text(
-            "You can change your password any time from Account settings.",
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
         ],
       ),
     );
@@ -178,6 +176,21 @@ class _PrimaryActionCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
+
+      // ✅ Adds hover/press/focus highlight on desktop/web
+      overlayColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.pressed)) {
+          return Colors.white.withOpacity(0.14);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return Colors.white.withOpacity(0.10);
+        }
+        if (states.contains(WidgetState.focused)) {
+          return Colors.white.withOpacity(0.12);
+        }
+        return null;
+      }),
+
       child: Ink(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
@@ -258,6 +271,7 @@ class _SettingsRow extends StatelessWidget {
 
     return ListTile(
       onTap: onTap,
+      hoverColor: theme.colorScheme.primary.withOpacity(0.06),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
         height: 44,
