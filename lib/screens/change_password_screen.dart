@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/centered_form.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -92,20 +93,22 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
     final code = await _auth.updatePassword(newPassword);
 
-setState(() => _isLoading = false);
-if (!mounted) return;
+    setState(() => _isLoading = false);
+    if (!mounted) return;
 
-if (code == null) {
-  _showSnack("Password updated successfully", success: true);
-  Navigator.pop(context);
-} else if (code == 'requires-recent-login') {
-  _showSnack("For security, please log in again and then change your password.");
-  await _auth.logout();
-  if (!mounted) return;
-  Navigator.pushReplacementNamed(context, '/login');
-} else {
-  _showSnack("Failed to update password ($code)");
-}
+    if (code == null) {
+      _showSnack("Password updated successfully", success: true);
+      Navigator.pop(context);
+    } else if (code == 'requires-recent-login') {
+      _showSnack(
+        "For security, please log in again and then change your password.",
+      );
+      await _auth.logout();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/login');
+    } else {
+      _showSnack("Failed to update password ($code)");
+    }
   }
 
   @override
@@ -132,104 +135,107 @@ if (code == null) {
           ),
           const SizedBox(height: 18),
 
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+          CenteredForm(
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                ),
               ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    // NEW PASSWORD
-                    TextFormField(
-                      controller: newPasswordController,
-                      obscureText: _obscureNew,
-                      textInputAction: TextInputAction.next,
-                      keyboardType: TextInputType.visiblePassword,
-                      onChanged: (_) => _clearSubmitErrorsOnType(),
-                      decoration: InputDecoration(
-                        labelText: "New password",
-                        helperText: "Minimum 6 characters",
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          tooltip: _obscureNew
-                              ? "Show password"
-                              : "Hide password",
-                          icon: Icon(
-                            _obscureNew
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                          ),
-                          onPressed: () {
-                            setState(() => _obscureNew = !_obscureNew);
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      validator: _validateNewPassword,
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // CONFIRM PASSWORD
-                    TextFormField(
-                      controller: confirmPasswordController,
-                      obscureText: _obscureConfirm,
-                      textInputAction: TextInputAction.done,
-                      keyboardType: TextInputType.visiblePassword,
-                      onChanged: (_) => _clearSubmitErrorsOnType(),
-                      onFieldSubmitted: (_) =>
-                          _isLoading ? null : _updatePassword(),
-                      decoration: InputDecoration(
-                        labelText: "Confirm new password",
-                        prefixIcon: const Icon(Icons.lock_reset),
-                        suffixIcon: IconButton(
-                          tooltip: _obscureConfirm
-                              ? "Show password"
-                              : "Hide password",
-                          icon: Icon(
-                            _obscureConfirm
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                          ),
-                          onPressed: () {
-                            setState(() => _obscureConfirm = !_obscureConfirm);
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      validator: _validateConfirmPassword,
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: _isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : FilledButton.icon(
-                              onPressed: _updatePassword,
-                              icon: const Icon(Icons.check_circle_outline),
-                              label: const Text("Update Password"),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      // NEW PASSWORD
+                      TextFormField(
+                        controller: newPasswordController,
+                        obscureText: _obscureNew,
+                        textInputAction: TextInputAction.next,
+                        keyboardType: TextInputType.visiblePassword,
+                        onChanged: (_) => _clearSubmitErrorsOnType(),
+                        decoration: InputDecoration(
+                          labelText: "New password",
+                          helperText: "Minimum 6 characters",
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            tooltip: _obscureNew
+                                ? "Show password"
+                                : "Hide password",
+                            icon: Icon(
+                              _obscureNew
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
                             ),
-                    ),
-                  ],
+                            onPressed: () {
+                              setState(() => _obscureNew = !_obscureNew);
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        validator: _validateNewPassword,
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // CONFIRM PASSWORD
+                      TextFormField(
+                        controller: confirmPasswordController,
+                        obscureText: _obscureConfirm,
+                        textInputAction: TextInputAction.done,
+                        keyboardType: TextInputType.visiblePassword,
+                        onChanged: (_) => _clearSubmitErrorsOnType(),
+                        onFieldSubmitted: (_) =>
+                            _isLoading ? null : _updatePassword(),
+                        decoration: InputDecoration(
+                          labelText: "Confirm new password",
+                          prefixIcon: const Icon(Icons.lock_reset),
+                          suffixIcon: IconButton(
+                            tooltip: _obscureConfirm
+                                ? "Show password"
+                                : "Hide password",
+                            icon: Icon(
+                              _obscureConfirm
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(
+                                () => _obscureConfirm = !_obscureConfirm,
+                              );
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        validator: _validateConfirmPassword,
+                      ),
+
+                      const SizedBox(height: 18),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: _isLoading
+                            ? const Center(child: CircularProgressIndicator())
+                            : FilledButton.icon(
+                                onPressed: _updatePassword,
+                                icon: const Icon(Icons.check_circle_outline),
+                                label: const Text("Update Password"),
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-
           const SizedBox(height: 14),
 
           Text(

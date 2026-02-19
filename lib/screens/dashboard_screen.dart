@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/centered_form.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -95,14 +96,27 @@ class DashboardScreen extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // LOGOUT (Better placement + full-width)
-          FilledButton.icon(
-            onPressed: () => _confirmLogout(context),
-            icon: const Icon(Icons.logout),
-            label: const Text("Logout"),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          CenteredForm(
+            child: Column(
+              children: [
+                FilledButton.icon(
+                  onPressed: () => _confirmLogout(context),
+                  icon: const Icon(Icons.logout),
+                  label: const Text("Logout"),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "You can change your password any time from Account settings.",
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -181,7 +195,7 @@ class _PrimaryActionCard extends StatelessWidget {
               color: Colors.black.withOpacity(0.08),
               blurRadius: 16,
               offset: const Offset(0, 10),
-            )
+            ),
           ],
         ),
         child: Row(

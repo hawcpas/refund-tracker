@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import '../widgets/centered_form.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -205,163 +206,175 @@ class _SignupScreenState extends State<SignupScreen>
                 opacity: _fadeAnimation,
                 child: SlideTransition(
                   position: _slideAnimation,
-                  child: Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        children: [
-                          Text(
-                            "Sign Up",
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-
-                          const SizedBox(height: 30),
-
-                          // EMAIL FIELD
-                          TextField(
-                            controller: emailController,
-                            focusNode: emailFocusNode,
-                            textInputAction: TextInputAction.next,
-                            onSubmitted: (_) {
-                              FocusScope.of(
-                                context,
-                              ).requestFocus(passwordFocusNode);
-                            },
-                            decoration: InputDecoration(
-                              labelText: "Email",
-                              filled: true,
-                              fillColor: Colors.grey.shade100,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // PASSWORD FIELD
-                          TextField(
-                            controller: passwordController,
-                            focusNode: passwordFocusNode,
-                            obscureText: obscurePassword,
-                            textInputAction: TextInputAction.next,
-                            onChanged: (_) => _clearPasswordMismatchUIOnType(),
-                            onSubmitted: (_) {
-                              FocusScope.of(
-                                context,
-                              ).requestFocus(confirmPasswordFocusNode);
-                            },
-                            decoration: InputDecoration(
-                              labelText: "Password",
-                              filled: true,
-                              fillColor: Colors.grey.shade100,
-                              errorText: passwordErrorText,
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.red),
-                              ),
-                              focusedErrorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.red),
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    obscurePassword = !obscurePassword;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // CONFIRM PASSWORD FIELD
-                          TextField(
-                            controller: confirmPasswordController,
-                            focusNode: confirmPasswordFocusNode,
-                            obscureText: obscureConfirmPassword,
-                            textInputAction: TextInputAction.done,
-                            onChanged: (_) => _clearPasswordMismatchUIOnType(),
-                            onSubmitted: (_) => _signup(),
-                            decoration: InputDecoration(
-                              labelText: "Re-enter Password",
-                              filled: true,
-                              fillColor: Colors.grey.shade100,
-                              errorText: passwordErrorText,
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.red),
-                              ),
-                              focusedErrorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.red),
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscureConfirmPassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    obscureConfirmPassword =
-                                        !obscureConfirmPassword;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 30),
-
-                          // SIGNUP BUTTON OR LOADING
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: isLoading
-                                ? const Center(
-                                    child: CircularProgressIndicator(),
-                                  )
-                                : FilledButton(
-                                    onPressed: _signup,
-                                    child: const Text("Create Account"),
-                                  ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            child: Text(
-                              "Already have an account? Login",
-                              style: TextStyle(
+                  child: CenteredForm(
+                    child: Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          children: [
+                            Text(
+                              "Sign Up",
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
                                 color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ),
-                        ],
+
+                            const SizedBox(height: 30),
+
+                            // EMAIL FIELD
+                            TextField(
+                              controller: emailController,
+                              focusNode: emailFocusNode,
+                              textInputAction: TextInputAction.next,
+                              onSubmitted: (_) {
+                                FocusScope.of(
+                                  context,
+                                ).requestFocus(passwordFocusNode);
+                              },
+                              decoration: InputDecoration(
+                                labelText: "Email",
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // PASSWORD FIELD
+                            TextField(
+                              controller: passwordController,
+                              focusNode: passwordFocusNode,
+                              obscureText: obscurePassword,
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) =>
+                                  _clearPasswordMismatchUIOnType(),
+                              onSubmitted: (_) {
+                                FocusScope.of(
+                                  context,
+                                ).requestFocus(confirmPasswordFocusNode);
+                              },
+                              decoration: InputDecoration(
+                                labelText: "Password",
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                errorText: passwordErrorText,
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                focusedErrorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      obscurePassword = !obscurePassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // CONFIRM PASSWORD FIELD
+                            TextField(
+                              controller: confirmPasswordController,
+                              focusNode: confirmPasswordFocusNode,
+                              obscureText: obscureConfirmPassword,
+                              textInputAction: TextInputAction.done,
+                              onChanged: (_) =>
+                                  _clearPasswordMismatchUIOnType(),
+                              onSubmitted: (_) => _signup(),
+                              decoration: InputDecoration(
+                                labelText: "Re-enter Password",
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                errorText: passwordErrorText,
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                focusedErrorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.red,
+                                  ),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    obscureConfirmPassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      obscureConfirmPassword =
+                                          !obscureConfirmPassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 30),
+
+                            // SIGNUP BUTTON OR LOADING
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: isLoading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : FilledButton(
+                                      onPressed: _signup,
+                                      child: const Text("Create Account"),
+                                    ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                              },
+                              child: Text(
+                                "Already have an account? Login",
+                                style: TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

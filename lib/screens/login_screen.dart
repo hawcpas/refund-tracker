@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../widgets/centered_form.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -205,122 +206,124 @@ class _LoginScreenState extends State<LoginScreen>
                 opacity: _fadeAnimation,
                 child: SlideTransition(
                   position: _slideAnimation,
-                  child: Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        children: [
-                          Text(
-                            "Login",
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-
-                          const SizedBox(height: 30),
-
-                          // EMAIL FIELD
-                          TextField(
-                            controller: emailController,
-                            focusNode: emailFocusNode,
-                            textInputAction: TextInputAction.next,
-                            onSubmitted: (_) {
-                              FocusScope.of(
-                                context,
-                              ).requestFocus(passwordFocusNode);
-                            },
-                            decoration: InputDecoration(
-                              labelText: "Email",
-                              filled: true,
-                              fillColor: Colors.grey.shade100,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
+                  child: CenteredForm(
+                    child: Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          children: [
+                            Text(
+                              "Login",
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.primary,
                               ),
                             ),
-                          ),
 
-                          const SizedBox(height: 20),
+                            const SizedBox(height: 30),
 
-                          // PASSWORD FIELD WITH TOGGLE
-                          TextField(
-                            controller: passwordController,
-                            focusNode: passwordFocusNode,
-                            obscureText: obscurePassword,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => _login(),
-                            decoration: InputDecoration(
-                              labelText: "Password",
-                              filled: true,
-                              fillColor: Colors.grey.shade100,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
+                            // EMAIL FIELD
+                            TextField(
+                              controller: emailController,
+                              focusNode: emailFocusNode,
+                              textInputAction: TextInputAction.next,
+                              onSubmitted: (_) {
+                                FocusScope.of(
+                                  context,
+                                ).requestFocus(passwordFocusNode);
+                              },
+                              decoration: InputDecoration(
+                                labelText: "Email",
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                                onPressed: () {
-                                  setState(() {
-                                    obscurePassword = !obscurePassword;
-                                  });
-                                },
                               ),
                             ),
-                          ),
 
-                          const SizedBox(height: 30),
+                            const SizedBox(height: 20),
 
-                          // FORGOT PASSWORD BUITON
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: isLoading ? null : _forgotPassword,
+                            // PASSWORD FIELD WITH TOGGLE
+                            TextField(
+                              controller: passwordController,
+                              focusNode: passwordFocusNode,
+                              obscureText: obscurePassword,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _login(),
+                              decoration: InputDecoration(
+                                labelText: "Password",
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      obscurePassword = !obscurePassword;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 30),
+
+                            // FORGOT PASSWORD BUITON
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: isLoading ? null : _forgotPassword,
+                                child: Text(
+                                  "Forgot password?",
+                                  style: TextStyle(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // LOGIN BUTTON OR LOADING SPINNER
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: isLoading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : FilledButton(
+                                      onPressed: _login,
+                                      child: const Text("Login"),
+                                    ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pushNamed(context, '/signup');
+                              },
                               child: Text(
-                                "Forgot password?",
+                                "Create a new account",
                                 style: TextStyle(
                                   color: theme.colorScheme.primary,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
-                          ),
-
-                          // LOGIN BUTTON OR LOADING SPINNER
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: isLoading
-                                ? const Center(
-                                    child: CircularProgressIndicator(),
-                                  )
-                                : FilledButton(
-                                    onPressed: _login,
-                                    child: const Text("Login"),
-                                  ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pushNamed(context, '/signup');
-                            },
-                            child: Text(
-                              "Create a new account",
-                              style: TextStyle(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
