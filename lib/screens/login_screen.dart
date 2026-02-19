@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -51,6 +52,16 @@ class _LoginScreenState extends State<LoginScreen>
     );
 
     _animationController.forward();
+    _loadSavedEmail();
+  }
+
+  Future<void> _loadSavedEmail() async {
+    final savedEmail = await LocalAuthPrefs.getSavedEmail();
+    if (savedEmail != null && mounted) {
+      setState(() {
+        emailController.text = savedEmail;
+      });
+    }
   }
 
   @override
@@ -73,53 +84,8 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  Future<void> _forgotPassword() async {
-    final dialogEmailController = TextEditingController(
-      text: emailController.text.trim(),
-    );
-
-    final submittedEmail = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Reset password"),
-        content: TextField(
-          controller: dialogEmailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: "Email",
-            hintText: "you@example.com",
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(context, dialogEmailController.text.trim()),
-            child: const Text("Send reset link"),
-          ),
-        ],
-      ),
-    );
-
-    if (submittedEmail == null || submittedEmail.isEmpty) return;
-
-    setState(() => isLoading = true);
-    final code = await _auth.sendPasswordResetEmail(submittedEmail);
-    setState(() => isLoading = false);
-    if (!mounted) return;
-
-    if (code == null) {
-      _showSnack("Password reset email sent. Check your inbox.");
-    } else {
-      _showSnack("Could not send reset email ($code).");
-    }
-  }
-
   void _login() async {
-    // Clear old errors before validating
+    // Clear old errors
     setState(() {
       _emailError = null;
       _passwordError = null;
@@ -129,7 +95,6 @@ class _LoginScreenState extends State<LoginScreen>
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
 
-    // ✅ Inline field validation
     bool ok = true;
     if (email.isEmpty || !email.contains("@")) {
       _emailError = "Enter a valid email address.";
@@ -141,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     if (!ok) {
-      setState(() {}); // paint errors
+      setState(() {});
       return;
     }
 
@@ -151,14 +116,15 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (!mounted) return;
 
-    // ✅ Professional auth error (wrong credentials)
     if (user == null) {
       setState(() {
-        // Highlight BOTH fields red; show message under password field.
         _authError = "The email or password you entered is incorrect.";
       });
       return;
     }
+
+    // ✅ Save email AFTER successful login
+    await LocalAuthPrefs.saveEmail(email);
 
     final verified = await _auth.isEmailVerified();
     if (!mounted) return;
@@ -169,22 +135,14 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    // If auth fails, we want both fields to show an error border.
     final bool showAuthError = _authError != null;
 
     return Scaffold(
       body: Stack(
         children: [
-          // ✅ Same background language as other screens
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -197,11 +155,9 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ),
           ),
-
           ListView(
             padding: const EdgeInsets.symmetric(vertical: 40),
             children: [
-              // ✅ Brand header
               CenteredForm(
                 child: Column(
                   children: [
@@ -214,10 +170,8 @@ class _LoginScreenState extends State<LoginScreen>
                   ],
                 ),
               ),
-
               const SizedBox(height: 24),
 
-              // ✅ Login card
               FadeTransition(
                 opacity: _fadeAnimation,
                 child: SlideTransition(
@@ -243,10 +197,8 @@ class _LoginScreenState extends State<LoginScreen>
                                 color: theme.colorScheme.primary,
                               ),
                             ),
-
                             const SizedBox(height: 24),
 
-                            // ✅ EMAIL FIELD (red outline on validation OR auth failure)
                             TextField(
                               controller: emailController,
                               focusNode: emailFocusNode,
@@ -257,16 +209,12 @@ class _LoginScreenState extends State<LoginScreen>
                               decoration: InputDecoration(
                                 labelText: "Email",
                                 prefixIcon: const Icon(Icons.mail_outline),
-                                // If auth failed, show border without noisy text.
                                 errorText: _emailError ?? (showAuthError ? " " : null),
-                                // Keep the placeholder error from taking space.
                                 errorStyle: const TextStyle(height: 0.1, fontSize: 0.1),
                               ),
                             ),
-
                             const SizedBox(height: 16),
 
-                            // ✅ PASSWORD FIELD (shows message on validation OR auth failure)
                             TextField(
                               controller: passwordController,
                               focusNode: passwordFocusNode,
@@ -283,20 +231,20 @@ class _LoginScreenState extends State<LoginScreen>
                                         : Icons.visibility,
                                   ),
                                   onPressed: () => setState(
-                                    () => obscurePassword = !obscurePassword,
-                                  ),
+                                      () => obscurePassword = !obscurePassword),
                                 ),
-                                // Prefer specific field validation, otherwise auth error.
                                 errorText: _passwordError ?? _authError,
                               ),
                             ),
-
                             const SizedBox(height: 20),
 
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
-                                onPressed: isLoading ? null : _forgotPassword,
+                                onPressed: () => Navigator.pushNamed(
+                                  context,
+                                  '/forgot-password',
+                                ),
                                 child: Text(
                                   "Forgot password?",
                                   style: TextStyle(
@@ -319,11 +267,11 @@ class _LoginScreenState extends State<LoginScreen>
                                       child: const Text("Login"),
                                     ),
                             ),
-
                             const SizedBox(height: 16),
 
                             TextButton(
-                              onPressed: () => Navigator.pushNamed(context, '/signup'),
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/signup'),
                               child: Text(
                                 "Create a new account",
                                 style: TextStyle(
@@ -342,7 +290,6 @@ class _LoginScreenState extends State<LoginScreen>
 
               const SizedBox(height: 48),
 
-              // ✅ Footer
               CenteredForm(
                 child: Column(
                   children: [
@@ -356,7 +303,7 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "Professional accounting and advisory services.\nAll rights reserved.",
+                      "Professional Accounting and Advisory Services.\nAll rights reserved.",
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant.withOpacity(0.85),

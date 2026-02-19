@@ -7,6 +7,7 @@ import 'screens/dashboard_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/verify_email_screen.dart';
+import 'screens/forgot_password_screen.dart';
 
 
 const kNavyBlue = Color(0xFF003C9D);
@@ -78,6 +79,7 @@ class MyApp extends StatelessWidget {
         '/signup': (context) => const SignupScreen(),
         '/change-password': (context) => const ChangePasswordScreen(),
         '/verify-email': (context) => const VerifyEmailScreen(),
+        '/forgot-password': (_) => const ForgotPasswordScreen(),
       },
     );
   }
