@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/centered_form.dart';
 import '../widgets/centered_section.dart';
+
+enum VerifyStatus { idle, checking, notVerified, verified, error, resent }
 
 class VerifyEmailScreen extends StatefulWidget {
   const VerifyEmailScreen({super.key});
@@ -13,54 +16,122 @@ class VerifyEmailScreen extends StatefulWidget {
 class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   final AuthService _auth = AuthService();
 
+  VerifyStatus _status = VerifyStatus.idle;
+  String? _message;
+
   bool _checking = false;
   bool _resending = false;
 
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+  // ✅ Resend cooldown
+  static const int _cooldownTotalSeconds = 60;
+  int _resendCooldownSeconds = 0;
+  Timer? _resendTimer;
+
+  @override
+  void dispose() {
+    _resendTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startResendCooldown() {
+    _resendTimer?.cancel();
+    setState(() => _resendCooldownSeconds = _cooldownTotalSeconds);
+
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_resendCooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() => _resendCooldownSeconds = 0);
+      } else {
+        setState(() => _resendCooldownSeconds--);
+      }
+    });
+  }
+
+  void _setStatus(VerifyStatus status, [String? message]) {
+    setState(() {
+      _status = status;
+      _message = message;
+    });
   }
 
   Future<void> _checkVerified() async {
-    setState(() => _checking = true);
+    setState(() {
+      _checking = true;
+      _status = VerifyStatus.checking;
+      _message = null;
+    });
 
     final verified = await _auth.isEmailVerified();
+    if (!mounted) return;
 
     setState(() => _checking = false);
 
-    if (!mounted) return;
-
     if (verified) {
-      _snack("Email verified. Welcome!");
+      _setStatus(
+        VerifyStatus.verified,
+        "Your email has been verified successfully.",
+      );
+
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/dashboard');
     } else {
-      _snack(
-        "Not verified yet. Please open the most recent email and try again.",
+      _setStatus(
+        VerifyStatus.notVerified,
+        "We haven’t detected a verified email yet. "
+        "Please open the most recent verification email and try again.",
       );
     }
   }
 
   Future<void> _resend() async {
-    setState(() => _resending = true);
+    if (_resendCooldownSeconds > 0) return;
+
+    setState(() {
+      _resending = true;
+      _message = null;
+    });
 
     final code = await _auth.resendEmailVerification();
-
     if (!mounted) return;
+
     setState(() => _resending = false);
 
     if (code == null) {
-      _snack("Verification email sent. Please use the most recent email.");
+      _setStatus(
+        VerifyStatus.resent,
+        "A new verification email has been sent. "
+        "Please check your inbox and spam folder.",
+      );
+      _startResendCooldown();
     } else if (code == 'too-many-requests') {
-      _snack("Too many requests. Please wait a minute and try again.");
-    } else if (code == 'operation-not-allowed') {
-      _snack("Email/Password sign-in is not enabled in Firebase Console.");
+      _setStatus(
+        VerifyStatus.error,
+        "Too many requests. Please wait before trying again.",
+      );
     } else if (code == 'network-request-failed') {
-      _snack("Network error. Check your internet connection.");
+      _setStatus(
+        VerifyStatus.error,
+        "Network error. Please check your internet connection.",
+      );
     } else if (code == 'no-current-user') {
-      _snack("Session expired. Please log in again.");
+      _setStatus(
+        VerifyStatus.error,
+        "Your session has expired. Please log in again.",
+      );
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/login');
     } else {
-      _snack("Could not resend email ($code).");
+      _setStatus(
+        VerifyStatus.error,
+        "We couldn’t resend the verification email. Please try again.",
+      );
     }
   }
 
@@ -74,14 +145,41 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Verify your email"),
-      ),
+    Color? bannerColor;
+    Color? bannerTextColor;
+    IconData? bannerIcon;
 
+    switch (_status) {
+      case VerifyStatus.notVerified:
+        bannerColor = theme.colorScheme.surfaceVariant;
+        bannerTextColor = theme.colorScheme.onSurfaceVariant;
+        bannerIcon = Icons.info_outline;
+        break;
+      case VerifyStatus.verified:
+        bannerColor = theme.colorScheme.primaryContainer;
+        bannerTextColor = theme.colorScheme.onPrimaryContainer;
+        bannerIcon = Icons.check_circle_outline;
+        break;
+      case VerifyStatus.resent:
+        bannerColor = theme.colorScheme.primaryContainer;
+        bannerTextColor = theme.colorScheme.onPrimaryContainer;
+        bannerIcon = Icons.mark_email_read_outlined;
+        break;
+      case VerifyStatus.error:
+        bannerColor = theme.colorScheme.errorContainer;
+        bannerTextColor = theme.colorScheme.onErrorContainer;
+        bannerIcon = Icons.error_outline;
+        break;
+      default:
+        bannerColor = null;
+        bannerTextColor = null;
+        bannerIcon = null;
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Verify your email")),
       body: Stack(
         children: [
-          // ✅ Soft background for desktop polish
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -98,29 +196,22 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
           ListView(
             padding: const EdgeInsets.symmetric(vertical: 40),
             children: [
-              // ✅ Instruction section (readable width)
               CenteredSection(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.mark_email_unread_outlined,
-                      size: 48,
-                      color: theme.colorScheme.primary,
-                    ),
+                    Icon(Icons.mark_email_unread_outlined,
+                        size: 48, color: theme.colorScheme.primary),
                     const SizedBox(height: 16),
-                    Text(
-                      "Check your inbox",
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    Text("Check your inbox",
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        )),
                     const SizedBox(height: 8),
                     Text(
                       "We’ve sent you a verification email.\n\n"
-                      "If you use Outlook or a corporate email, the verification "
-                      "page may show an error — that’s expected. After clicking "
-                      "the link, return here and tap “I’ve verified my email”.",
+                      "After clicking the link, return here and tap "
+                      "“I’ve verified my email”.",
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                         height: 1.4,
@@ -132,7 +223,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
               const SizedBox(height: 24),
 
-              // ✅ Action card (form width)
               CenteredForm(
                 child: Card(
                   elevation: 0,
@@ -147,12 +237,40 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        if (_message != null && bannerColor != null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: bannerColor,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(bannerIcon,
+                                    size: 20, color: bannerTextColor),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _message!,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: bannerTextColor,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
                         SizedBox(
                           width: double.infinity,
                           height: 52,
                           child: FilledButton(
-                            onPressed:
-                                _checking ? null : _checkVerified,
+                            onPressed: _checking ? null : _checkVerified,
                             child: _checking
                                 ? const SizedBox(
                                     height: 18,
@@ -170,8 +288,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                           width: double.infinity,
                           height: 52,
                           child: OutlinedButton(
-                            onPressed:
-                                _resending ? null : _resend,
+                            onPressed: (_resending || _resendCooldownSeconds > 0)
+                                ? null
+                                : _resend,
                             child: _resending
                                 ? const SizedBox(
                                     height: 18,
@@ -182,6 +301,17 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                                 : const Text("Resend verification email"),
                           ),
                         ),
+
+                        if (_resendCooldownSeconds > 0) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            "You can resend another email in "
+                            "${_resendCooldownSeconds}s",
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
 
                         const SizedBox(height: 16),
 

@@ -1,6 +1,17 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+/// Simple result wrapper so UI can show professional error messages.
+class AuthResult<T> {
+  final T? data;
+  final String? code; // FirebaseAuthException.code
+  final String? message;
+
+  const AuthResult({this.data, this.code, this.message});
+
+  bool get isSuccess => code == null;
+}
+
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -58,7 +69,6 @@ class AuthService {
       final refreshedUser = _auth.currentUser;
 
       // If not verified, keep user signed in
-      // UI will redirect to /verify-email
       if (refreshedUser != null && !refreshedUser.emailVerified) {
         return refreshedUser;
       }
@@ -80,9 +90,11 @@ class AuthService {
     }
   }
 
-  // SIGNUP (Email/Password)
-  // Key change: send verification email after creating the account.
-  Future<User?> signup(String email, String password) async {
+  /// ✅ NEW: SIGNUP with explicit error code support for UI
+  /// Returns AuthResult<User> where:
+  /// - result.data is the created user (on success)
+  /// - result.code is FirebaseAuthException.code (on failure)
+  Future<AuthResult<User>> signupDetailed(String email, String password) async {
     try {
       final result = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -90,20 +102,34 @@ class AuthService {
       );
 
       final user = result.user;
-      if (user == null) return null;
+      if (user == null) {
+        return const AuthResult<User>(
+          data: null,
+          code: 'no-user',
+          message: 'Account was created but no user was returned.',
+        );
+      }
 
-      // ✅ Send verification email
+      // Send verification email
       await user.sendEmailVerification();
 
-      return user;
+      return AuthResult<User>(data: user);
+    } on FirebaseAuthException catch (e) {
+      print("SIGNUP ERROR: ${e.code} - ${e.message}");
+      return AuthResult<User>(data: null, code: e.code, message: e.message);
     } catch (e) {
-      print("SIGNUP ERROR: $e");
-      return null;
+      print("SIGNUP ERROR (unknown): $e");
+      return const AuthResult<User>(data: null, code: 'unknown-error');
     }
   }
 
+  /// ✅ Keep old signature for compatibility (calls signupDetailed internally)
+  Future<User?> signup(String email, String password) async {
+    final result = await signupDetailed(email, password);
+    return result.data;
+  }
+
   // RESEND VERIFICATION EMAIL
-  // Returns null on success, otherwise returns the FirebaseAuthException code.
   Future<String?> resendEmailVerification() async {
     try {
       final user = _auth.currentUser;
@@ -112,8 +138,6 @@ class AuthService {
       await user.sendEmailVerification();
       return null; // success
     } on FirebaseAuthException catch (e) {
-      // Common codes include: too-many-requests, operation-not-allowed,
-      // network-request-failed, invalid-email, etc.
       print("RESEND VERIFICATION ERROR: ${e.code} - ${e.message}");
       return e.code;
     } catch (e) {
@@ -122,7 +146,7 @@ class AuthService {
     }
   }
 
-  // CHECK VERIFICATION STATUS (use on a "I've verified" / "Refresh" button)
+  // CHECK VERIFICATION STATUS
   Future<bool> isEmailVerified() async {
     final user = _auth.currentUser;
     if (user == null) return false;
@@ -139,7 +163,7 @@ class AuthService {
 
       await user.updatePassword(newPassword);
       await user.reload();
-      return null; // success
+      return null;
     } on FirebaseAuthException catch (e) {
       print("UPDATE PASSWORD ERROR: ${e.code} - ${e.message}");
       return e.code;

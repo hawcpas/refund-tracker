@@ -22,6 +22,11 @@ class _LoginScreenState extends State<LoginScreen>
   bool isLoading = false;
   bool obscurePassword = true;
 
+  // ✅ Inline validation + auth error state
+  String? _emailError;
+  String? _passwordError;
+  String? _authError;
+
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -42,8 +47,8 @@ class _LoginScreenState extends State<LoginScreen>
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-        );
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
 
     _animationController.forward();
   }
@@ -56,6 +61,16 @@ class _LoginScreenState extends State<LoginScreen>
     passwordFocusNode.dispose();
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _clearInlineErrors() {
+    if (_emailError != null || _passwordError != null || _authError != null) {
+      setState(() {
+        _emailError = null;
+        _passwordError = null;
+        _authError = null;
+      });
+    }
   }
 
   Future<void> _forgotPassword() async {
@@ -97,22 +112,36 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (code == null) {
-      _showError("Password reset email sent. Check your inbox.");
+      _showSnack("Password reset email sent. Check your inbox.");
     } else {
-      _showError("Could not send reset email ($code).");
+      _showSnack("Could not send reset email ($code).");
     }
   }
 
   void _login() async {
+    // Clear old errors before validating
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+      _authError = null;
+    });
+
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
 
-    if (!email.contains("@")) {
-      _showError("Please enter a valid email");
-      return;
+    // ✅ Inline field validation
+    bool ok = true;
+    if (email.isEmpty || !email.contains("@")) {
+      _emailError = "Enter a valid email address.";
+      ok = false;
     }
-    if (password.length < 6) {
-      _showError("Password must be at least 6 characters");
+    if (password.isEmpty || password.length < 6) {
+      _passwordError = "Password must be at least 6 characters.";
+      ok = false;
+    }
+
+    if (!ok) {
+      setState(() {}); // paint errors
       return;
     }
 
@@ -120,8 +149,14 @@ class _LoginScreenState extends State<LoginScreen>
     final user = await _auth.login(email, password);
     setState(() => isLoading = false);
 
+    if (!mounted) return;
+
+    // ✅ Professional auth error (wrong credentials)
     if (user == null) {
-      _showError("Invalid email or password");
+      setState(() {
+        // Highlight BOTH fields red; show message under password field.
+        _authError = "The email or password you entered is incorrect.";
+      });
       return;
     }
 
@@ -134,15 +169,17 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // If auth fails, we want both fields to show an error border.
+    final bool showAuthError = _authError != null;
 
     return Scaffold(
       body: Stack(
@@ -169,19 +206,11 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Column(
                   children: [
                     ImageIcon(
-                      const AssetImage(
-                        'assets/icons/aa_logo_imageicon_256.png',
-                      ),
+                      const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
                       size: 128,
                       color: theme.colorScheme.primary,
                     ),
                     const SizedBox(height: 12),
-                    // Text(
-                    //   "Axume & Associates CPAs, AAC",
-                    //   style: theme.textTheme.headlineSmall?.copyWith(
-                    //     fontWeight: FontWeight.w800,
-                    //   ),
-                    // ),
                   ],
                 ),
               ),
@@ -200,9 +229,7 @@ class _LoginScreenState extends State<LoginScreen>
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
                         side: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withOpacity(
-                            0.7,
-                          ),
+                          color: theme.colorScheme.outlineVariant.withOpacity(0.7),
                         ),
                       ),
                       child: Padding(
@@ -219,25 +246,32 @@ class _LoginScreenState extends State<LoginScreen>
 
                             const SizedBox(height: 24),
 
+                            // ✅ EMAIL FIELD (red outline on validation OR auth failure)
                             TextField(
                               controller: emailController,
                               focusNode: emailFocusNode,
                               textInputAction: TextInputAction.next,
-                              onSubmitted: (_) => FocusScope.of(
-                                context,
-                              ).requestFocus(passwordFocusNode),
-                              decoration: const InputDecoration(
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: (_) => FocusScope.of(context)
+                                  .requestFocus(passwordFocusNode),
+                              decoration: InputDecoration(
                                 labelText: "Email",
-                                prefixIcon: Icon(Icons.mail_outline),
+                                prefixIcon: const Icon(Icons.mail_outline),
+                                // If auth failed, show border without noisy text.
+                                errorText: _emailError ?? (showAuthError ? " " : null),
+                                // Keep the placeholder error from taking space.
+                                errorStyle: const TextStyle(height: 0.1, fontSize: 0.1),
                               ),
                             ),
 
                             const SizedBox(height: 16),
 
+                            // ✅ PASSWORD FIELD (shows message on validation OR auth failure)
                             TextField(
                               controller: passwordController,
                               focusNode: passwordFocusNode,
                               obscureText: obscurePassword,
+                              onChanged: (_) => _clearInlineErrors(),
                               onSubmitted: (_) => _login(),
                               decoration: InputDecoration(
                                 labelText: "Password",
@@ -252,6 +286,8 @@ class _LoginScreenState extends State<LoginScreen>
                                     () => obscurePassword = !obscurePassword,
                                   ),
                                 ),
+                                // Prefer specific field validation, otherwise auth error.
+                                errorText: _passwordError ?? _authError,
                               ),
                             ),
 
@@ -277,9 +313,7 @@ class _LoginScreenState extends State<LoginScreen>
                               width: double.infinity,
                               height: 52,
                               child: isLoading
-                                  ? const Center(
-                                      child: CircularProgressIndicator(),
-                                    )
+                                  ? const Center(child: CircularProgressIndicator())
                                   : FilledButton(
                                       onPressed: _login,
                                       child: const Text("Login"),
@@ -289,8 +323,7 @@ class _LoginScreenState extends State<LoginScreen>
                             const SizedBox(height: 16),
 
                             TextButton(
-                              onPressed: () =>
-                                  Navigator.pushNamed(context, '/signup'),
+                              onPressed: () => Navigator.pushNamed(context, '/signup'),
                               child: Text(
                                 "Create a new account",
                                 style: TextStyle(
@@ -306,8 +339,10 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
               ),
+
               const SizedBox(height: 48),
 
+              // ✅ Footer
               CenteredForm(
                 child: Column(
                   children: [
@@ -324,9 +359,7 @@ class _LoginScreenState extends State<LoginScreen>
                       "Professional accounting and advisory services.\nAll rights reserved.",
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant.withOpacity(
-                          0.85,
-                        ),
+                        color: theme.colorScheme.onSurfaceVariant.withOpacity(0.85),
                         height: 1.4,
                       ),
                     ),
