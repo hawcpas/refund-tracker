@@ -35,13 +35,15 @@ class _LoginScreenState extends State<LoginScreen>
       duration: const Duration(milliseconds: 700),
     );
 
-    _fadeAnimation =
-        CurvedAnimation(parent: _animationController, curve: Curves.easeIn);
+    _fadeAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    );
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-    );
+          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+        );
 
     _animationController.forward();
   }
@@ -57,8 +59,9 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _forgotPassword() async {
-    final dialogEmailController =
-        TextEditingController(text: emailController.text.trim());
+    final dialogEmailController = TextEditingController(
+      text: emailController.text.trim(),
+    );
 
     final submittedEmail = await showDialog<String>(
       context: context,
@@ -132,8 +135,9 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -164,18 +168,18 @@ class _LoginScreenState extends State<LoginScreen>
               CenteredForm(
                 child: Column(
                   children: [
-                    Icon(
-                      Icons.account_balance_wallet,
-                      size: 64,
+                    ImageIcon(
+                      const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                      size: 128,
                       color: theme.colorScheme.primary,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      "Refund Tracker",
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    // Text(
+                    //   "Axume & Associates CPAs, AAC",
+                    //   style: theme.textTheme.headlineSmall?.copyWith(
+                    //     fontWeight: FontWeight.w800,
+                    //   ),
+                    // ),
                   ],
                 ),
               ),
@@ -194,7 +198,9 @@ class _LoginScreenState extends State<LoginScreen>
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
                         side: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                          color: theme.colorScheme.outlineVariant.withOpacity(
+                            0.7,
+                          ),
                         ),
                       ),
                       child: Padding(
@@ -215,9 +221,9 @@ class _LoginScreenState extends State<LoginScreen>
                               controller: emailController,
                               focusNode: emailFocusNode,
                               textInputAction: TextInputAction.next,
-                              onSubmitted: (_) =>
-                                  FocusScope.of(context)
-                                      .requestFocus(passwordFocusNode),
+                              onSubmitted: (_) => FocusScope.of(
+                                context,
+                              ).requestFocus(passwordFocusNode),
                               decoration: const InputDecoration(
                                 labelText: "Email",
                                 prefixIcon: Icon(Icons.mail_outline),
@@ -240,8 +246,9 @@ class _LoginScreenState extends State<LoginScreen>
                                         ? Icons.visibility_off
                                         : Icons.visibility,
                                   ),
-                                  onPressed: () =>
-                                      setState(() => obscurePassword = !obscurePassword),
+                                  onPressed: () => setState(
+                                    () => obscurePassword = !obscurePassword,
+                                  ),
                                 ),
                               ),
                             ),
@@ -251,8 +258,7 @@ class _LoginScreenState extends State<LoginScreen>
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
-                                onPressed:
-                                    isLoading ? null : _forgotPassword,
+                                onPressed: isLoading ? null : _forgotPassword,
                                 child: Text(
                                   "Forgot password?",
                                   style: TextStyle(
