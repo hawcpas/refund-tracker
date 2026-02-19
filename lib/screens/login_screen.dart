@@ -169,7 +169,9 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Column(
                   children: [
                     ImageIcon(
-                      const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                      const AssetImage(
+                        'assets/icons/aa_logo_imageicon_256.png',
+                      ),
                       size: 128,
                       color: theme.colorScheme.primary,
                     ),
@@ -302,6 +304,33 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
                   ),
+                ),
+              ),
+              const SizedBox(height: 48),
+
+              CenteredForm(
+                child: Column(
+                  children: [
+                    Text(
+                      "© 2026 Axume & Associates CPAs, AAC",
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Professional accounting and advisory services.\nAll rights reserved.",
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant.withOpacity(
+                          0.85,
+                        ),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
