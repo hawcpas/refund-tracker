@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import '../widgets/centered_form.dart';
 
@@ -26,7 +25,14 @@ class _SignupScreenState extends State<SignupScreen>
   bool isLoading = false;
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
-  bool showPasswordMismatchError = false;
+
+  // ✅ Inline errors (professional field highlighting)
+  String? _emailError;
+  String? _passwordError;
+  String? _confirmError;
+
+  // Optional subtle banner error for rare cases
+  String? _generalError;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -64,38 +70,134 @@ class _SignupScreenState extends State<SignupScreen>
     super.dispose();
   }
 
-  void _clearPasswordMismatchUIOnType() {
-    if (showPasswordMismatchError) {
-      setState(() => showPasswordMismatchError = false);
+  void _clearErrorsOnType() {
+    if (_emailError != null ||
+        _passwordError != null ||
+        _confirmError != null ||
+        _generalError != null) {
+      setState(() {
+        _emailError = null;
+        _passwordError = null;
+        _confirmError = null;
+        _generalError = null;
+      });
     }
   }
 
   Future<void> _signup() async {
     if (isLoading) return;
 
+    // Reset old errors
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+      _confirmError = null;
+      _generalError = null;
+    });
+
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
     final confirmPassword = confirmPasswordController.text.trim();
 
-    if (email.isEmpty || !email.contains("@")) return;
-    if (password.length < 6) return;
+    // ✅ Field validation with inline errors
+    bool ok = true;
 
-    if (password != confirmPassword) {
-      setState(() => showPasswordMismatchError = true);
+    if (email.isEmpty || !email.contains("@")) {
+      _emailError = "Enter a valid email address.";
+      ok = false;
+    }
+
+    if (password.length < 6) {
+      _passwordError = "Password must be at least 6 characters.";
+      ok = false;
+    }
+
+    if (confirmPassword.isEmpty) {
+      _confirmError = "Please confirm your password.";
+      ok = false;
+    } else if (password != confirmPassword) {
+      _passwordError = "Passwords do not match.";
+      _confirmError = "Passwords do not match.";
+      ok = false;
+    }
+
+    if (!ok) {
+      setState(() {});
       return;
     }
 
     setState(() => isLoading = true);
 
     try {
-      final user = await _auth
-          .signup(email, password)
+      // ✅ Use your updated AuthService method that returns Firebase error codes.
+      final result = await _auth
+          .signupDetailed(email, password)
           .timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
-      if (user != null) {
+
+      // Success
+      if (result.code == null && result.data != null) {
         Navigator.pushReplacementNamed(context, '/verify-email');
+        return;
       }
+
+      // ✅ Professional, specific handling
+      switch (result.code) {
+        case 'email-already-in-use':
+          setState(() {
+            _emailError =
+                "This email is already associated with an account. Please log in.";
+          });
+          emailFocusNode.requestFocus();
+          break;
+
+        case 'invalid-email':
+          setState(() {
+            _emailError = "Enter a valid email address.";
+          });
+          emailFocusNode.requestFocus();
+          break;
+
+        case 'weak-password':
+          setState(() {
+            _passwordError = "Password is too weak. Use at least 6 characters.";
+          });
+          passwordFocusNode.requestFocus();
+          break;
+
+        case 'operation-not-allowed':
+          setState(() {
+            _generalError =
+                "Email/password sign-in is not enabled for this app.";
+          });
+          break;
+
+        case 'too-many-requests':
+          setState(() {
+            _generalError =
+                "Too many attempts. Please wait a moment and try again.";
+          });
+          break;
+
+        case 'network-request-failed':
+          setState(() {
+            _generalError =
+                "Network error. Please check your internet connection.";
+          });
+          break;
+
+        default:
+          setState(() {
+            _generalError =
+                "We couldn’t create your account. Please try again.";
+          });
+      }
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _generalError = "Signup timed out. Check your internet connection.";
+      });
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -104,8 +206,10 @@ class _SignupScreenState extends State<SignupScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final passwordErrorText =
-        showPasswordMismatchError ? "Passwords do not match" : null;
+
+    final bool showEmailInUseAction =
+        _emailError != null &&
+        _emailError!.toLowerCase().contains("already associated");
 
     return Scaffold(
       body: Stack(
@@ -158,24 +262,60 @@ class _SignupScreenState extends State<SignupScreen>
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
                         side: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                          color:
+                              theme.colorScheme.outlineVariant.withOpacity(0.7),
                         ),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Column(
                           children: [
+                            // ✅ Subtle banner for rare/general errors
+                            if (_generalError != null) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.errorContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  _generalError!,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onErrorContainer,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+
                             TextField(
                               controller: emailController,
                               focusNode: emailFocusNode,
                               textInputAction: TextInputAction.next,
+                              keyboardType: TextInputType.emailAddress,
+                              onChanged: (_) => _clearErrorsOnType(),
                               onSubmitted: (_) => FocusScope.of(context)
                                   .requestFocus(passwordFocusNode),
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: "Email",
-                                prefixIcon: Icon(Icons.mail_outline),
+                                prefixIcon: const Icon(Icons.mail_outline),
+                                errorText: _emailError,
                               ),
                             ),
+
+                            // ✅ Professional quick action when email already exists
+                            if (showEmailInUseAction) ...[
+                              const SizedBox(height: 6),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text("Go to login"),
+                                ),
+                              ),
+                            ],
 
                             const SizedBox(height: 16),
 
@@ -183,11 +323,14 @@ class _SignupScreenState extends State<SignupScreen>
                               controller: passwordController,
                               focusNode: passwordFocusNode,
                               obscureText: obscurePassword,
-                              onChanged: (_) =>
-                                  _clearPasswordMismatchUIOnType(),
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => _clearErrorsOnType(),
+                              onSubmitted: (_) => FocusScope.of(context)
+                                  .requestFocus(confirmPasswordFocusNode),
                               decoration: InputDecoration(
                                 labelText: "Password",
-                                errorText: passwordErrorText,
+                                helperText: "Minimum 6 characters",
+                                errorText: _passwordError,
                                 prefixIcon: const Icon(Icons.lock_outline),
                                 suffixIcon: IconButton(
                                   icon: Icon(obscurePassword
@@ -205,12 +348,12 @@ class _SignupScreenState extends State<SignupScreen>
                               controller: confirmPasswordController,
                               focusNode: confirmPasswordFocusNode,
                               obscureText: obscureConfirmPassword,
-                              onChanged: (_) =>
-                                  _clearPasswordMismatchUIOnType(),
+                              textInputAction: TextInputAction.done,
+                              onChanged: (_) => _clearErrorsOnType(),
                               onSubmitted: (_) => _signup(),
                               decoration: InputDecoration(
                                 labelText: "Confirm password",
-                                errorText: passwordErrorText,
+                                errorText: _confirmError,
                                 prefixIcon: const Icon(Icons.lock_reset),
                                 suffixIcon: IconButton(
                                   icon: Icon(obscureConfirmPassword
