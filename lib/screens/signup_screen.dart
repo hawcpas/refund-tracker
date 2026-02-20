@@ -13,9 +13,17 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen>
     with SingleTickerProviderStateMixin {
+  // Name controllers
+  final firstNameController = TextEditingController();
+  final lastNameController = TextEditingController();
+
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
+
+  // Focus nodes
+  final firstNameFocusNode = FocusNode();
+  final lastNameFocusNode = FocusNode();
 
   final emailFocusNode = FocusNode();
   final passwordFocusNode = FocusNode();
@@ -27,6 +35,9 @@ class _SignupScreenState extends State<SignupScreen>
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
 
+  // Errors
+  String? _firstNameError;
+  String? _lastNameError;
   String? _emailError;
   String? _passwordError;
   String? _confirmError;
@@ -36,9 +47,9 @@ class _SignupScreenState extends State<SignupScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // ✅ SAME TOKENS AS LOGIN / FORGOT
+  // UI tokens
   static const double _pageVPad = 28;
-  static const double _pageHPad = 18; // ✅ show background on sides
+  static const double _pageHPad = 18;
   static const double _cardRadius = 18;
   static const double _cardPad = 16;
   static const double _fieldGap = 12;
@@ -59,35 +70,48 @@ class _SignupScreenState extends State<SignupScreen>
       duration: const Duration(milliseconds: 700),
     );
 
-    _fadeAnimation =
-        CurvedAnimation(parent: _animationController, curve: Curves.easeIn);
+    _fadeAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    );
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-    );
+          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+        );
 
     _animationController.forward();
   }
 
   @override
   void dispose() {
+    firstNameController.dispose();
+    lastNameController.dispose();
+    firstNameFocusNode.dispose();
+    lastNameFocusNode.dispose();
+
     emailController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
+
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
     confirmPasswordFocusNode.dispose();
+
     _animationController.dispose();
     super.dispose();
   }
 
   void _clearErrorsOnType() {
-    if (_emailError != null ||
+    if (_firstNameError != null ||
+        _lastNameError != null ||
+        _emailError != null ||
         _passwordError != null ||
         _confirmError != null ||
         _generalError != null) {
       setState(() {
+        _firstNameError = null;
+        _lastNameError = null;
         _emailError = null;
         _passwordError = null;
         _confirmError = null;
@@ -100,17 +124,30 @@ class _SignupScreenState extends State<SignupScreen>
     if (isLoading) return;
 
     setState(() {
+      _firstNameError = null;
+      _lastNameError = null;
       _emailError = null;
       _passwordError = null;
       _confirmError = null;
       _generalError = null;
     });
 
+    final firstName = firstNameController.text.trim();
+    final lastName = lastNameController.text.trim();
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
     final confirmPassword = confirmPasswordController.text.trim();
 
     bool ok = true;
+
+    if (firstName.isEmpty) {
+      _firstNameError = "Enter your first name.";
+      ok = false;
+    }
+    if (lastName.isEmpty) {
+      _lastNameError = "Enter your last name.";
+      ok = false;
+    }
 
     if (email.isEmpty || !email.contains("@")) {
       _emailError = "Enter a valid email address.";
@@ -139,9 +176,12 @@ class _SignupScreenState extends State<SignupScreen>
     setState(() => isLoading = true);
 
     try {
-      final result = await _auth
-          .signupDetailed(email, password)
-          .timeout(const Duration(seconds: 15));
+      final result = await _auth.signupDetailed(
+        email,
+        password,
+        firstName: firstName,
+        lastName: lastName,
+      );
 
       if (!mounted) return;
 
@@ -173,10 +213,15 @@ class _SignupScreenState extends State<SignupScreen>
               "Network error. Please check your internet connection.";
           break;
         default:
-          _generalError = "We couldn’t create your account. Please try again.";
+          _generalError =
+              "Signup failed (${result.code ?? 'unknown'}). ${result.message ?? ''}";
       }
+
+      setState(() {});
     } on TimeoutException {
-      _generalError = "Signup timed out. Check your internet connection.";
+      setState(() {
+        _generalError = "Signup timed out. Check your internet connection.";
+      });
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -209,7 +254,6 @@ class _SignupScreenState extends State<SignupScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ✅ LOGO INSIDE CARD (NO BOX)
                   const ImageIcon(
                     AssetImage('assets/icons/aa_logo_imageicon_256.png'),
                     size: _logoSize,
@@ -253,9 +297,7 @@ class _SignupScreenState extends State<SignupScreen>
                       decoration: BoxDecoration(
                         color: Colors.red.withOpacity(0.10),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.red.withOpacity(0.25),
-                        ),
+                        border: Border.all(color: Colors.red.withOpacity(0.25)),
                       ),
                       child: Text(
                         _generalError!,
@@ -270,19 +312,54 @@ class _SignupScreenState extends State<SignupScreen>
                   ],
 
                   TextField(
+                    controller: firstNameController,
+                    focusNode: firstNameFocusNode,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => _clearErrorsOnType(),
+                    onSubmitted: (_) =>
+                        FocusScope.of(context).requestFocus(lastNameFocusNode),
+                    decoration: const InputDecoration(
+                      labelText: "First name",
+                      prefixIcon: Icon(
+                        Icons.person_outline,
+                        color: AppColors.brandBlue,
+                      ),
+                    ).copyWith(errorText: _firstNameError),
+                  ),
+                  const SizedBox(height: _fieldGap),
+
+                  TextField(
+                    controller: lastNameController,
+                    focusNode: lastNameFocusNode,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) => _clearErrorsOnType(),
+                    onSubmitted: (_) =>
+                        FocusScope.of(context).requestFocus(emailFocusNode),
+                    decoration: const InputDecoration(
+                      labelText: "Last name",
+                      prefixIcon: Icon(
+                        Icons.badge_outlined,
+                        color: AppColors.brandBlue,
+                      ),
+                    ).copyWith(errorText: _lastNameError),
+                  ),
+                  const SizedBox(height: _fieldGap),
+
+                  TextField(
                     controller: emailController,
                     focusNode: emailFocusNode,
                     keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
                     onChanged: (_) => _clearErrorsOnType(),
+                    onSubmitted: (_) =>
+                        FocusScope.of(context).requestFocus(passwordFocusNode),
                     decoration: const InputDecoration(
                       labelText: "Email",
                       prefixIcon: Icon(
                         Icons.mail_outline,
                         color: AppColors.brandBlue,
                       ),
-                    ).copyWith(
-                      errorText: _emailError,
-                    ),
+                    ).copyWith(errorText: _emailError),
                   ),
                   const SizedBox(height: _fieldGap),
 
@@ -290,28 +367,33 @@ class _SignupScreenState extends State<SignupScreen>
                     controller: passwordController,
                     focusNode: passwordFocusNode,
                     obscureText: obscurePassword,
+                    textInputAction: TextInputAction.next,
                     onChanged: (_) => _clearErrorsOnType(),
-                    decoration: const InputDecoration(
-                      labelText: "Password",
-                      helperText: "Minimum 6 characters",
-                      prefixIcon: Icon(
-                        Icons.lock_outline,
-                        color: AppColors.brandBlue,
-                      ),
-                    ).copyWith(
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: AppColors.brandBlue,
+                    onSubmitted: (_) => FocusScope.of(
+                      context,
+                    ).requestFocus(confirmPasswordFocusNode),
+                    decoration:
+                        const InputDecoration(
+                          labelText: "Password",
+                          helperText: "Minimum 6 characters",
+                          prefixIcon: Icon(
+                            Icons.lock_outline,
+                            color: AppColors.brandBlue,
+                          ),
+                        ).copyWith(
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: AppColors.brandBlue,
+                            ),
+                            onPressed: () => setState(
+                              () => obscurePassword = !obscurePassword,
+                            ),
+                          ),
+                          errorText: _passwordError,
                         ),
-                        onPressed: () => setState(() {
-                          obscurePassword = !obscurePassword;
-                        }),
-                      ),
-                      errorText: _passwordError,
-                    ),
                   ),
                   const SizedBox(height: _fieldGap),
 
@@ -319,27 +401,31 @@ class _SignupScreenState extends State<SignupScreen>
                     controller: confirmPasswordController,
                     focusNode: confirmPasswordFocusNode,
                     obscureText: obscureConfirmPassword,
+                    textInputAction: TextInputAction.done,
                     onChanged: (_) => _clearErrorsOnType(),
-                    decoration: const InputDecoration(
-                      labelText: "Confirm password",
-                      prefixIcon: Icon(
-                        Icons.lock_reset,
-                        color: AppColors.brandBlue,
-                      ),
-                    ).copyWith(
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          obscureConfirmPassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: AppColors.brandBlue,
+                    onSubmitted: (_) => isLoading ? null : _signup(),
+                    decoration:
+                        const InputDecoration(
+                          labelText: "Confirm password",
+                          prefixIcon: Icon(
+                            Icons.lock_reset,
+                            color: AppColors.brandBlue,
+                          ),
+                        ).copyWith(
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscureConfirmPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: AppColors.brandBlue,
+                            ),
+                            onPressed: () => setState(
+                              () => obscureConfirmPassword =
+                                  !obscureConfirmPassword,
+                            ),
+                          ),
+                          errorText: _confirmError,
                         ),
-                        onPressed: () => setState(() {
-                          obscureConfirmPassword = !obscureConfirmPassword;
-                        }),
-                      ),
-                      errorText: _confirmError,
-                    ),
                   ),
 
                   const SizedBox(height: _blockGap),
@@ -351,9 +437,7 @@ class _SignupScreenState extends State<SignupScreen>
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.brandBlue,
                         foregroundColor: AppColors.cardBackground,
-                        textStyle: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                        ),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -393,7 +477,6 @@ class _SignupScreenState extends State<SignupScreen>
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      // ✅ Ensures the background is painted behind the body too
       body: ColoredBox(
         color: AppColors.pageBackgroundLight,
         child: LayoutBuilder(
