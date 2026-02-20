@@ -6,6 +6,9 @@ import '../widgets/centered_section.dart';
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
 
+  // ✅ SAME brand color as rest of app
+  static const Color brandBlue = Color(0xFF08449E);
+
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
 }
@@ -79,9 +82,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
 
     setState(() => _isLoading = true);
-    final code = await _auth.updatePassword(
-      newPasswordController.text.trim(),
-    );
+    final code =
+        await _auth.updatePassword(newPasswordController.text.trim());
     setState(() => _isLoading = false);
 
     if (!mounted) return;
@@ -106,19 +108,26 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Change Password")),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text("Change Password"),
+      ),
       body: Stack(
         children: [
-          // ✅ Consistent background with other auth screens
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary.withOpacity(0.15),
-                  theme.colorScheme.surface,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          // ✅ Same subtle brand wash used everywhere else
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    ChangePasswordScreen.brandBlue.withOpacity(0.12),
+                    Colors.white,
+                    Colors.white,
+                  ],
+                  stops: const [0.0, 0.35, 1.0],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
             ),
           ),
@@ -134,14 +143,15 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     Text(
                       "Update your password",
                       style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF101828),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       "Choose a strong password that you don’t use elsewhere.",
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                        color: const Color(0xFF475467),
                       ),
                     ),
                   ],
@@ -150,19 +160,25 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
               const SizedBox(height: 20),
 
-              // ✅ Form card
+              // ✅ Form card (matches login/signup cards)
               CenteredForm(
-                child: Card(
-                  elevation: 0,
-                  color: theme.colorScheme.surfaceContainerHigh,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.7),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: ChangePasswordScreen.brandBlue.withOpacity(0.12),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(20),
                     child: Form(
                       key: _formKey,
                       child: Column(
@@ -180,9 +196,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   _obscureNew
                                       ? Icons.visibility_off
                                       : Icons.visibility,
+                                  color: ChangePasswordScreen.brandBlue,
                                 ),
-                                onPressed: () =>
-                                    setState(() => _obscureNew = !_obscureNew),
+                                onPressed: () => setState(
+                                    () => _obscureNew = !_obscureNew),
                               ),
                             ),
                             validator: _validateNewPassword,
@@ -204,9 +221,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   _obscureConfirm
                                       ? Icons.visibility_off
                                       : Icons.visibility,
+                                  color: ChangePasswordScreen.brandBlue,
                                 ),
-                                onPressed: () => setState(
-                                    () => _obscureConfirm = !_obscureConfirm),
+                                onPressed: () => setState(() =>
+                                    _obscureConfirm = !_obscureConfirm),
                               ),
                             ),
                             validator: _validateConfirmPassword,
@@ -222,6 +240,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                     child: CircularProgressIndicator(),
                                   )
                                 : FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          ChangePasswordScreen.brandBlue,
+                                      foregroundColor: Colors.white,
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                      ),
+                                    ),
                                     onPressed: _updatePassword,
                                     icon: const Icon(
                                         Icons.check_circle_outline),
@@ -242,7 +272,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 child: Text(
                   "Tip: Using a longer password with a mix of letters and numbers improves security.",
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: const Color(0xFF667085),
                   ),
                 ),
               ),

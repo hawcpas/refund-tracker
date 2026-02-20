@@ -6,6 +6,9 @@ import '../widgets/centered_form.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
+  // ✅ EXACT: #08449E
+  static const Color brandBlue = Color(0xFF08449E);
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -140,36 +143,95 @@ class _LoginScreenState extends State<LoginScreen>
     final theme = Theme.of(context);
     final bool showAuthError = _authError != null;
 
+    // ✅ Local “popping” input style for THIS page
+    final inputTheme = theme.inputDecorationTheme.copyWith(
+      filled: true,
+      fillColor: const Color(0xFFF4F7FF), // subtle blue-tinted white
+      prefixIconColor: LoginScreen.brandBlue,
+      labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(
+          color: LoginScreen.brandBlue.withOpacity(0.18),
+          width: 1,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(
+          color: LoginScreen.brandBlue,
+          width: 1.8,
+        ),
+      ),
+    );
+
     return Scaffold(
+      backgroundColor: Colors.white, // ✅ WHITE background
       body: Stack(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary.withOpacity(0.15),
-                  theme.colorScheme.surface,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          // ✅ subtle brand “wash” at the top so the page pops without losing white
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    LoginScreen.brandBlue.withOpacity(0.12),
+                    Colors.white,
+                    Colors.white,
+                  ],
+                  stops: const [0.0, 0.35, 1.0],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
             ),
           ),
+
           ListView(
             padding: const EdgeInsets.symmetric(vertical: 40),
             children: [
+              // ✅ Logo at top (tinted #08449E)
               CenteredForm(
                 child: Column(
                   children: [
-                    ImageIcon(
-                      const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
-                      size: 128,
-                      color: theme.colorScheme.primary,
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: LoginScreen.brandBlue.withOpacity(0.22),
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: LoginScreen.brandBlue.withOpacity(0.18),
+                            blurRadius: 22,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: const ImageIcon(
+                        AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                        size: 92,
+                        color: LoginScreen.brandBlue, // ✅ #08449E
+                      ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
+                    // ✅ Extra brand accent line
+                    Container(
+                      height: 6,
+                      width: 84,
+                      decoration: BoxDecoration(
+                        color: LoginScreen.brandBlue.withOpacity(0.22),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
                   ],
                 ),
               ),
+
               const SizedBox(height: 24),
 
               FadeTransition(
@@ -177,110 +239,182 @@ class _LoginScreenState extends State<LoginScreen>
                 child: SlideTransition(
                   position: _slideAnimation,
                   child: CenteredForm(
-                    child: Card(
-                      elevation: 0,
-                      color: theme.colorScheme.surfaceContainerHigh,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        side: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.7),
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          children: [
-                            Text(
-                              "Login",
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(height: 24),
-
-                            TextField(
-                              controller: emailController,
-                              focusNode: emailFocusNode,
-                              textInputAction: TextInputAction.next,
-                              onChanged: (_) => _clearInlineErrors(),
-                              onSubmitted: (_) => FocusScope.of(context)
-                                  .requestFocus(passwordFocusNode),
-                              decoration: InputDecoration(
-                                labelText: "Email",
-                                prefixIcon: const Icon(Icons.mail_outline),
-                                errorText: _emailError ?? (showAuthError ? " " : null),
-                                errorStyle: const TextStyle(height: 0.1, fontSize: 0.1),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            TextField(
-                              controller: passwordController,
-                              focusNode: passwordFocusNode,
-                              obscureText: obscurePassword,
-                              onChanged: (_) => _clearInlineErrors(),
-                              onSubmitted: (_) => _login(),
-                              decoration: InputDecoration(
-                                labelText: "Password",
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    obscurePassword
-                                        ? Icons.visibility_off
-                                        : Icons.visibility,
-                                  ),
-                                  onPressed: () => setState(
-                                      () => obscurePassword = !obscurePassword),
-                                ),
-                                errorText: _passwordError ?? _authError,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () => Navigator.pushNamed(
-                                  context,
-                                  '/forgot-password',
-                                ),
-                                child: Text(
-                                  "Forgot password?",
-                                  style: TextStyle(
-                                    color: theme.colorScheme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 12),
-
-                            SizedBox(
-                              width: double.infinity,
-                              height: 52,
-                              child: isLoading
-                                  ? const Center(child: CircularProgressIndicator())
-                                  : FilledButton(
-                                      onPressed: _login,
-                                      child: const Text("Login"),
-                                    ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            TextButton(
-                              onPressed: () =>
-                                  Navigator.pushNamed(context, '/signup'),
-                              child: Text(
-                                "Create a new account",
-                                style: TextStyle(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                    child: Theme(
+                      data: theme.copyWith(inputDecorationTheme: inputTheme),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: LoginScreen.brandBlue.withOpacity(0.12),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 18,
+                              offset: const Offset(0, 10),
                             ),
                           ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            children: [
+                              Text(
+                                "Login",
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: LoginScreen.brandBlue,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                "Welcome back — sign in to continue",
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF475467),
+                                ),
+                              ),
+                              const SizedBox(height: 22),
+
+                              TextField(
+                                controller: emailController,
+                                focusNode: emailFocusNode,
+                                textInputAction: TextInputAction.next,
+                                onChanged: (_) => _clearInlineErrors(),
+                                onSubmitted: (_) => FocusScope.of(context)
+                                    .requestFocus(passwordFocusNode),
+                                decoration: InputDecoration(
+                                  labelText: "Email",
+                                  prefixIcon: const Icon(Icons.mail_outline),
+                                  errorText:
+                                      _emailError ?? (showAuthError ? " " : null),
+                                  // keep your “inline spacing hack”
+                                  errorStyle: const TextStyle(
+                                    height: 0.1,
+                                    fontSize: 0.1,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              TextField(
+                                controller: passwordController,
+                                focusNode: passwordFocusNode,
+                                obscureText: obscurePassword,
+                                onChanged: (_) => _clearInlineErrors(),
+                                onSubmitted: (_) => _login(),
+                                decoration: InputDecoration(
+                                  labelText: "Password",
+                                  prefixIcon: const Icon(Icons.lock_outline),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      obscurePassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                      color: LoginScreen.brandBlue,
+                                    ),
+                                    onPressed: () => setState(
+                                      () => obscurePassword = !obscurePassword,
+                                    ),
+                                  ),
+                                  errorText: _passwordError ?? _authError,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () => Navigator.pushNamed(
+                                    context,
+                                    '/forgot-password',
+                                  ),
+                                  child: const Text(
+                                    "Forgot password?",
+                                    style: TextStyle(
+                                      color: LoginScreen.brandBlue,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              SizedBox(
+                                width: double.infinity,
+                                height: 52,
+                                child: isLoading
+                                    ? const Center(
+                                        child: CircularProgressIndicator(),
+                                      )
+                                    : FilledButton(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: LoginScreen.brandBlue,
+                                          foregroundColor: Colors.white,
+                                          textStyle: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                          ),
+                                        ),
+                                        onPressed: _login,
+                                        child: const Text("Login"),
+                                      ),
+                              ),
+
+                              const SizedBox(height: 14),
+
+                              // ✅ Brand divider to add more blue “within the page”
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Divider(
+                                      color: LoginScreen.brandBlue
+                                          .withOpacity(0.18),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                    child: Text(
+                                      "OR",
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                        color: const Color(0xFF667085),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Divider(
+                                      color: LoginScreen.brandBlue
+                                          .withOpacity(0.18),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.pushNamed(context, '/signup'),
+                                child: const Text(
+                                  "Create a new account",
+                                  style: TextStyle(
+                                    color: LoginScreen.brandBlue,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -290,6 +424,7 @@ class _LoginScreenState extends State<LoginScreen>
 
               const SizedBox(height: 48),
 
+              // ✅ Footer (kept, just cleaner on white)
               CenteredForm(
                 child: Column(
                   children: [
@@ -297,8 +432,8 @@ class _LoginScreenState extends State<LoginScreen>
                       "© 2026 Axume & Associates CPAs, AAC",
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -306,7 +441,7 @@ class _LoginScreenState extends State<LoginScreen>
                       "Professional Accounting and Advisory Services.\nAll rights reserved.",
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant.withOpacity(0.85),
+                        color: const Color(0xFF667085).withOpacity(0.88),
                         height: 1.4,
                       ),
                     ),

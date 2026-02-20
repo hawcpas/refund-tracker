@@ -9,8 +9,8 @@ import 'screens/change_password_screen.dart';
 import 'screens/verify_email_screen.dart';
 import 'screens/forgot_password_screen.dart';
 
-
-const kNavyBlue = Color(0xFF003C9D);
+// ✅ SINGLE SOURCE OF TRUTH FOR BRAND COLOR
+const kBrandBlue = Color(0xFF08449E);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +28,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: kNavyBlue,
+      seedColor: kBrandBlue,
       brightness: Brightness.light,
     );
 
@@ -39,31 +39,37 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: colorScheme,
-        scaffoldBackgroundColor: colorScheme.surface,
 
-        // ✅ BRAND‑HEAVY BUT MODERN APP BAR
+        // ✅ Ensures white backgrounds stay white
+        scaffoldBackgroundColor: Colors.white,
+
+        // ✅ PROFESSIONAL, CONSISTENT APP BAR
         appBarTheme: AppBarTheme(
-          backgroundColor: colorScheme.primary,
+          backgroundColor: kBrandBlue,
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: false,
 
-          // ✅ CRITICAL for Material 3 (prevents dull overlay)
+          // ✅ CRITICAL for Material 3
+          // Prevents gray / dull overlays
           surfaceTintColor: Colors.transparent,
         ),
 
-        // ✅ Consistent modern buttons
+        // ✅ Consistent modern primary buttons
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(52),
-            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
 
-        // ✅ Clean modern inputs everywhere
+        // ✅ Clean modern inputs across the app
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: colorScheme.surfaceContainerHighest,
+          fillColor: const Color(0xFFF4F7FF),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide.none,
@@ -74,11 +80,11 @@ class MyApp extends StatelessWidget {
       home: const LoginScreen(),
 
       routes: {
-        '/login': (context) => const LoginScreen(),
-        '/dashboard': (context) => const DashboardScreen(),
-        '/signup': (context) => const SignupScreen(),
-        '/change-password': (context) => const ChangePasswordScreen(),
-        '/verify-email': (context) => const VerifyEmailScreen(),
+        '/login': (_) => const LoginScreen(),
+        '/dashboard': (_) => const DashboardScreen(),
+        '/signup': (_) => const SignupScreen(),
+        '/change-password': (_) => const ChangePasswordScreen(),
+        '/verify-email': (_) => const VerifyEmailScreen(),
         '/forgot-password': (_) => const ForgotPasswordScreen(),
       },
     );
