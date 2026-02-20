@@ -6,9 +6,9 @@ import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/signup_screen.dart';
-import 'screens/change_password_screen.dart';
 import 'screens/verify_email_screen.dart';
 import 'screens/forgot_password_screen.dart';
+import 'screens/account_settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,9 +108,9 @@ class MyApp extends StatelessWidget {
         '/login': (_) => const LoginScreen(),
         '/dashboard': (_) => const DashboardScreen(),
         '/signup': (_) => const SignupScreen(),
-        '/change-password': (_) => const ChangePasswordScreen(),
         '/verify-email': (_) => const VerifyEmailScreen(),
         '/forgot-password': (_) => const ForgotPasswordScreen(),
+        '/account-settings': (_) => const AccountSettingsScreen(),
       },
     );
   }
