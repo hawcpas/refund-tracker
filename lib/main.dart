@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
     );
 
     return MaterialApp(
-      title: 'Refund Tracker',
+      title: 'A&A Portal',
       debugShowCheckedModeBanner: false,
 
       theme: ThemeData(
