@@ -13,6 +13,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+enum _LoginBtnState { idle, loading, success }
+
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final emailController = TextEditingController();
@@ -23,7 +25,6 @@ class _LoginScreenState extends State<LoginScreen>
 
   final AuthService _auth = AuthService();
 
-  bool isLoading = false;
   bool obscurePassword = true;
 
   String? _emailError;
@@ -50,9 +51,13 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _accentH = 4;
   static const double _accentW = 72; // ⬆️ match visual weight
 
+  _LoginBtnState _btnState = _LoginBtnState.idle;
+
   @override
   void initState() {
     super.initState();
+
+    _btnState = _LoginBtnState.idle;
 
     _animationController = AnimationController(
       vsync: this,
@@ -98,6 +103,9 @@ class _LoginScreenState extends State<LoginScreen>
         _authError = null;
       });
     }
+    if (_btnState != _LoginBtnState.idle) {
+      setState(() => _btnState = _LoginBtnState.idle);
+    }
   }
 
   void _login() async {
@@ -125,22 +133,31 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    setState(() => isLoading = true);
+    // ✅ Start loading state
+    setState(() => _btnState = _LoginBtnState.loading);
+
     final user = await _auth.login(email, password);
-    setState(() => isLoading = false);
 
     if (!mounted) return;
 
     if (user == null) {
-      setState(
-        () => _authError = "The email or password you entered is incorrect.",
-      );
+      setState(() {
+        _btnState = _LoginBtnState.idle;
+        _authError = "The email or password you entered is incorrect.";
+      });
       return;
     }
+
+    // ✅ Success state immediately (turn button green)
+    setState(() => _btnState = _LoginBtnState.success);
 
     await LocalAuthPrefs.saveEmail(email);
 
     final verified = await _auth.isEmailVerified();
+    if (!mounted) return;
+
+    // ✅ Let the success animation be visible briefly
+    await Future.delayed(const Duration(milliseconds: 450));
     if (!mounted) return;
 
     Navigator.pushReplacementNamed(
@@ -282,22 +299,70 @@ class _LoginScreenState extends State<LoginScreen>
                   SizedBox(
                     width: double.infinity,
                     height: _buttonH,
-                    child: isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.brandBlue,
-                              foregroundColor: AppColors.cardBackground,
-                              textStyle: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                    child: TweenAnimationBuilder<Color?>(
+                      tween: ColorTween(
+                        begin: AppColors.brandBlue,
+                        end: _btnState == _LoginBtnState.success
+                            ? const Color(0xFF86EFAC)
+                            : AppColors.brandBlue,
+                      ),
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOut,
+                      builder: (context, color, _) {
+                        return FilledButton(
+                          // ✅ Keep enabled so backgroundColor is respected
+                          onPressed: () {
+                            if (_btnState == _LoginBtnState.loading ||
+                                _btnState == _LoginBtnState.success)
+                              return;
+                            _login();
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: color,
+                            foregroundColor: _btnState == _LoginBtnState.success
+                                ? const Color(
+                                    0xFF064E3B,
+                                  ) // dark text for mint green
+                                : AppColors.cardBackground,
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.w900,
                             ),
-                            onPressed: _login,
-                            child: const Text("Login"),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 200),
+                            switchInCurve: Curves.easeOut,
+                            switchOutCurve: Curves.easeIn,
+                            child: _btnState == _LoginBtnState.loading
+                                ? const SizedBox(
+                                    key: ValueKey('loading'),
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.cardBackground,
+                                    ),
+                                  )
+                                : _btnState == _LoginBtnState.success
+                                ? const Row(
+                                    key: ValueKey('success'),
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle_outline,
+                                        size: 18,
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text("Success"),
+                                    ],
+                                  )
+                                : const Text("Login", key: ValueKey('idle')),
+                          ),
+                        );
+                      },
+                    ),
                   ),
 
                   const SizedBox(height: 12),
@@ -389,7 +454,8 @@ class _LoginScreenState extends State<LoginScreen>
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight, // ✅ SOLID BACKGROUND (no gradient)
+      backgroundColor:
+          AppColors.pageBackgroundLight, // ✅ SOLID BACKGROUND (no gradient)
       body: Stack(
         children: [
           Positioned.fill(

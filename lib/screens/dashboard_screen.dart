@@ -210,16 +210,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       }
                     },
                   ),
-
-                  const SizedBox(height: 10),
-
-                  _SubtleHoverTile(
-                    icon: Icons.lock_reset,
-                    title: "Change password",
-                    subtitle: "Update your login credentials",
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/change-password'),
-                  ),
                 ],
               ),
             ),
