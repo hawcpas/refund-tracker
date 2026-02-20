@@ -6,11 +6,15 @@ import 'package:refund_tracker/widgets/dashboard_widgets.dart';
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
+  // ✅ Brand color (accent only)
+  static const Color brandBlue = Color(0xFF08449E);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
@@ -21,18 +25,23 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
+
       body: Stack(
         children: [
-          // ✅ Consistent background layer
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary.withOpacity(0.15),
-                  theme.colorScheme.surface,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          // ✅ Extremely subtle brand wash
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    brandBlue.withOpacity(0.04),
+                    Colors.white,
+                    Colors.white,
+                  ],
+                  stops: const [0.0, 0.35, 1.0],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
               ),
             ),
           ),
@@ -40,78 +49,69 @@ class DashboardScreen extends StatelessWidget {
           ListView(
             padding: const EdgeInsets.symmetric(vertical: 28),
             children: [
-              // ✅ HERO / CONTEXT BLOCK
+              // ✅ HERO / CONTEXT (white, calm)
               CenteredSection(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHigh,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: brandBlue.withOpacity(0.15)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 48,
+                        width: 48,
+                        decoration: BoxDecoration(
+                          color: brandBlue.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.dashboard_rounded,
+                          color: brandBlue,
                         ),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            height: 48,
-                            width: 48,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(14),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Welcome back",
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.2,
+                                color: const Color(0xFF101828),
+                              ),
                             ),
-                            child: Icon(
-                              Icons.dashboard_rounded,
-                              color: theme.colorScheme.onPrimaryContainer,
+                            const SizedBox(height: 6),
+                            Text(
+                              "Manage your account and security settings.",
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475467),
+                                height: 1.35,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Welcome back",
-                                  style: theme.textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  "Manage your refunds and account settings in one place.",
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    // ✅ PRIMARY ACTION — clearly separated from header
-                    PrimaryActionCard(
-                      icon: Icons.receipt_long,
-                      title: "Check refund status",
-                      subtitle: "View current progress and updates",
-                      onTap: () {},
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
 
               const SizedBox(height: 36),
 
-              // ✅ SECONDARY ACTIONS
+              // ✅ ACCOUNT SECTION (ONLY real actions)
               CenteredSection(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,39 +119,57 @@ class DashboardScreen extends StatelessWidget {
                     Text(
                       "Account",
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                         letterSpacing: 0.2,
+                        color: const Color(0xFF101828),
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Card(
-                      elevation: 0,
-                      color: theme.colorScheme.surface,
-                      shape: RoundedRectangleBorder(
+
+                    // ✅ Interactive card with professional hover / press feedback
+                    // ✅ Interactive card with professional hover / press feedback
+                    Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(
-                          color: theme.colorScheme.outlineVariant.withOpacity(0.7),
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          SettingsRow(
+
+                        // ✅ subtle interaction feedback
+                        splashColor: brandBlue.withOpacity(0.08),
+                        highlightColor: brandBlue.withOpacity(0.06),
+                        hoverColor: brandBlue.withOpacity(0.04),
+
+                        onTap: () {
+                          Navigator.pushNamed(context, '/change-password');
+                        },
+
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: brandBlue.withOpacity(0.12),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.035),
+                                blurRadius: 18,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+
+                          // ✅ NOT const + includes onTap (so your widget compiles)
+                          child: SettingsRow(
                             icon: Icons.lock_reset,
                             title: "Change password",
                             subtitle: "Update your login credentials",
                             onTap: () {
+                              // Leave this empty OR match the same navigation.
+                              // If SettingsRow internally handles taps, keep navigation here and remove InkWell's onTap.
                               Navigator.pushNamed(context, '/change-password');
                             },
                           ),
-                          const Divider(height: 1),
-                          SettingsRow(
-                            icon: Icons.support_agent,
-                            title: "Support",
-                            subtitle: "Contact help or view FAQs",
-                            onTap: () {},
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
@@ -169,9 +187,13 @@ class DashboardScreen extends StatelessWidget {
                       icon: const Icon(Icons.logout),
                       label: const Text("Logout"),
                       style: FilledButton.styleFrom(
+                        backgroundColor: brandBlue,
+                        foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(52),
-                        textStyle:
-                            const TextStyle(fontWeight: FontWeight.w600),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -179,7 +201,7 @@ class DashboardScreen extends StatelessWidget {
                       "You can change your password any time from Account settings.",
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                        color: const Color(0xFF667085),
                       ),
                     ),
                   ],
@@ -206,6 +228,10 @@ class DashboardScreen extends StatelessWidget {
             child: const Text("Cancel"),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: brandBlue,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () {
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, '/login');
