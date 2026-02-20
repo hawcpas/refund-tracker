@@ -44,10 +44,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
+      // ✅ FORCE fresh data from Firestore (bypass cache)
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .get();
+          .get(const GetOptions(source: Source.server));
 
       final data = doc.data() ?? {};
       final firstName = (data['firstName'] ?? '').toString().trim();
@@ -55,9 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final displayName = (data['displayName'] ?? '').toString().trim();
 
       final computedName = ('$firstName $lastName').trim();
-      final bestName = computedName.isNotEmpty
-          ? computedName
-          : (displayName.isNotEmpty ? displayName : '');
+      final bestName = computedName.isNotEmpty ? computedName : displayName;
 
       if (!mounted) return;
       setState(() {
@@ -66,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _role = (data['role'] ?? '').toString();
         _loadingProfile = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loadingProfile = false);
     }
@@ -76,9 +75,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final welcomeText = _loadingProfile
-        ? "Welcome back"
-        : (_fullName.isNotEmpty ? "Welcome back, $_fullName" : "Welcome back");
+    final welcomeText = _fullName.isNotEmpty
+        ? "Welcome back, $_fullName"
+        : "Welcome back";
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
@@ -122,33 +121,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            welcomeText,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.15,
-                              color: const Color(0xFF101828),
+                          if (_loadingProfile) ...[
+                            // ✅ Placeholder state (no flicker)
+                            Container(
+                              height: 22,
+                              width: 220,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.06),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Manage your account and security settings.",
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF475467),
-                              height: 1.30,
+                            const SizedBox(height: 8),
+                            Container(
+                              height: 14,
+                              width: 260,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
                             ),
-                          ),
+                          ] else ...[
+                            Text(
+                              welcomeText,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.15,
+                                color: const Color(0xFF101828),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "Manage your account and security settings.",
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475467),
+                                height: 1.30,
+                              ),
+                            ),
 
-                          // ✅ Optional: show status chip if you want
-                          if (!_loadingProfile && _status.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              children: [
-                                _StatusChip(label: _status),
-                                if (_role.isNotEmpty) _RoleChip(label: _role),
-                              ],
-                            ),
+                            if (_status.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  _StatusChip(label: _status),
+                                  if (_role.isNotEmpty) _RoleChip(label: _role),
+                                ],
+                              ),
+                            ],
                           ],
                         ],
                       ),
@@ -186,19 +205,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         '/account-settings',
                       );
 
-                      // If settings screen returned true, refresh greeting
                       if (changed == true) {
-                        _loadProfile();
+                        _loadProfile(); // ✅ THIS is what refreshes the name
                       }
                     },
                   ),
+
                   const SizedBox(height: 10),
 
                   _SubtleHoverTile(
                     icon: Icons.lock_reset,
                     title: "Change password",
                     subtitle: "Update your login credentials",
-                    onTap: () => Navigator.pushNamed(context, '/change-password'),
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/change-password'),
                   ),
                 ],
               ),
@@ -394,8 +414,11 @@ class _SubtleHoverTileState extends State<_SubtleHoverTile> {
                       color: AppColors.brandBlue.withOpacity(0.10),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(widget.icon,
-                        color: AppColors.brandBlue, size: 22),
+                    child: Icon(
+                      widget.icon,
+                      color: AppColors.brandBlue,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
