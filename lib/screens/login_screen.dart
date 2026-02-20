@@ -187,269 +187,540 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
 
-          ListView(
-            padding: const EdgeInsets.symmetric(vertical: 40),
-            children: [
-              // ✅ Logo at top (tinted #08449E)
-              CenteredForm(
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
+          // ✅ FIX: Use LayoutBuilder + Positioned.fill to prevent Stack shrink sizing,
+// and pin footer ONLY when there's enough vertical space (web).
+Positioned.fill(
+  child: LayoutBuilder(
+    builder: (context, constraints) {
+      // Heuristic: if the viewport is tall enough, pin footer.
+      final bool pinFooter = constraints.maxHeight >= 820;
+
+      if (!pinFooter) {
+        // ✅ Small screens: keep your original scrolling behavior
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          children: [
+            // ✅ Logo at top (tinted #08449E)
+            CenteredForm(
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: LoginScreen.brandBlue.withOpacity(0.22),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: LoginScreen.brandBlue.withOpacity(0.18),
+                          blurRadius: 22,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: const ImageIcon(
+                      AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                      size: 92,
+                      color: LoginScreen.brandBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    height: 6,
+                    width: 84,
+                    decoration: BoxDecoration(
+                      color: LoginScreen.brandBlue.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: CenteredForm(
+                  child: Theme(
+                    data: theme.copyWith(inputDecorationTheme: inputTheme),
+                    child: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: LoginScreen.brandBlue.withOpacity(0.22),
-                          width: 1.2,
+                          color: LoginScreen.brandBlue.withOpacity(0.12),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: LoginScreen.brandBlue.withOpacity(0.18),
-                            blurRadius: 22,
-                            offset: const Offset(0, 12),
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 18,
+                            offset: const Offset(0, 10),
                           ),
                         ],
                       ),
-                      child: const ImageIcon(
-                        AssetImage('assets/icons/aa_logo_imageicon_256.png'),
-                        size: 92,
-                        color: LoginScreen.brandBlue, // ✅ #08449E
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // ✅ Extra brand accent line
-                    Container(
-                      height: 6,
-                      width: 84,
-                      decoration: BoxDecoration(
-                        color: LoginScreen.brandBlue.withOpacity(0.22),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              FadeTransition(
-                opacity: _fadeAnimation,
-                child: SlideTransition(
-                  position: _slideAnimation,
-                  child: CenteredForm(
-                    child: Theme(
-                      data: theme.copyWith(inputDecorationTheme: inputTheme),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: LoginScreen.brandBlue.withOpacity(0.12),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 18,
-                              offset: const Offset(0, 10),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            // ✅ KEEP your existing login form content here exactly as-is
+                            // (Login title, fields, buttons, etc.)
+                            // ----------------------------------------------------------
+                            Text(
+                              "Login",
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: LoginScreen.brandBlue,
+                                letterSpacing: -0.2,
+                              ),
                             ),
-                          ],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              Text(
-                                "Login",
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  color: LoginScreen.brandBlue,
-                                  letterSpacing: -0.2,
+                            const SizedBox(height: 6),
+                            Text(
+                              "Welcome back — sign in to continue",
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475467),
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+
+                            TextField(
+                              controller: emailController,
+                              focusNode: emailFocusNode,
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: (_) => FocusScope.of(context)
+                                  .requestFocus(passwordFocusNode),
+                              decoration: InputDecoration(
+                                labelText: "Email",
+                                prefixIcon: const Icon(Icons.mail_outline),
+                                errorText:
+                                    _emailError ?? (showAuthError ? " " : null),
+                                errorStyle: const TextStyle(
+                                  height: 0.1,
+                                  fontSize: 0.1,
                                 ),
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                "Welcome back — sign in to continue",
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: const Color(0xFF475467),
-                                ),
-                              ),
-                              const SizedBox(height: 22),
+                            ),
+                            const SizedBox(height: 16),
 
-                              TextField(
-                                controller: emailController,
-                                focusNode: emailFocusNode,
-                                textInputAction: TextInputAction.next,
-                                onChanged: (_) => _clearInlineErrors(),
-                                onSubmitted: (_) => FocusScope.of(context)
-                                    .requestFocus(passwordFocusNode),
-                                decoration: InputDecoration(
-                                  labelText: "Email",
-                                  prefixIcon: const Icon(Icons.mail_outline),
-                                  errorText:
-                                      _emailError ?? (showAuthError ? " " : null),
-                                  // keep your “inline spacing hack”
-                                  errorStyle: const TextStyle(
-                                    height: 0.1,
-                                    fontSize: 0.1,
+                            TextField(
+                              controller: passwordController,
+                              focusNode: passwordFocusNode,
+                              obscureText: obscurePassword,
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: (_) => _login(),
+                              decoration: InputDecoration(
+                                labelText: "Password",
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                    color: LoginScreen.brandBlue,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => obscurePassword = !obscurePassword,
                                   ),
                                 ),
+                                errorText: _passwordError ?? _authError,
                               ),
-                              const SizedBox(height: 16),
+                            ),
+                            const SizedBox(height: 16),
 
-                              TextField(
-                                controller: passwordController,
-                                focusNode: passwordFocusNode,
-                                obscureText: obscurePassword,
-                                onChanged: (_) => _clearInlineErrors(),
-                                onSubmitted: (_) => _login(),
-                                decoration: InputDecoration(
-                                  labelText: "Password",
-                                  prefixIcon: const Icon(Icons.lock_outline),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      obscurePassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility,
-                                      color: LoginScreen.brandBlue,
-                                    ),
-                                    onPressed: () => setState(
-                                      () => obscurePassword = !obscurePassword,
-                                    ),
-                                  ),
-                                  errorText: _passwordError ?? _authError,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () => Navigator.pushNamed(
-                                    context,
-                                    '/forgot-password',
-                                  ),
-                                  child: const Text(
-                                    "Forgot password?",
-                                    style: TextStyle(
-                                      color: LoginScreen.brandBlue,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 10),
-
-                              SizedBox(
-                                width: double.infinity,
-                                height: 52,
-                                child: isLoading
-                                    ? const Center(
-                                        child: CircularProgressIndicator(),
-                                      )
-                                    : FilledButton(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: LoginScreen.brandBlue,
-                                          foregroundColor: Colors.white,
-                                          textStyle: const TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(14),
-                                          ),
-                                        ),
-                                        onPressed: _login,
-                                        child: const Text("Login"),
-                                      ),
-                              ),
-
-                              const SizedBox(height: 14),
-
-                              // ✅ Brand divider to add more blue “within the page”
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Divider(
-                                      color: LoginScreen.brandBlue
-                                          .withOpacity(0.18),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                    ),
-                                    child: Text(
-                                      "OR",
-                                      style: theme.textTheme.labelMedium
-                                          ?.copyWith(
-                                        color: const Color(0xFF667085),
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Divider(
-                                      color: LoginScreen.brandBlue
-                                          .withOpacity(0.18),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 10),
-
-                              TextButton(
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
                                 onPressed: () =>
-                                    Navigator.pushNamed(context, '/signup'),
+                                    Navigator.pushNamed(context, '/forgot-password'),
                                 child: const Text(
-                                  "Create a new account",
+                                  "Forgot password?",
                                   style: TextStyle(
                                     color: LoginScreen.brandBlue,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: isLoading
+                                  ? const Center(child: CircularProgressIndicator())
+                                  : FilledButton(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: LoginScreen.brandBlue,
+                                        foregroundColor: Colors.white,
+                                        textStyle: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                      ),
+                                      onPressed: _login,
+                                      child: const Text("Login"),
+                                    ),
+                            ),
+
+                            const SizedBox(height: 14),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(
+                                    color: LoginScreen.brandBlue.withOpacity(0.18),
+                                  ),
+                                ),
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 10),
+                                  child: Text(
+                                    "OR",
+                                    style: theme.textTheme.labelMedium?.copyWith(
+                                      color: const Color(0xFF667085),
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Divider(
+                                    color: LoginScreen.brandBlue.withOpacity(0.18),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/signup'),
+                              child: const Text(
+                                "Create a new account",
+                                style: TextStyle(
+                                  color: LoginScreen.brandBlue,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            // ----------------------------------------------------------
+                          ],
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
+            ),
 
-              const SizedBox(height: 48),
+            const SizedBox(height: 48),
 
-              // ✅ Footer (kept, just cleaner on white)
-              CenteredForm(
-                child: Column(
-                  children: [
-                    Text(
-                      "© 2026 Axume & Associates CPAs, AAC",
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
+            // ✅ Footer in scroll on small screens
+            CenteredForm(
+              child: Column(
+                children: [
+                  Text(
+                    "© 2026 Axume & Associates CPAs, AAC",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Professional Accounting and Advisory Services.\nAll rights reserved.",
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085).withOpacity(0.88),
-                        height: 1.4,
-                      ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Professional Accounting and Advisory Services.\nAll rights reserved.",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085).withOpacity(0.88),
+                      height: 1.4,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
+          ],
+        );
+      }
+
+      // ✅ Tall screens (web): pin footer using Column + Expanded scroll
+      return Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              children: [
+                // (Same content as above, but WITHOUT the footer)
+                CenteredForm(
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: LoginScreen.brandBlue.withOpacity(0.22),
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: LoginScreen.brandBlue.withOpacity(0.18),
+                              blurRadius: 22,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: const ImageIcon(
+                          AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                          size: 92,
+                          color: LoginScreen.brandBlue,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        height: 6,
+                        width: 84,
+                        decoration: BoxDecoration(
+                          color: LoginScreen.brandBlue.withOpacity(0.22),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: SlideTransition(
+                    position: _slideAnimation,
+                    child: CenteredForm(
+                      child: Theme(
+                        data: theme.copyWith(inputDecorationTheme: inputTheme),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: LoginScreen.brandBlue.withOpacity(0.12),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 18,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              children: [
+                                // ✅ KEEP your existing login form content here exactly as-is
+                                // (same as the form block above)
+                                Text(
+                                  "Login",
+                                  style: theme.textTheme.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: LoginScreen.brandBlue,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  "Welcome back — sign in to continue",
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF475467),
+                                  ),
+                                ),
+                                const SizedBox(height: 22),
+
+                                TextField(
+                                  controller: emailController,
+                                  focusNode: emailFocusNode,
+                                  textInputAction: TextInputAction.next,
+                                  onChanged: (_) => _clearInlineErrors(),
+                                  onSubmitted: (_) => FocusScope.of(context)
+                                      .requestFocus(passwordFocusNode),
+                                  decoration: InputDecoration(
+                                    labelText: "Email",
+                                    prefixIcon: const Icon(Icons.mail_outline),
+                                    errorText:
+                                        _emailError ?? (showAuthError ? " " : null),
+                                    errorStyle: const TextStyle(
+                                      height: 0.1,
+                                      fontSize: 0.1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+
+                                TextField(
+                                  controller: passwordController,
+                                  focusNode: passwordFocusNode,
+                                  obscureText: obscurePassword,
+                                  onChanged: (_) => _clearInlineErrors(),
+                                  onSubmitted: (_) => _login(),
+                                  decoration: InputDecoration(
+                                    labelText: "Password",
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        obscurePassword
+                                            ? Icons.visibility_off
+                                            : Icons.visibility,
+                                        color: LoginScreen.brandBlue,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => obscurePassword = !obscurePassword,
+                                      ),
+                                    ),
+                                    errorText: _passwordError ?? _authError,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: () => Navigator.pushNamed(
+                                        context, '/forgot-password'),
+                                    child: const Text(
+                                      "Forgot password?",
+                                      style: TextStyle(
+                                        color: LoginScreen.brandBlue,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                SizedBox(
+                                  width: double.infinity,
+                                  height: 52,
+                                  child: isLoading
+                                      ? const Center(
+                                          child: CircularProgressIndicator(),
+                                        )
+                                      : FilledButton(
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: LoginScreen.brandBlue,
+                                            foregroundColor: Colors.white,
+                                            textStyle: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ),
+                                          onPressed: _login,
+                                          child: const Text("Login"),
+                                        ),
+                                ),
+
+                                const SizedBox(height: 14),
+
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Divider(
+                                        color: LoginScreen.brandBlue
+                                            .withOpacity(0.18),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      child: Text(
+                                        "OR",
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                          color: const Color(0xFF667085),
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Divider(
+                                        color: LoginScreen.brandBlue
+                                            .withOpacity(0.18),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pushNamed(context, '/signup'),
+                                  child: const Text(
+                                    "Create a new account",
+                                    style: TextStyle(
+                                      color: LoginScreen.brandBlue,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+
+          // ✅ Pinned footer (only on tall screens)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: CenteredForm(
+              child: Column(
+                children: [
+                  Text(
+                    "© 2026 Axume & Associates CPAs, AAC",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Professional Accounting and Advisory Services.\nAll rights reserved.",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085).withOpacity(0.88),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  ),
+),
         ],
       ),
     );
