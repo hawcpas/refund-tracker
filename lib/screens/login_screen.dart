@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
+import '../theme/app_colors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -48,12 +49,6 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _logoPad = 10;
   static const double _accentH = 4;
   static const double _accentW = 72; // ⬆️ match visual weight
-
-  // ✅ SOLID background color (no gradient)
-  // Intuit-like light gray
-  static const Color _pageBg = Color(0xFFF6F7F9);
-  // If you want solid brand blue instead, use:
-  // static const Color _pageBg = LoginScreen.brandBlue;
 
   @override
   void initState() {
@@ -156,7 +151,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _loginCard(ThemeData theme, bool showAuthError) {
     // If you choose solid brand blue background, flip these for contrast.
-    final bool darkBg = _pageBg == LoginScreen.brandBlue;
+    final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
 
     return FadeTransition(
       opacity: _fadeAnimation,
@@ -165,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen>
         child: CenteredForm(
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white, // ✅ pure white card
+              color: AppColors.cardBackground, // ✅ pure white card
               borderRadius: BorderRadius.circular(_cardRadius),
               border: Border.all(color: Colors.black.withOpacity(0.06)),
               boxShadow: [
@@ -186,7 +181,7 @@ class _LoginScreenState extends State<LoginScreen>
                   const ImageIcon(
                     AssetImage('assets/icons/aa_logo_imageicon_256.png'),
                     size: _logoSize,
-                    color: LoginScreen.brandBlue,
+                    color: AppColors.brandBlue,
                   ),
                   const SizedBox(height: 10),
 
@@ -195,7 +190,7 @@ class _LoginScreenState extends State<LoginScreen>
                     height: _accentH,
                     width: _accentW,
                     decoration: BoxDecoration(
-                      color: LoginScreen.brandBlue.withOpacity(0.14),
+                      color: AppColors.brandBlue.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -231,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen>
                       labelText: "Email",
                       prefixIcon: const Icon(
                         Icons.mail_outline,
-                        color: LoginScreen.brandBlue,
+                        color: AppColors.brandBlue,
                       ),
                       errorText: _emailError ?? (showAuthError ? " " : null),
                       errorStyle: const TextStyle(height: 0.1, fontSize: 0.1),
@@ -249,14 +244,14 @@ class _LoginScreenState extends State<LoginScreen>
                       labelText: "Password",
                       prefixIcon: const Icon(
                         Icons.lock_outline,
-                        color: LoginScreen.brandBlue,
+                        color: AppColors.brandBlue,
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           obscurePassword
                               ? Icons.visibility_off
                               : Icons.visibility,
-                          color: LoginScreen.brandBlue,
+                          color: AppColors.brandBlue,
                         ),
                         onPressed: () => setState(() {
                           obscurePassword = !obscurePassword;
@@ -275,7 +270,7 @@ class _LoginScreenState extends State<LoginScreen>
                       child: const Text(
                         "Forgot password?",
                         style: TextStyle(
-                          color: LoginScreen.brandBlue,
+                          color: AppColors.brandBlue,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -291,8 +286,8 @@ class _LoginScreenState extends State<LoginScreen>
                         ? const Center(child: CircularProgressIndicator())
                         : FilledButton(
                             style: FilledButton.styleFrom(
-                              backgroundColor: LoginScreen.brandBlue,
-                              foregroundColor: Colors.white,
+                              backgroundColor: AppColors.brandBlue,
+                              foregroundColor: AppColors.cardBackground,
                               textStyle: const TextStyle(
                                 fontWeight: FontWeight.w900,
                               ),
@@ -317,7 +312,7 @@ class _LoginScreenState extends State<LoginScreen>
                         child: Text(
                           "OR",
                           style: theme.textTheme.labelMedium?.copyWith(
-                            color: const Color(0xFF667085),
+                            color: AppColors.lightGrey,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -335,7 +330,7 @@ class _LoginScreenState extends State<LoginScreen>
                     child: const Text(
                       "Create a new account",
                       style: TextStyle(
-                        color: LoginScreen.brandBlue,
+                        color: AppColors.brandBlue,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -356,10 +351,10 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _footer(ThemeData theme) {
     // If background becomes solid blue, you may want white footer text.
-    final bool darkBg = _pageBg == LoginScreen.brandBlue;
+    final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
     final Color footerColor = darkBg
-        ? Colors.white.withOpacity(0.86)
-        : const Color(0xFF667085);
+        ? AppColors.cardBackground.withOpacity(0.86)
+        : AppColors.mutedText;
 
     return CenteredForm(
       child: Column(
@@ -378,8 +373,8 @@ class _LoginScreenState extends State<LoginScreen>
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: darkBg
-                  ? Colors.white.withOpacity(0.78)
-                  : const Color(0xFF667085).withOpacity(0.88),
+                  ? AppColors.cardBackground.withOpacity(0.78)
+                  : AppColors.mutedText,
               height: 1.4,
             ),
           ),
@@ -394,7 +389,7 @@ class _LoginScreenState extends State<LoginScreen>
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor: _pageBg, // ✅ SOLID BACKGROUND (no gradient)
+      backgroundColor: AppColors.pageBackgroundLight, // ✅ SOLID BACKGROUND (no gradient)
       body: Stack(
         children: [
           Positioned.fill(

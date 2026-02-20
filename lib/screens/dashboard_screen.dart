@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:refund_tracker/widgets/centered_form.dart';
 import 'package:refund_tracker/widgets/centered_section.dart';
+import '../theme/app_colors.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
-
-  static const Color brandBlue = Color(0xFF08449E);
-  static const Color pageBg = Color(0xFFF6F7F9);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: pageBg,
+      // ✅ Uses global background color
+      backgroundColor: AppColors.pageBackgroundLight,
+
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
@@ -24,124 +24,130 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        children: [
-          // ✅ PROFESSIONAL HEADER (NOT A CARD)
-          CenteredSection(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Row(
+
+      // ✅ Paint background behind body too (prevents any wash-out)
+      body: ColoredBox(
+        color: AppColors.pageBackgroundLight,
+        child: ListView(
+          // ✅ Add horizontal padding so the background is visible on sides
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
+          children: [
+            // ✅ PROFESSIONAL HEADER (NOT A CARD)
+            CenteredSection(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Small brand badge (subtle)
+                    Container(
+                      height: 36,
+                      width: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.dashboard_rounded,
+                        color: AppColors.brandBlue,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Welcome back",
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.15,
+                              color: const Color(0xFF101828),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Manage your account and security settings.",
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF475467),
+                              height: 1.30,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // ✅ ACCOUNT SECTION
+            CenteredSection(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Small brand badge (subtle)
-                  Container(
-                    height: 36,
-                    width: 36,
-                    decoration: BoxDecoration(
-                      color: brandBlue.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.dashboard_rounded,
-                      color: brandBlue,
-                      size: 20,
+                  Text(
+                    "Account",
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                      color: const Color(0xFF101828),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Welcome back",
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.15,
-                            color: const Color(0xFF101828),
-                          ),
+                  const SizedBox(height: 8),
+
+                  _SubtleHoverTile(
+                    icon: Icons.lock_reset,
+                    title: "Change password",
+                    subtitle: "Update your login credentials",
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/change-password'),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 28),
+
+            // ✅ LOGOUT
+            CenteredForm(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 46,
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => _confirmLogout(context),
+                      icon: const Icon(Icons.logout),
+                      label: const Text("Logout"),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: AppColors.cardBackground,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          "Manage your account and security settings.",
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            height: 1.30,
-                          ),
-                        ),
-                      ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "You can change your password any time from Account settings.",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.lightGrey,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
 
-          const SizedBox(height: 18),
-
-          // ✅ ACCOUNT SECTION
-          CenteredSection(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Account",
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                    color: const Color(0xFF101828),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // ✅ Professional tile: white card + subtle hover darkening ONLY
-                _SubtleHoverTile(
-                  icon: Icons.lock_reset,
-                  title: "Change password",
-                  subtitle: "Update your login credentials",
-                  onTap: () => Navigator.pushNamed(context, '/change-password'),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 28),
-
-          // ✅ LOGOUT
-          CenteredForm(
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 46,
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => _confirmLogout(context),
-                    icon: const Icon(Icons.logout),
-                    label: const Text("Logout"),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: brandBlue,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "You can change your password any time from Account settings.",
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-        ],
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -159,8 +165,8 @@ class DashboardScreen extends StatelessWidget {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: brandBlue,
-              foregroundColor: Colors.white,
+              backgroundColor: AppColors.brandBlue,
+              foregroundColor: AppColors.cardBackground,
             ),
             onPressed: () {
               Navigator.pop(context);
@@ -195,8 +201,6 @@ class _SubtleHoverTile extends StatefulWidget {
 class _SubtleHoverTileState extends State<_SubtleHoverTile> {
   bool _hovered = false;
 
-  static const Color brandBlue = DashboardScreen.brandBlue;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -209,7 +213,7 @@ class _SubtleHoverTileState extends State<_SubtleHoverTile> {
         borderRadius: BorderRadius.circular(14),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.cardBackground,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.black.withOpacity(0.06)),
             boxShadow: [
@@ -231,15 +235,14 @@ class _SubtleHoverTileState extends State<_SubtleHoverTile> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  // Brand badge (never purple)
                   Container(
                     height: 40,
                     width: 40,
                     decoration: BoxDecoration(
-                      color: brandBlue.withOpacity(0.10),
+                      color: AppColors.brandBlue.withOpacity(0.10),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(widget.icon, color: brandBlue, size: 22),
+                    child: Icon(widget.icon, color: AppColors.brandBlue, size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -265,7 +268,7 @@ class _SubtleHoverTileState extends State<_SubtleHoverTile> {
                   ),
                   Icon(
                     Icons.chevron_right,
-                    color: brandBlue.withOpacity(0.85),
+                    color: AppColors.brandBlue.withOpacity(0.85),
                   ),
                 ],
               ),

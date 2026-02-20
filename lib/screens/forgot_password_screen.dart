@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
+import '../theme/app_colors.dart';
 
 enum ResetStatus { idle, sending, sent, error }
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
-
-  static const Color brandBlue = Color(0xFF08449E);
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
@@ -31,7 +30,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   static const double _pageVPad = 28;
   static const double _cardRadius = 18;
   static const double _cardPad = 16;
-  static const double _fieldGap = 12;
   static const double _blockGap = 16;
   static const double _buttonH = 46;
   static const double _footerGap = 24;
@@ -41,8 +39,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   static const double _accentH = 4;
   static const double _accentW = 72;
 
-  // ✅ Solid background (NO gradient)
-  static const Color _pageBg = Color(0xFFF6F7F9);
+  // ✅ Makes background visible on sides (important!)
+  static const double _pageHPad = 18;
 
   @override
   void initState() {
@@ -143,8 +141,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     IconData? bannerIcon;
 
     if (_status == ResetStatus.sent) {
-      bannerBg = ForgotPasswordScreen.brandBlue.withOpacity(0.10);
-      bannerFg = ForgotPasswordScreen.brandBlue;
+      bannerBg = AppColors.brandBlue.withOpacity(0.10);
+      bannerFg = AppColors.brandBlue;
       bannerIcon = Icons.mark_email_read_outlined;
     } else if (_status == ResetStatus.error) {
       bannerBg = Colors.red.withOpacity(0.10);
@@ -152,219 +150,216 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       bannerIcon = Icons.error_outline;
     }
 
-    return Scaffold(
-      backgroundColor: _pageBg,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final bool pinFooter = constraints.maxHeight >= 820;
+    final Widget content = FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: CenteredForm(
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(_cardRadius),
+              border: Border.all(color: Colors.black.withOpacity(0.06)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(_cardPad),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const ImageIcon(
+                    AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+                    size: _logoSize,
+                    color: AppColors.brandBlue,
+                  ),
+                  const SizedBox(height: 14),
 
-          Widget content = FadeTransition(
-            opacity: _fadeAnimation,
-            child: SlideTransition(
-              position: _slideAnimation,
-              child: CenteredForm(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(_cardRadius),
-                    border:
-                        Border.all(color: Colors.black.withOpacity(0.06)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
-                        blurRadius: 18,
-                        offset: const Offset(0, 10),
+                  Container(
+                    height: _accentH,
+                    width: _accentW,
+                    alignment: Alignment.center,
+                    margin: const EdgeInsets.only(bottom: _blockGap),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandBlue.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        color: AppColors.brandBlue,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        "Reset password",
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF101828),
+                        ),
                       ),
                     ],
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(_cardPad),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // ✅ Logo (inside card, no box)
-                        const ImageIcon(
-                          AssetImage(
-                              'assets/icons/aa_logo_imageicon_256.png'),
-                          size: _logoSize,
-                          color: ForgotPasswordScreen.brandBlue,
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          height: _accentH,
-                          width: _accentW,
-                          alignment: Alignment.center,
-                          margin: const EdgeInsets.only(bottom: _blockGap),
-                          decoration: BoxDecoration(
-                            color: ForgotPasswordScreen.brandBlue
-                                .withOpacity(0.14),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
 
-                        // ✅ Back row
-                        Row(
-                          children: [
-                            IconButton(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.arrow_back_rounded),
-                              color: ForgotPasswordScreen.brandBlue,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Reset password",
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: const Color(0xFF101828),
-                              ),
-                            ),
-                          ],
-                        ),
+                  const SizedBox(height: 8),
 
-                        const SizedBox(height: 8),
-
-                        Text(
-                          "Forgot your password?",
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF101828),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-
-                        Text(
-                          "Enter your email address and we’ll send you a link to reset your password.",
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: _blockGap),
-
-                        if (_message != null && bannerBg != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: bannerBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color:
-                                    bannerFg!.withOpacity(0.25),
-                              ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(bannerIcon,
-                                    size: 20, color: bannerFg),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _message!,
-                                    style:
-                                        theme.textTheme.bodySmall?.copyWith(
-                                      color: bannerFg,
-                                      height: 1.35,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: _blockGap),
-                        ],
-
-                        TextField(
-                          controller: emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          onChanged: (_) => _clear(),
-                          decoration: InputDecoration(
-                            labelText: "Email",
-                            prefixIcon: const Icon(
-                              Icons.mail_outline,
-                              color: ForgotPasswordScreen.brandBlue,
-                            ),
-                            errorText: _emailError,
-                          ),
-                        ),
-
-                        const SizedBox(height: _blockGap),
-
-                        SizedBox(
-                          height: _buttonH,
-                          child: FilledButton(
-                            onPressed: _status == ResetStatus.sending
-                                ? null
-                                : _sendReset,
-                            style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  ForgotPasswordScreen.brandBlue,
-                              foregroundColor: Colors.white,
-                              textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w900),
-                              shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: _status == ResetStatus.sending
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text("Send reset link"),
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text(
-                            "Back to login",
-                            style: TextStyle(
-                              color: ForgotPasswordScreen.brandBlue,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    "Forgot your password?",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF101828),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 6),
+
+                  Text(
+                    "Enter your email address and we’ll send you a link to reset your password.",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF475467),
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: _blockGap),
+
+                  if (_message != null && bannerBg != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: bannerBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: bannerFg!.withOpacity(0.25)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(bannerIcon, size: 20, color: bannerFg),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _message!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: bannerFg,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: _blockGap),
+                  ],
+
+                  TextField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    onChanged: (_) => _clear(),
+                    decoration: const InputDecoration(
+                      labelText: "Email",
+                      prefixIcon: Icon(
+                        Icons.mail_outline,
+                        color: AppColors.brandBlue,
+                      ),
+                    ).copyWith(
+                      errorText: _emailError,
+                    ),
+                  ),
+
+                  const SizedBox(height: _blockGap),
+
+                  SizedBox(
+                    height: _buttonH,
+                    child: FilledButton(
+                      onPressed:
+                          _status == ResetStatus.sending ? null : _sendReset,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: AppColors.cardBackground,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _status == ResetStatus.sending
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.cardBackground,
+                              ),
+                            )
+                          : const Text("Send reset link"),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      "Back to login",
+                      style: TextStyle(
+                        color: AppColors.brandBlue,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          );
+          ),
+        ),
+      ),
+    );
 
-          if (!pinFooter) {
-            return ListView(
-              padding:
-                  const EdgeInsets.symmetric(vertical: _pageVPad),
+    return Scaffold(
+      backgroundColor: AppColors.pageBackgroundLight,
+      // ✅ Forces the background color behind everything in the body too
+      body: ColoredBox(
+        color: AppColors.pageBackgroundLight,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final bool pinFooter = constraints.maxHeight >= 820;
+
+            if (!pinFooter) {
+              return ListView(
+                padding: const EdgeInsets.symmetric(
+                  vertical: _pageVPad,
+                  horizontal: _pageHPad,
+                ),
+                children: [
+                  content,
+                  const SizedBox(height: _footerGap),
+                ],
+              );
+            }
+
+            return Column(
               children: [
-                content,
-                const SizedBox(height: _footerGap),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: _pageVPad,
+                      horizontal: _pageHPad,
+                    ),
+                    children: [content],
+                  ),
+                ),
               ],
             );
-          }
-
-          return Column(
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(vertical: _pageVPad),
-                  children: [content],
-                ),
-              ),
-            ],
-          );
-        },
+          },
+        ),
       ),
     );
   }

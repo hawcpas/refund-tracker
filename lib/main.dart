@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:refund_tracker/theme/app_colors.dart';
 import 'firebase_options.dart';
 
 import 'screens/login_screen.dart';
@@ -8,12 +9,6 @@ import 'screens/signup_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/verify_email_screen.dart';
 import 'screens/forgot_password_screen.dart';
-
-// ✅ SINGLE SOURCE OF TRUTH — BRAND + PAGE BACKGROUND
-const kBrandBlue = Color(0xFF08449E);
-
-// ✅ Auth / portal background (matches Login / Signup / Forgot)
-const kPageBackground = Color(0xFFF6F7F9);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,12 +26,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: kBrandBlue,
+      seedColor: AppColors.brandBlue,
       brightness: Brightness.light,
     );
 
     return MaterialApp(
-      title: 'A&A Portal',
+      title: 'Axume & Associates CPAs Portal',
       debugShowCheckedModeBanner: false,
 
       theme: ThemeData(
@@ -45,11 +40,11 @@ class MyApp extends StatelessWidget {
 
         // ✅ DEFAULT APP BACKGROUND
         // Auth screens rely on this
-        scaffoldBackgroundColor: kPageBackground,
+        scaffoldBackgroundColor: AppColors.pageBackgroundLight,
 
         // ✅ PROFESSIONAL APP BAR (Dashboard, Change Password, etc.)
         appBarTheme: const AppBarTheme(
-          backgroundColor: kBrandBlue,
+          backgroundColor: AppColors.brandBlue,
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: false,
@@ -80,14 +75,14 @@ class MyApp extends StatelessWidget {
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(
-              color: kBrandBlue.withOpacity(0.16),
+              color: AppColors.brandBlue.withOpacity(0.16),
               width: 1,
             ),
           ),
           focusedBorder: const OutlineInputBorder(
             borderRadius: BorderRadius.all(Radius.circular(12)),
             borderSide: BorderSide(
-              color: kBrandBlue,
+              color: AppColors.brandBlue,
               width: 1.6,
             ),
           ),
@@ -95,7 +90,7 @@ class MyApp extends StatelessWidget {
 
         // ✅ ICON THEME (prefix icons inherit brand tone)
         iconTheme: const IconThemeData(
-          color: kBrandBlue,
+          color: AppColors.brandBlue,
         ),
 
         // ✅ TEXT THEME TWEAKS (subtle, enterprise)
