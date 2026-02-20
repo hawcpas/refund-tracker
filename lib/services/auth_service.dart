@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/user_profile.dart';
 import 'dart:async';
 
 /// Simple result wrapper so UI can show professional error messages.
@@ -51,6 +52,25 @@ class AuthService {
       }
     });
   }
+
+  
+Future<UserProfile?> getCurrentUserProfile() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return null;
+
+  final doc =
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+  if (!doc.exists) return null;
+
+  final data = doc.data()!;
+  return UserProfile(
+    firstName: data['firstName'] ?? '',
+    lastName: data['lastName'] ?? '',
+    email: data['email'] ?? user.email ?? '',
+  );
+}
+
   // =========================
 
   /// Ensures a user profile document exists in Firestore.
