@@ -22,6 +22,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   bool _checking = false;
   bool _resending = false;
 
+  // ✅ Show a professional delivery notice only on first view
+  bool _showInitialInfo = true;
+
   // ✅ Resend cooldown
   static const int _cooldownTotalSeconds = 60;
   int _resendCooldownSeconds = 0;
@@ -61,6 +64,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
   Future<void> _checkVerified() async {
     setState(() {
+      // ✅ Hide the initial info after the first user action
+      _showInitialInfo = false;
+
       _checking = true;
       _status = VerifyStatus.checking;
       _message = null;
@@ -93,6 +99,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     if (_resendCooldownSeconds > 0) return;
 
     setState(() {
+      // ✅ Hide the initial info after the first user action
+      _showInitialInfo = false;
+
       _resending = true;
       _message = null;
     });
@@ -192,7 +201,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
               ),
             ),
           ),
-
           ListView(
             padding: const EdgeInsets.symmetric(vertical: 40),
             children: [
@@ -220,9 +228,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 24),
-
               CenteredForm(
                 child: Card(
                   elevation: 0,
@@ -237,6 +243,42 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        // ✅ NEW: Professional delivery notice shown only at first
+                        if (_showInitialInfo) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceVariant,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 20,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    "Verification emails are usually delivered within a few moments. "
+                                    "In some cases, they may appear in your spam or junk folder. "
+                                    "If you don’t see it shortly, please check those folders before "
+                                    "requesting another email.",
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
                         if (_message != null && bannerColor != null) ...[
                           Container(
                             width: double.infinity,
@@ -288,9 +330,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                           width: double.infinity,
                           height: 52,
                           child: OutlinedButton(
-                            onPressed: (_resending || _resendCooldownSeconds > 0)
-                                ? null
-                                : _resend,
+                            onPressed:
+                                (_resending || _resendCooldownSeconds > 0)
+                                    ? null
+                                    : _resend,
                             child: _resending
                                 ? const SizedBox(
                                     height: 18,
