@@ -686,6 +686,7 @@ file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/screens/signup_scr
 file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/screens/verify_email_screen.dart
 file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/services/auth_service.dart
 file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/services/local_auth_prefs.dart
+file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/theme/app_colors.dart
 file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/widgets/centered_form.dart
 file:///C:/Flutter_Projects/refund_tracker/refund_tracker/lib/widgets/centered_section.dart
 file:///C:/Users/guillermo/AppData/Local/Pub/Cache/hosted/pub.dev/_flutterfire_internals-1.3.35/lib/_flutterfire_internals.dart
