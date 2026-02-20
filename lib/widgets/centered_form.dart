@@ -12,8 +12,8 @@ class CenteredForm extends StatelessWidget {
   const CenteredForm({
     super.key,
     required this.child,
-    this.maxWidth = 420,
-    this.horizontalPadding = 16,
+    this.maxWidth = 380,
+    this.horizontalPadding = 12,
   });
 
   @override

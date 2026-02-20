@@ -9,8 +9,11 @@ import 'screens/change_password_screen.dart';
 import 'screens/verify_email_screen.dart';
 import 'screens/forgot_password_screen.dart';
 
-// ✅ SINGLE SOURCE OF TRUTH FOR BRAND COLOR
+// ✅ SINGLE SOURCE OF TRUTH — BRAND + PAGE BACKGROUND
 const kBrandBlue = Color(0xFF08449E);
+
+// ✅ Auth / portal background (matches Login / Signup / Forgot)
+const kPageBackground = Color(0xFFF6F7F9);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,45 +43,72 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: colorScheme,
 
-        // ✅ Ensures white backgrounds stay white
-        scaffoldBackgroundColor: Colors.white,
+        // ✅ DEFAULT APP BACKGROUND
+        // Auth screens rely on this
+        scaffoldBackgroundColor: kPageBackground,
 
-        // ✅ PROFESSIONAL, CONSISTENT APP BAR
-        appBarTheme: AppBarTheme(
+        // ✅ PROFESSIONAL APP BAR (Dashboard, Change Password, etc.)
+        appBarTheme: const AppBarTheme(
           backgroundColor: kBrandBlue,
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: false,
-
-          // ✅ CRITICAL for Material 3
-          // Prevents gray / dull overlays
-          surfaceTintColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent, // critical for M3
         ),
 
-        // ✅ Consistent modern primary buttons
+        // ✅ CONSISTENT PRIMARY ACTIONS
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
-            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            minimumSize: const Size.fromHeight(46), // ✅ matches auth screens
+            textStyle: const TextStyle(fontWeight: FontWeight.w900),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
         ),
 
-        // ✅ Clean modern inputs across the app
+        // ✅ CLEAN, MODERN INPUTS (baseline)
+        // Screens may override details locally if needed
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFFF4F7FF),
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
           ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: kBrandBlue.withOpacity(0.16),
+              width: 1,
+            ),
+          ),
+          focusedBorder: const OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(
+              color: kBrandBlue,
+              width: 1.6,
+            ),
+          ),
+        ),
+
+        // ✅ ICON THEME (prefix icons inherit brand tone)
+        iconTheme: const IconThemeData(
+          color: kBrandBlue,
+        ),
+
+        // ✅ TEXT THEME TWEAKS (subtle, enterprise)
+        textTheme: const TextTheme(
+          titleLarge: TextStyle(fontWeight: FontWeight.w900),
+          titleMedium: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
 
+      // ✅ ENTRY POINT
       home: const LoginScreen(),
 
+      // ✅ ROUTES
       routes: {
         '/login': (_) => const LoginScreen(),
         '/dashboard': (_) => const DashboardScreen(),

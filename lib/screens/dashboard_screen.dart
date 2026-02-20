@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:refund_tracker/widgets/centered_form.dart';
 import 'package:refund_tracker/widgets/centered_section.dart';
-import 'package:refund_tracker/widgets/dashboard_widgets.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
-  // ✅ Brand color (accent only)
   static const Color brandBlue = Color(0xFF08449E);
+  static const Color pageBg = Color(0xFFF6F7F9);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: pageBg,
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
@@ -25,192 +24,123 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-
-      body: Stack(
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 20),
         children: [
-          // ✅ Extremely subtle brand wash
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    brandBlue.withOpacity(0.04),
-                    Colors.white,
-                    Colors.white,
-                  ],
-                  stops: const [0.0, 0.35, 1.0],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
+          // ✅ PROFESSIONAL HEADER (NOT A CARD)
+          CenteredSection(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Small brand badge (subtle)
+                  Container(
+                    height: 36,
+                    width: 36,
+                    decoration: BoxDecoration(
+                      color: brandBlue.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.dashboard_rounded,
+                      color: brandBlue,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Welcome back",
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.15,
+                            color: const Color(0xFF101828),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "Manage your account and security settings.",
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF475467),
+                            height: 1.30,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
 
-          ListView(
-            padding: const EdgeInsets.symmetric(vertical: 28),
-            children: [
-              // ✅ HERO / CONTEXT (white, calm)
-              CenteredSection(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: brandBlue.withOpacity(0.15)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 18,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 48,
-                        width: 48,
-                        decoration: BoxDecoration(
-                          color: brandBlue.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.dashboard_rounded,
-                          color: brandBlue,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Welcome back",
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.2,
-                                color: const Color(0xFF101828),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              "Manage your account and security settings.",
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF475467),
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+          const SizedBox(height: 18),
+
+          // ✅ ACCOUNT SECTION
+          CenteredSection(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Account",
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.2,
+                    color: const Color(0xFF101828),
                   ),
                 ),
-              ),
+                const SizedBox(height: 8),
 
-              const SizedBox(height: 36),
-
-              // ✅ ACCOUNT SECTION (ONLY real actions)
-              CenteredSection(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Account",
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.2,
-                        color: const Color(0xFF101828),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // ✅ Interactive card with professional hover / press feedback
-                    // ✅ Interactive card with professional hover / press feedback
-                    Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-
-                        // ✅ subtle interaction feedback
-                        splashColor: brandBlue.withOpacity(0.08),
-                        highlightColor: brandBlue.withOpacity(0.06),
-                        hoverColor: brandBlue.withOpacity(0.04),
-
-                        onTap: () {
-                          Navigator.pushNamed(context, '/change-password');
-                        },
-
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: brandBlue.withOpacity(0.12),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.035),
-                                blurRadius: 18,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-
-                          // ✅ NOT const + includes onTap (so your widget compiles)
-                          child: SettingsRow(
-                            icon: Icons.lock_reset,
-                            title: "Change password",
-                            subtitle: "Update your login credentials",
-                            onTap: () {
-                              // Leave this empty OR match the same navigation.
-                              // If SettingsRow internally handles taps, keep navigation here and remove InkWell's onTap.
-                              Navigator.pushNamed(context, '/change-password');
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                // ✅ Professional tile: white card + subtle hover darkening ONLY
+                _SubtleHoverTile(
+                  icon: Icons.lock_reset,
+                  title: "Change password",
+                  subtitle: "Update your login credentials",
+                  onTap: () => Navigator.pushNamed(context, '/change-password'),
                 ),
-              ),
-
-              const SizedBox(height: 40),
-
-              // ✅ EXIT / ESCAPE HATCH
-              CenteredForm(
-                child: Column(
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () => _confirmLogout(context),
-                      icon: const Icon(Icons.logout),
-                      label: const Text("Logout"),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: brandBlue,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size.fromHeight(52),
-                        textStyle: const TextStyle(fontWeight: FontWeight.w800),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      "You can change your password any time from Account settings.",
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-            ],
+              ],
+            ),
           ),
+
+          const SizedBox(height: 28),
+
+          // ✅ LOGOUT
+          CenteredForm(
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 46,
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => _confirmLogout(context),
+                    icon: const Icon(Icons.logout),
+                    label: const Text("Logout"),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: brandBlue,
+                      foregroundColor: Colors.white,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "You can change your password any time from Account settings.",
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF667085),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -239,6 +169,109 @@ class DashboardScreen extends StatelessWidget {
             child: const Text("Logout"),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// ✅ Subtle hover darken only (no lift, no border/shadow shifts)
+class _SubtleHoverTile extends StatefulWidget {
+  const _SubtleHoverTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  State<_SubtleHoverTile> createState() => _SubtleHoverTileState();
+}
+
+class _SubtleHoverTileState extends State<_SubtleHoverTile> {
+  bool _hovered = false;
+
+  static const Color brandBlue = DashboardScreen.brandBlue;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.black.withOpacity(0.06)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            // ✅ ONLY slight darkening (professional)
+            hoverColor: Colors.black.withOpacity(0.03),
+            highlightColor: Colors.black.withOpacity(0.05),
+            splashColor: Colors.black.withOpacity(0.04),
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  // Brand badge (never purple)
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: brandBlue.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(widget.icon, color: brandBlue, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: const Color(0xFF101828),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF475467),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: brandBlue.withOpacity(0.85),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
