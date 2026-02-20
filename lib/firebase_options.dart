@@ -41,46 +41,47 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyAImhni2h4YCgngxJRPCvNnQm2AMiFbdIg',
-    appId: '1:433871743225:web:d9dc40896344575aebda28',
-    messagingSenderId: '433871743225',
-    projectId: 'refund-tracker-app',
-    authDomain: 'refund-tracker-app.firebaseapp.com',
-    storageBucket: 'refund-tracker-app.firebasestorage.app',
+    apiKey: 'AIzaSyAWnPVYmQDVP38IVMuoZYdr3nxBMU4iiNE',
+    appId: '1:397125649830:web:ae8c2a889c5d73e460bb67',
+    messagingSenderId: '397125649830',
+    projectId: 'axume-portal-6bfd3',
+    authDomain: 'axume-portal-6bfd3.firebaseapp.com',
+    storageBucket: 'axume-portal-6bfd3.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCdyhL8G7JErVL5qvZ2lIbR42uHmFsZU34',
-    appId: '1:433871743225:android:50c97ea3ea9552acebda28',
-    messagingSenderId: '433871743225',
-    projectId: 'refund-tracker-app',
-    storageBucket: 'refund-tracker-app.firebasestorage.app',
+    apiKey: 'AIzaSyCBW7hamJBI14Jt14H4x_qAOw9yXY1QfHs',
+    appId: '1:397125649830:android:08fa429ec5e955bd60bb67',
+    messagingSenderId: '397125649830',
+    projectId: 'axume-portal-6bfd3',
+    storageBucket: 'axume-portal-6bfd3.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyB3g0etdwRwEWuJJIlovLuJVpBuu0SiU-4',
-    appId: '1:433871743225:ios:a30c24d60fd10fb2ebda28',
-    messagingSenderId: '433871743225',
-    projectId: 'refund-tracker-app',
-    storageBucket: 'refund-tracker-app.firebasestorage.app',
+    apiKey: 'AIzaSyAviGk8WEFrtVm6LB7K3BK1H_eqT0TXJ6g',
+    appId: '1:397125649830:ios:3aa5a515f9eaa0e460bb67',
+    messagingSenderId: '397125649830',
+    projectId: 'axume-portal-6bfd3',
+    storageBucket: 'axume-portal-6bfd3.firebasestorage.app',
     iosBundleId: 'com.example.refundTracker',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyB3g0etdwRwEWuJJIlovLuJVpBuu0SiU-4',
-    appId: '1:433871743225:ios:a30c24d60fd10fb2ebda28',
-    messagingSenderId: '433871743225',
-    projectId: 'refund-tracker-app',
-    storageBucket: 'refund-tracker-app.firebasestorage.app',
+    apiKey: 'AIzaSyAviGk8WEFrtVm6LB7K3BK1H_eqT0TXJ6g',
+    appId: '1:397125649830:ios:3aa5a515f9eaa0e460bb67',
+    messagingSenderId: '397125649830',
+    projectId: 'axume-portal-6bfd3',
+    storageBucket: 'axume-portal-6bfd3.firebasestorage.app',
     iosBundleId: 'com.example.refundTracker',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyAImhni2h4YCgngxJRPCvNnQm2AMiFbdIg',
-    appId: '1:433871743225:web:e03524346f3e98e2ebda28',
-    messagingSenderId: '433871743225',
-    projectId: 'refund-tracker-app',
-    authDomain: 'refund-tracker-app.firebaseapp.com',
-    storageBucket: 'refund-tracker-app.firebasestorage.app',
+    apiKey: 'AIzaSyAWnPVYmQDVP38IVMuoZYdr3nxBMU4iiNE',
+    appId: '1:397125649830:web:bf7e494428d425c960bb67',
+    messagingSenderId: '397125649830',
+    projectId: 'axume-portal-6bfd3',
+    authDomain: 'axume-portal-6bfd3.firebaseapp.com',
+    storageBucket: 'axume-portal-6bfd3.firebasestorage.app',
   );
+
 }
