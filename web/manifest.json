@@ -1,11 +1,11 @@
 {
-    "name": "Axume & Associates CPAs",
+    "name": "Axume & Associates CPAs®: Associate Portal",
     "short_name": "Axumecpas",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "Accounting, Tax & Bookkeeping app",
+    "description": "A secure platform for associates to manage work, collaborate, and access firm resources.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
