@@ -8,6 +8,12 @@
       "languageVersion": "3.2"
     },
     {
+      "name": "animated_background",
+      "rootUri": "file:///C:/Users/Guillermo%20Ramirez/AppData/Local/Pub/Cache/hosted/pub.dev/animated_background-2.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "async",
       "rootUri": "file:///C:/Users/Guillermo%20Ramirez/AppData/Local/Pub/Cache/hosted/pub.dev/async-2.13.0",
       "packageUri": "lib/",

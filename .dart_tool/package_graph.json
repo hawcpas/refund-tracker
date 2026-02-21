@@ -7,6 +7,7 @@
       "name": "refund_tracker",
       "version": "1.0.0+1",
       "dependencies": [
+        "animated_background",
         "cloud_firestore",
         "cupertino_icons",
         "firebase_auth",
@@ -44,6 +45,14 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "animated_background",
+      "version": "2.0.0",
+      "dependencies": [
+        "flutter",
+        "meta"
       ]
     },
     {
