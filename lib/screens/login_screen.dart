@@ -3,6 +3,7 @@ import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 import '../theme/app_colors.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,8 +13,6 @@ class LoginScreen extends StatefulWidget {
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
-
-enum _LoginBtnState { idle, loading, success }
 
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
@@ -25,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   final AuthService _auth = AuthService();
 
+  bool isLoading = false;
   bool obscurePassword = true;
 
   String? _emailError;
@@ -51,13 +51,16 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _accentH = 4;
   static const double _accentW = 72; // ⬆️ match visual weight
 
-  _LoginBtnState _btnState = _LoginBtnState.idle;
+  Future<void> _openLink(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      debugPrint('Could not launch $url');
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-
-    _btnState = _LoginBtnState.idle;
 
     _animationController = AnimationController(
       vsync: this,
@@ -103,9 +106,6 @@ class _LoginScreenState extends State<LoginScreen>
         _authError = null;
       });
     }
-    if (_btnState != _LoginBtnState.idle) {
-      setState(() => _btnState = _LoginBtnState.idle);
-    }
   }
 
   void _login() async {
@@ -133,31 +133,22 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    // ✅ Start loading state
-    setState(() => _btnState = _LoginBtnState.loading);
-
+    setState(() => isLoading = true);
     final user = await _auth.login(email, password);
+    setState(() => isLoading = false);
 
     if (!mounted) return;
 
     if (user == null) {
-      setState(() {
-        _btnState = _LoginBtnState.idle;
-        _authError = "The email or password you entered is incorrect.";
-      });
+      setState(
+        () => _authError = "The email or password you entered is incorrect.",
+      );
       return;
     }
-
-    // ✅ Success state immediately (turn button green)
-    setState(() => _btnState = _LoginBtnState.success);
 
     await LocalAuthPrefs.saveEmail(email);
 
     final verified = await _auth.isEmailVerified();
-    if (!mounted) return;
-
-    // ✅ Let the success animation be visible briefly
-    await Future.delayed(const Duration(milliseconds: 450));
     if (!mounted) return;
 
     Navigator.pushReplacementNamed(
@@ -299,70 +290,22 @@ class _LoginScreenState extends State<LoginScreen>
                   SizedBox(
                     width: double.infinity,
                     height: _buttonH,
-                    child: TweenAnimationBuilder<Color?>(
-                      tween: ColorTween(
-                        begin: AppColors.brandBlue,
-                        end: _btnState == _LoginBtnState.success
-                            ? const Color(0xFF86EFAC)
-                            : AppColors.brandBlue,
-                      ),
-                      duration: const Duration(milliseconds: 320),
-                      curve: Curves.easeOut,
-                      builder: (context, color, _) {
-                        return FilledButton(
-                          // ✅ Keep enabled so backgroundColor is respected
-                          onPressed: () {
-                            if (_btnState == _LoginBtnState.loading ||
-                                _btnState == _LoginBtnState.success)
-                              return;
-                            _login();
-                          },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: color,
-                            foregroundColor: _btnState == _LoginBtnState.success
-                                ? const Color(
-                                    0xFF064E3B,
-                                  ) // dark text for mint green
-                                : AppColors.cardBackground,
-                            textStyle: const TextStyle(
-                              fontWeight: FontWeight.w900,
+                    child: isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.brandBlue,
+                              foregroundColor: AppColors.cardBackground,
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            onPressed: _login,
+                            child: const Text("Login"),
                           ),
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 200),
-                            switchInCurve: Curves.easeOut,
-                            switchOutCurve: Curves.easeIn,
-                            child: _btnState == _LoginBtnState.loading
-                                ? const SizedBox(
-                                    key: ValueKey('loading'),
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppColors.cardBackground,
-                                    ),
-                                  )
-                                : _btnState == _LoginBtnState.success
-                                ? const Row(
-                                    key: ValueKey('success'),
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle_outline,
-                                        size: 18,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text("Success"),
-                                    ],
-                                  )
-                                : const Text("Login", key: ValueKey('idle')),
-                          ),
-                        );
-                      },
-                    ),
                   ),
 
                   const SizedBox(height: 12),
@@ -414,6 +357,43 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
+  Widget _legalLinksRow() {
+    TextStyle linkStyle = const TextStyle(
+      color: AppColors.brandBlue,
+      fontWeight: FontWeight.w700,
+      fontSize: 10,
+    );
+
+    Widget link(String label, String url) {
+      return InkWell(
+        onTap: () => _openLink(url),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Text(label, style: linkStyle),
+        ),
+      );
+    }
+
+    return CenteredForm(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        children: [
+          link("Website", "https://www.axumecpas.com/"),
+          const Text("·", style: TextStyle(color: Colors.grey)),
+          link(
+            "ShareFile",
+            "https://auth.sharefile.io/axumecpas/login?returnUrl=%2fconnect%2fauthorize%2fcallback%3fclient_id%3dDzi4UPUAg5l8beKdioecdcnmHUTWWln6%26state%3doPhvHV46Gj6A7JJhyll3ww--%26acr_values%3dtenant%253Aaxumecpas%26response_type%3dcode%26redirect_uri%3dhttps%253A%252F%252Faxumecpas.sharefile.com%252Flogin%252Foauthlogin%26scope%3dsharefile%253Arestapi%253Av3%2520sharefile%253Arestapi%253Av3-internal%2520offline_access%2520openid",
+          ),
+          const Text("·", style: TextStyle(color: Colors.grey)),
+          link("SecureSend", "https://www.securefirmportal.com/Account/Login/119710"),
+        ],
+      ),
+    );
+  }
+
   Widget _footer(ThemeData theme) {
     // If background becomes solid blue, you may want white footer text.
     final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
@@ -454,50 +434,37 @@ class _LoginScreenState extends State<LoginScreen>
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor:
-          AppColors.pageBackgroundLight, // ✅ SOLID BACKGROUND (no gradient)
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final bool pinFooter = constraints.maxHeight >= 820;
-
-                if (!pinFooter) {
-                  return ListView(
-                    padding: const EdgeInsets.symmetric(vertical: _pageVPad),
-                    children: [
-                      const SizedBox(height: 8),
-                      _loginCard(theme, showAuthError),
-                      const SizedBox(height: _footerGap),
-                      _footer(theme),
-                    ],
-                  );
-                }
-
-                return Column(
+      backgroundColor: AppColors.pageBackgroundLight,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ✅ Scrollable login content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 16,
+                ),
+                child: Column(
                   children: [
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: _pageVPad,
-                        ),
-                        children: [
-                          const SizedBox(height: 8),
-                          _loginCard(theme, showAuthError),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: _footer(theme),
-                    ),
+                    _loginCard(theme, showAuthError),
+
+                    const SizedBox(height: 12),
+
+                    // ✅ Intuit-style link row
+                    _legalLinksRow(),
                   ],
-                );
-              },
+                ),
+              ),
             ),
-          ),
-        ],
+
+            // ✅ Footer pinned to bottom
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _footer(theme),
+            ),
+          ],
+        ),
       ),
     );
   }
