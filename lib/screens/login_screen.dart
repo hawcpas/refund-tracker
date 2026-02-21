@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:animated_background/animated_background.dart'; // ✅ ADD
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
@@ -15,7 +16,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
 
@@ -44,12 +45,26 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _buttonH = 46;
   static const double _footerGap = 24;
 
-  // ✅ Logo inside card (Intuit-style)
   // ✅ Logo inside card (larger, no box)
-  static const double _logoSize = 80; // ⬆️ was 56
+  static const double _logoSize = 80;
   static const double _logoPad = 10;
   static const double _accentH = 4;
-  static const double _accentW = 72; // ⬆️ match visual weight
+  static const double _accentW = 72;
+
+  // ✅ Particle options (tuned for “professional + subtle”)
+  // Based on the ParticleOptions fields shown in examples/docs. [1](https://www.geeksforgeeks.org/flutter/animated-background-in-flutter/)[2](https://pub.dev/documentation/animated_background/latest/)
+  final ParticleOptions _particles = const ParticleOptions(
+    baseColor: AppColors.brandBlue,
+    spawnOpacity: 0.0,
+    opacityChangeRate: 0.25,
+    minOpacity: 0.06,
+    maxOpacity: 0.20,
+    particleCount: 55,
+    spawnMaxRadius: 10.0,
+    spawnMinRadius: 3.0,
+    spawnMaxSpeed: 55.0,
+    spawnMinSpeed: 18.0,
+  );
 
   Future<void> _openLink(String url) async {
     final uri = Uri.parse(url);
@@ -74,8 +89,8 @@ class _LoginScreenState extends State<LoginScreen>
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(
-          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-        );
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
 
     _animationController.forward();
     _loadSavedEmail();
@@ -140,9 +155,7 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (user == null) {
-      setState(
-        () => _authError = "The email or password you entered is incorrect.",
-      );
+      setState(() => _authError = "The email or password you entered is incorrect.");
       return;
     }
 
@@ -158,7 +171,6 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _loginCard(ThemeData theme, bool showAuthError) {
-    // If you choose solid brand blue background, flip these for contrast.
     final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
 
     return FadeTransition(
@@ -168,7 +180,7 @@ class _LoginScreenState extends State<LoginScreen>
         child: CenteredForm(
           child: Container(
             decoration: BoxDecoration(
-              color: AppColors.cardBackground, // ✅ pure white card
+              color: AppColors.cardBackground,
               borderRadius: BorderRadius.circular(_cardRadius),
               border: Border.all(color: Colors.black.withOpacity(0.06)),
               boxShadow: [
@@ -183,9 +195,6 @@ class _LoginScreenState extends State<LoginScreen>
               padding: const EdgeInsets.all(_cardPad),
               child: Column(
                 children: [
-                  // ✅ LOGO INSIDE CARD (Intuit-style)
-                  // ✅ Logo without a boxed container
-                  // ✅ Logo without a boxed container
                   const ImageIcon(
                     AssetImage('assets/icons/aa_logo_imageicon_256.png'),
                     size: _logoSize,
@@ -193,7 +202,6 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                   const SizedBox(height: 10),
 
-                  // ✅ Subtle accent rule (optional; keep or remove)
                   Container(
                     height: _accentH,
                     width: _accentW,
@@ -343,11 +351,6 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
                   ),
-
-                  if (darkBg) ...[
-                    // If you ever switch to solid blue background and want extra contrast,
-                    // you can optionally add a subtle divider or note here.
-                  ],
                 ],
               ),
             ),
@@ -388,14 +391,14 @@ class _LoginScreenState extends State<LoginScreen>
             "https://auth.sharefile.io/axumecpas/login?returnUrl=%2fconnect%2fauthorize%2fcallback%3fclient_id%3dDzi4UPUAg5l8beKdioecdcnmHUTWWln6%26state%3doPhvHV46Gj6A7JJhyll3ww--%26acr_values%3dtenant%253Aaxumecpas%26response_type%3dcode%26redirect_uri%3dhttps%253A%252F%252Faxumecpas.sharefile.com%252Flogin%252Foauthlogin%26scope%3dsharefile%253Arestapi%253Av3%2520sharefile%253Arestapi%253Av3-internal%2520offline_access%2520openid",
           ),
           const Text("·", style: TextStyle(color: Colors.grey)),
-          link("SecureSend", "https://www.securefirmportal.com/Account/Login/119710"),
+          link("SecureSend",
+              "https://www.securefirmportal.com/Account/Login/119710"),
         ],
       ),
     );
   }
 
   Widget _footer(ThemeData theme) {
-    // If background becomes solid blue, you may want white footer text.
     final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
     final Color footerColor = darkBg
         ? AppColors.cardBackground.withOpacity(0.86)
@@ -429,56 +432,81 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   @override
-Widget build(BuildContext context) {
-  final theme = Theme.of(context);
-  final bool showAuthError = _authError != null;
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bool showAuthError = _authError != null;
 
-  return Scaffold(
-    backgroundColor: AppColors.pageBackgroundLight,
-    // keep this true so content adjusts with keyboard/small height
-    resizeToAvoidBottomInset: true,
-    body: SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Pick a breakpoint that feels right for your design.
-          // If the whole safe-area height is below this, we stop pinning the footer.
-          const double footerBreakpoint = 620;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: true,
+      body: Stack(
+        children: [
+          // ✅ PARTICLE BACKGROUND LAYER
+          // AnimatedBackground usage pattern + vsync requirement per docs/examples. [2](https://pub.dev/documentation/animated_background/latest/)[1](https://www.geeksforgeeks.org/flutter/animated-background-in-flutter/)
+          Positioned.fill(
+            child: AnimatedBackground(
+              vsync: this,
+              behaviour: RandomParticleBehaviour(options: _particles),
+              child: const SizedBox.expand(),
+            ),
+          ),
 
-          final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
-
-          final footerWidget = Padding(
-            padding: const EdgeInsets.only(bottom: 14),
-            child: _footer(theme),
-          );
-
-          return Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                  child: Column(
-                    children: [
-                      _loginCard(theme, showAuthError),
-                      const SizedBox(height: 12),
-                      _legalLinksRow(),
-
-                      // If we are NOT pinning, put footer in the scroll content
-                      if (!pinFooter) ...[
-                        const SizedBox(height: 16),
-                        footerWidget,
-                      ],
-                    ],
-                  ),
+          // ✅ subtle overlay so particles never fight readability
+          IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.pageBackgroundLight.withOpacity(0.70),
+                    AppColors.pageBackgroundLight.withOpacity(0.60),
+                    AppColors.pageBackgroundLight.withOpacity(0.72),
+                  ],
                 ),
               ),
+            ),
+          ),
 
-              // If we ARE pinning, keep it outside the scroll
-              if (pinFooter) footerWidget,
-            ],
-          );
-        },
+          // ✅ YOUR EXISTING UI ON TOP
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const double footerBreakpoint = 620;
+                final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
+
+                final footerWidget = Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _footer(theme),
+                );
+
+                return Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 16),
+                        child: Column(
+                          children: [
+                            _loginCard(theme, showAuthError),
+                            const SizedBox(height: 12),
+                            _legalLinksRow(),
+                            if (!pinFooter) ...[
+                              const SizedBox(height: 16),
+                              footerWidget,
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (pinFooter) footerWidget,
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
-    ),
-  );
-}
+    );
+  }
 }

@@ -38,6 +38,7 @@ dependencies:
   google_sign_in: ^6.2.1
   shared_preferences: ^2.2.2
   url_launcher: ^6.2.5
+  animated_background: ^2.0.0
 
 
 
