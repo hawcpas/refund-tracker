@@ -429,43 +429,56 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bool showAuthError = _authError != null;
+Widget build(BuildContext context) {
+  final theme = Theme.of(context);
+  final bool showAuthError = _authError != null;
 
-    return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ✅ Scrollable login content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 16,
-                ),
-                child: Column(
-                  children: [
-                    _loginCard(theme, showAuthError),
+  return Scaffold(
+    backgroundColor: AppColors.pageBackgroundLight,
+    // keep this true so content adjusts with keyboard/small height
+    resizeToAvoidBottomInset: true,
+    body: SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Pick a breakpoint that feels right for your design.
+          // If the whole safe-area height is below this, we stop pinning the footer.
+          const double footerBreakpoint = 620;
 
-                    const SizedBox(height: 12),
+          final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
 
-                    // ✅ Intuit-style link row
-                    _legalLinksRow(),
-                  ],
+          final footerWidget = Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: _footer(theme),
+          );
+
+          return Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                  child: Column(
+                    children: [
+                      _loginCard(theme, showAuthError),
+                      const SizedBox(height: 12),
+                      _legalLinksRow(),
+
+                      // If we are NOT pinning, put footer in the scroll content
+                      if (!pinFooter) ...[
+                        const SizedBox(height: 16),
+                        footerWidget,
+                      ],
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-            // ✅ Footer pinned to bottom
-            Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: _footer(theme),
-            ),
-          ],
-        ),
+              // If we ARE pinning, keep it outside the scroll
+              if (pinFooter) footerWidget,
+            ],
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 }
