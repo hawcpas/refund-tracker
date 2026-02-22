@@ -89,8 +89,8 @@ class _LoginScreenState extends State<LoginScreen>
 
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-    );
+          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+        );
 
     _animationController.forward();
     _loadSavedEmail();
@@ -155,7 +155,9 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (user == null) {
-      setState(() => _authError = "The email or password you entered is incorrect.");
+      setState(
+        () => _authError = "The email or password you entered is incorrect.",
+      );
       return;
     }
 
@@ -341,14 +343,11 @@ class _LoginScreenState extends State<LoginScreen>
 
                   const SizedBox(height: 8),
 
-                  TextButton(
-                    onPressed: () => Navigator.pushNamed(context, '/signup'),
-                    child: const Text(
-                      "Create a new account",
-                      style: TextStyle(
-                        color: AppColors.brandBlue,
-                        fontWeight: FontWeight.w800,
-                      ),
+                  Text(
+                    "Accounts are created by invitation only.",
+                    style: TextStyle(
+                      color: AppColors.mutedText,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -391,8 +390,10 @@ class _LoginScreenState extends State<LoginScreen>
             "https://auth.sharefile.io/axumecpas/login?returnUrl=%2fconnect%2fauthorize%2fcallback%3fclient_id%3dDzi4UPUAg5l8beKdioecdcnmHUTWWln6%26state%3doPhvHV46Gj6A7JJhyll3ww--%26acr_values%3dtenant%253Aaxumecpas%26response_type%3dcode%26redirect_uri%3dhttps%253A%252F%252Faxumecpas.sharefile.com%252Flogin%252Foauthlogin%26scope%3dsharefile%253Arestapi%253Av3%2520sharefile%253Arestapi%253Av3-internal%2520offline_access%2520openid",
           ),
           const Text("·", style: TextStyle(color: Colors.grey)),
-          link("SecureSend",
-              "https://www.securefirmportal.com/Account/Login/119710"),
+          link(
+            "SecureSend",
+            "https://www.securefirmportal.com/Account/Login/119710",
+          ),
         ],
       ),
     );
@@ -473,7 +474,8 @@ class _LoginScreenState extends State<LoginScreen>
             child: LayoutBuilder(
               builder: (context, constraints) {
                 const double footerBreakpoint = 620;
-                final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
+                final bool pinFooter =
+                    constraints.maxHeight >= footerBreakpoint;
 
                 final footerWidget = Padding(
                   padding: const EdgeInsets.only(bottom: 14),
@@ -485,7 +487,9 @@ class _LoginScreenState extends State<LoginScreen>
                     Expanded(
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 16),
+                          horizontal: 18,
+                          vertical: 16,
+                        ),
                         child: Column(
                           children: [
                             _loginCard(theme, showAuthError),
