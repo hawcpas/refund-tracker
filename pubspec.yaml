@@ -39,6 +39,7 @@ dependencies:
   shared_preferences: ^2.2.2
   url_launcher: ^6.2.5
   animated_background: ^2.0.0
+  cloud_functions: ^6.0.6
 
 
 

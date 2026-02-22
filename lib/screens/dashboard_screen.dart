@@ -180,6 +180,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 18),
 
             // ✅ ACCOUNT SECTION
+            // ✅ ACCOUNT SECTION
             CenteredSection(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,7 +195,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // ✅ NEW: Account settings (first/last name)
+                  // ✅ Account settings (existing)
                   _SubtleHoverTile(
                     icon: Icons.person_outline,
                     title: "Account settings",
@@ -206,10 +207,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       );
 
                       if (changed == true) {
-                        _loadProfile(); // ✅ THIS is what refreshes the name
+                        _loadProfile();
                       }
                     },
                   ),
+
+                  // ✅ ADD THIS RIGHT HERE (admin-only tile)
+                  if (_role.toLowerCase().trim() == 'admin') ...[
+                    const SizedBox(height: 10),
+                    _SubtleHoverTile(
+                      icon: Icons.admin_panel_settings_outlined,
+                      title: "Admin • Manage users",
+                      subtitle: "Invite users and manage access",
+                      onTap: () => Navigator.pushNamed(context, '/admin-users'),
+                    ),
+                  ],
                 ],
               ),
             ),
