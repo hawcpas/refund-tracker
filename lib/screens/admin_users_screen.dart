@@ -32,7 +32,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final doc = await _db.collection('users').doc(user.uid).get();
-    setState(() => _role = (doc.data()?['role'] ?? '').toString().toLowerCase());
+    setState(
+      () => _role = (doc.data()?['role'] ?? '').toString().toLowerCase(),
+    );
   }
 
   bool get _isAdmin => _role == 'admin';
@@ -44,8 +46,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String lastName,
   }) async {
     setState(() => _busy = true);
+
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('inviteUser');
+      // 1) Create user + Firestore doc via Cloud Function
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('inviteUser');
+
       final res = await callable.call({
         'email': email,
         'role': role,
@@ -54,31 +61,26 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       });
 
       final data = Map<String, dynamic>.from(res.data as Map);
-      final resetLink = (data['resetLink'] ?? '').toString();
+      final invitedEmail = (data['email'] ?? email).toString();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invite created for ${data['email']}')),
-      );
 
-      // Show reset link immediately until email sending is wired
-      if (resetLink.isNotEmpty) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Reset link (copy/paste)'),
-            content: SelectableText(resetLink),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-            ],
-          ),
-        );
-      }
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('User created for $invitedEmail')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invite failed: ${e.code}')),
-      );
+
+      final msg = [
+        'Invite failed: ${e.code}',
+        if (e.message != null) 'Message: ${e.message}',
+        if (e.details != null) 'Details: ${e.details}',
+      ].join('\n');
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      debugPrint(msg);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -101,9 +103,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Delete user'),
-        content: Text('Are you sure you want to delete $label?\n\nThis cannot be undone.'),
+        content: Text(
+          'Are you sure you want to delete $label?\n\nThis cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
@@ -116,20 +123,25 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     setState(() => _busy = true);
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('deleteUser');
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('deleteUser');
       await callable.call({'uid': uid, 'email': email});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Deleted $label')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Deleted $label')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: ${e.code}')),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      final msg = [
+        'Delete failed: ${e.code}',
+        if (e.message != null) 'Message: ${e.message}',
+        if (e.details != null) 'Details: ${e.details}',
+      ].join('\n');
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      debugPrint(msg);
     }
   }
 
@@ -186,7 +198,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: _busy
                 ? null
@@ -258,12 +273,17 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('users').snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+              if (!snap.hasData)
+                return const Center(child: CircularProgressIndicator());
 
               final docs = snap.data!.docs.toList();
               docs.sort((a, b) {
-                final ae = ((a.data() as Map)['email'] ?? a.id).toString().toLowerCase();
-                final be = ((b.data() as Map)['email'] ?? b.id).toString().toLowerCase();
+                final ae = ((a.data() as Map)['email'] ?? a.id)
+                    .toString()
+                    .toLowerCase();
+                final be = ((b.data() as Map)['email'] ?? b.id)
+                    .toString()
+                    .toLowerCase();
                 return ae.compareTo(be);
               });
 
@@ -284,10 +304,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         ? displayName
                         : ('$firstName $lastName').trim();
 
-                    final label = nameLabel.isNotEmpty ? '$nameLabel <$email>' : email;
+                    final label = nameLabel.isNotEmpty
+                        ? '$nameLabel <$email>'
+                        : email;
 
                     return ListTile(
-                      leading: Icon(isMe ? Icons.verified_user : Icons.person_outline),
+                      leading: Icon(
+                        isMe ? Icons.verified_user : Icons.person_outline,
+                      ),
                       title: Text(isMe ? '$label (You)' : label),
                       subtitle: Text('Role: $role • Status: $status'),
                       trailing: isMe
@@ -297,7 +321,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                               icon: const Icon(Icons.delete_outline),
                               onPressed: _busy
                                   ? null
-                                  : () => _deleteUser(uid: uid, email: email, label: label),
+                                  : () => _deleteUser(
+                                      uid: uid,
+                                      email: email,
+                                      label: label,
+                                    ),
                             ),
                     );
                   }).toList(),
@@ -313,7 +341,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('invites').snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+              if (!snap.hasData)
+                return const Center(child: CircularProgressIndicator());
               final docs = snap.data!.docs;
               if (docs.isEmpty) return const Text('No invites.');
 
@@ -328,7 +357,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
                     return ListTile(
                       leading: const Icon(Icons.mail_outline),
-                      title: Text(displayName.isNotEmpty ? '$displayName <$email>' : email),
+                      title: Text(
+                        displayName.isNotEmpty
+                            ? '$displayName <$email>'
+                            : email,
+                      ),
                       subtitle: Text('Role: $role • Status: $status'),
                     );
                   }).toList(),
