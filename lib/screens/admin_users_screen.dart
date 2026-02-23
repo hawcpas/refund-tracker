@@ -56,7 +56,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         return;
       }
 
-      // Force server read (avoids stale cache)
       final doc = await _db
           .collection('users')
           .doc(user.uid)
@@ -81,6 +80,254 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   bool get _isAdmin => _role == 'admin';
 
+  // -------------------------
+  // Cloud Function helpers
+  // -------------------------
+  HttpsCallable _callable(String name) {
+    return FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(name);
+  }
+
+  Future<void> _updateUser({
+    required String uid,
+    required String email,
+    required String role,
+    required String status,
+    required String reason,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      await _callable('updateUser').call({
+        'uid': uid,
+        'email': email,
+        'role': role,
+        'status': status,
+        'reason': reason,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User updated')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update failed: ${e.code} ${e.message ?? ''}')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _setUserDisabled({
+    required String uid,
+    required bool disabled,
+    required String reason,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      await _callable('setUserDisabled').call({
+        'uid': uid,
+        'disabled': disabled,
+        'reason': reason,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(disabled ? 'User deactivated' : 'User reactivated')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Action failed: ${e.code} ${e.message ?? ''}')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _sendPasswordReset({
+    required String uid,
+    required String email,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      await _callable('sendPasswordReset').call({
+        'uid': uid,
+        'email': email,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset sent to $email')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reset failed: ${e.code} ${e.message ?? ''}')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resendInvite({required String uid}) async {
+    setState(() => _busy = true);
+    try {
+      final res = await _callable('resendInvite').call({'uid': uid});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final email = (data['email'] ?? '').toString();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invite resent to $email')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Resend failed: ${e.code} ${e.message ?? ''}')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // -------------------------
+  // UI dialogs
+  // -------------------------
+  Future<String?> _promptReason({
+    required String title,
+    required String hint,
+  }) async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          decoration: InputDecoration(
+            labelText: hint,
+            prefixIcon: const Icon(Icons.note_alt_outlined),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return null;
+    return ctrl.text.trim();
+  }
+
+  Future<void> _showEditUserDialog({
+    required String uid,
+    required String currentEmail,
+    required String currentRole,
+    required String currentStatus,
+  }) async {
+    final emailCtrl = TextEditingController(text: currentEmail);
+
+    String role = (currentRole.isEmpty ? 'associate' : currentRole).toLowerCase().trim();
+    String status = (currentStatus.isEmpty ? 'active' : currentStatus).toLowerCase().trim();
+
+    final reasonCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit user'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(Icons.mail_outline),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: role,
+              decoration: const InputDecoration(
+                labelText: 'Role',
+                prefixIcon: Icon(Icons.admin_panel_settings_outlined),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'associate', child: Text('Associate')),
+                DropdownMenuItem(value: 'admin', child: Text('Admin')),
+              ],
+              onChanged: (v) => role = (v ?? 'associate'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: status,
+              decoration: const InputDecoration(
+                labelText: 'Status',
+                prefixIcon: Icon(Icons.verified_outlined),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'active', child: Text('Active')),
+                DropdownMenuItem(value: 'invited', child: Text('Invited')),
+                DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
+                DropdownMenuItem(value: 'pending', child: Text('Pending')),
+              ],
+              onChanged: (v) => status = (v ?? 'active'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Reason (audit note)',
+                prefixIcon: Icon(Icons.note_alt_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final email = emailCtrl.text.trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email')),
+      );
+      return;
+    }
+
+    await _updateUser(
+      uid: uid,
+      email: email,
+      role: role,
+      status: status,
+      reason: reasonCtrl.text.trim(),
+    );
+  }
+
+  // -------------------------
+  // Existing functions
+  // -------------------------
   Future<void> _inviteUser({
     required String email,
     required String role,
@@ -90,11 +337,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     setState(() => _busy = true);
 
     try {
-      final callable = FirebaseFunctions.instanceFor(
-        region: 'us-central1',
-      ).httpsCallable('inviteUser');
-
-      final res = await callable.call({
+      final res = await _callable('inviteUser').call({
         'email': email,
         'role': role,
         'firstName': firstName,
@@ -105,10 +348,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       final invitedEmail = (data['email'] ?? email).toString();
 
       if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('User created for $invitedEmail')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('User created for $invitedEmail')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -150,9 +392,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       context: context,
       builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete user'),
-        content: Text(
-          'Are you sure you want to delete $label?\n\nThis cannot be undone.',
-        ),
+        content: Text('Are you sure you want to delete $label?\n\nThis cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, false),
@@ -171,17 +411,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     setState(() => _busy = true);
 
     try {
-      final callable = FirebaseFunctions.instanceFor(
-        region: 'us-central1',
-      ).httpsCallable('deleteUser');
-
-      await callable.call({'uid': uid, 'email': email});
+      await _callable('deleteUser').call({'uid': uid, 'email': email});
 
       if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Deleted $label')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $label')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -347,25 +582,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ✅ LEFT: Invite action panel (fixed width)
                   SizedBox(
-                    width: 360, // ← adjust between 320–420 if you want
+                    width: 360,
                     child: Column(
                       children: [
                         PrimaryActionCard(
                           icon: Icons.person_add_alt_1,
                           title: 'Invite a user',
-                          subtitle:
-                              'Creates the Auth user + reset link + Firestore profile.',
+                          subtitle: 'Creates the Auth user + reset link + Firestore profile.',
                           onTap: _busy ? () {} : _showInviteDialog,
                         ),
                       ],
                     ),
                   ),
-
                   const SizedBox(width: 16),
-
-                  // ✅ RIGHT: Users list (fills remaining space)
                   Expanded(
                     child: Align(
                       alignment: Alignment.topCenter,
@@ -380,6 +610,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                             query: _userQuery,
                             searchCtrl: _userSearchCtrl,
                             onDeleteUser: _deleteUser,
+                            onEditUser: _showEditUserDialog,
+                            onResendInvite: _resendInvite,
+                            onSendPasswordReset: _sendPasswordReset,
+                            onSetDisabled: _setUserDisabled,
+                            promptReason: _promptReason,
                           ),
                         ),
                       ),
@@ -427,9 +662,7 @@ class _SearchHeader extends StatelessWidget {
         backgroundColor: theme.colorScheme.surface.withOpacity(0.4),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w800,
-          color: active
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
+          color: active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
         ),
       );
     }
@@ -437,14 +670,11 @@ class _SearchHeader extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.primary.withOpacity(0.05),
-        border: Border(
-          bottom: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
-        ),
+        border: Border(bottom: BorderSide(color: theme.dividerColor.withOpacity(0.35))),
       ),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Row(
         children: [
-          // ✅ SEARCH
           Expanded(
             child: TextField(
               controller: controller,
@@ -454,16 +684,11 @@ class _SearchHeader extends StatelessWidget {
                 isDense: true,
                 filled: true,
                 fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
-
           const SizedBox(width: 12),
-
-          // ✅ STATUS FILTER CHIPS
           Wrap(
             spacing: 6,
             children: [
@@ -491,8 +716,22 @@ class _UsersPane extends StatefulWidget {
     required String label,
     required String targetRole,
     required bool isLastAdmin,
-  })
-  onDeleteUser;
+  }) onDeleteUser;
+
+  final Future<void> Function({
+    required String uid,
+    required String currentEmail,
+    required String currentRole,
+    required String currentStatus,
+  }) onEditUser;
+
+  final Future<void> Function({required String uid}) onResendInvite;
+
+  final Future<void> Function({required String uid, required String email}) onSendPasswordReset;
+
+  final Future<void> Function({required String uid, required bool disabled, required String reason}) onSetDisabled;
+
+  final Future<String?> Function({required String title, required String hint}) promptReason;
 
   const _UsersPane({
     required this.db,
@@ -501,6 +740,11 @@ class _UsersPane extends StatefulWidget {
     required this.query,
     required this.searchCtrl,
     required this.onDeleteUser,
+    required this.onEditUser,
+    required this.onResendInvite,
+    required this.onSendPasswordReset,
+    required this.onSetDisabled,
+    required this.promptReason,
   });
 
   @override
@@ -510,14 +754,7 @@ class _UsersPane extends StatefulWidget {
 class _UsersPaneState extends State<_UsersPane> {
   String _statusFilter = 'all'; // all | active | invited
 
-  String _formatInviteDateTime(BuildContext context, DateTime dt) {
-    final loc = MaterialLocalizations.of(context);
-    final dateStr = loc.formatShortDate(dt);
-    final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
-    return '$dateStr • $timeStr';
-  }
-
-  String _formatLastSignIn(BuildContext context, DateTime dt) {
+  String _formatDateTime(BuildContext context, DateTime dt) {
     final loc = MaterialLocalizations.of(context);
     final dateStr = loc.formatShortDate(dt);
     final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
@@ -529,13 +766,11 @@ class _UsersPaneState extends State<_UsersPane> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // ✅ SEARCH + FILTER HEADER
         _SearchHeader(
           controller: widget.searchCtrl,
           selected: _statusFilter,
           onSelected: (v) => setState(() => _statusFilter = v),
         ),
-
         const Divider(height: 1),
 
         Flexible(
@@ -543,12 +778,8 @@ class _UsersPaneState extends State<_UsersPane> {
           child: StreamBuilder<QuerySnapshot>(
             stream: widget.db.collection('users').snapshots(),
             builder: (context, snap) {
-              if (snap.hasError) {
-                return _ErrorBox(error: snap.error.toString());
-              }
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+              if (snap.hasError) return _ErrorBox(error: snap.error.toString());
+              if (!snap.hasData) return const Center(child: CircularProgressIndicator());
 
               final docs = snap.data!.docs.toList();
 
@@ -557,18 +788,12 @@ class _UsersPaneState extends State<_UsersPane> {
                 return (data['role'] ?? '').toString().toLowerCase() == 'admin';
               }).length;
 
-              // ✅ SORT
               docs.sort((a, b) {
-                final ae = ((a.data() as Map)['email'] ?? a.id)
-                    .toString()
-                    .toLowerCase();
-                final be = ((b.data() as Map)['email'] ?? b.id)
-                    .toString()
-                    .toLowerCase();
+                final ae = ((a.data() as Map)['email'] ?? a.id).toString().toLowerCase();
+                final be = ((b.data() as Map)['email'] ?? b.id).toString().toLowerCase();
                 return ae.compareTo(be);
               });
 
-              // ✅ SEARCH + STATUS FILTER
               final filtered = docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
                 final email = (data['email'] ?? '').toString().toLowerCase();
@@ -577,12 +802,8 @@ class _UsersPaneState extends State<_UsersPane> {
                 final dn = (data['displayName'] ?? '').toString().toLowerCase();
                 final status = (data['status'] ?? '').toString().toLowerCase();
 
-                final matchesSearch =
-                    widget.query.isEmpty ||
-                    ('$email $fn $ln $dn').contains(widget.query);
-
-                final matchesStatus =
-                    _statusFilter == 'all' || status == _statusFilter;
+                final matchesSearch = widget.query.isEmpty || ('$email $fn $ln $dn').contains(widget.query);
+                final matchesStatus = _statusFilter == 'all' || status == _statusFilter;
 
                 return matchesSearch && matchesStatus;
               }).toList();
@@ -614,73 +835,51 @@ class _UsersPaneState extends State<_UsersPane> {
                     final role = (data['role'] ?? 'associate').toString();
                     final status = (data['status'] ?? '').toString();
 
-                    final isInvited = status.toLowerCase() == 'invited';
+                    final statusLower = status.toLowerCase().trim();
+                    final isInvited = statusLower == 'invited';
+
+                    final isDisabled = (data['disabled'] == true) || statusLower == 'inactive';
 
                     DateTime? invitedDt;
                     final invitedAt = data['invitedAt'];
-                    if (invitedAt is Timestamp) {
-                      invitedDt = invitedAt.toDate();
-                    }
+                    if (invitedAt is Timestamp) invitedDt = invitedAt.toDate();
 
                     DateTime? lastSignInDt;
                     final lastSignInAt = data['lastSignInAt'];
-                    if (lastSignInAt is Timestamp) {
-                      lastSignInDt = lastSignInAt.toDate();
-                    }
+                    if (lastSignInAt is Timestamp) lastSignInDt = lastSignInAt.toDate();
 
                     final isMe = widget.myUid != null && uid == widget.myUid;
 
-                    final nameLabel = displayName.isNotEmpty
-                        ? displayName
-                        : ('$firstName $lastName').trim();
-                    final label = nameLabel.isNotEmpty
-                        ? '$nameLabel <$email>'
-                        : email;
+                    final nameLabel = displayName.isNotEmpty ? displayName : ('$firstName $lastName').trim();
+                    final label = nameLabel.isNotEmpty ? '$nameLabel <$email>' : email;
 
-                    final isLastAdmin =
-                        role.toLowerCase() == 'admin' && adminCount <= 1;
-                    final disableDelete = widget.busy || isMe || isLastAdmin;
+                    final isLastAdmin = role.toLowerCase() == 'admin' && adminCount <= 1;
 
-                    // ✅ Detail lines under the status pill
                     final Widget details = Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Always show role for non-invited users
                         if (!isInvited)
-                          Text(
-                            'Role: $role',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: Colors.black54),
-                          ),
-
-                        // If invited (not signed in yet), show invited timestamp
+                          Text('Role: $role',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54)),
                         if (isInvited)
                           Text(
-                            invitedDt == null
-                                ? 'Invited: —'
-                                : 'Invited: ${_formatInviteDateTime(context, invitedDt)}',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: Colors.black54),
+                            invitedDt == null ? 'Invited: —' : 'Invited: ${_formatDateTime(context, invitedDt)}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
                           ),
-
-                        // If not invited, show last sign-in timestamp
                         if (!isInvited)
                           Text(
                             lastSignInDt == null
                                 ? 'Last sign-in: —'
-                                : 'Last sign-in: ${_formatLastSignIn(context, lastSignInDt)}',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: Colors.black54),
+                                : 'Last sign-in: ${_formatDateTime(context, lastSignInDt)}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
                           ),
                       ],
                     );
 
                     return ListTile(
                       dense: true,
-                      leading: Icon(
-                        isMe ? Icons.verified_user : Icons.person_outline,
-                      ),
+                      leading: Icon(isMe ? Icons.verified_user : Icons.person_outline),
                       title: Text(isMe ? '$label (You)' : label),
                       subtitle: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -690,27 +889,85 @@ class _UsersPaneState extends State<_UsersPane> {
                           Expanded(child: details),
                         ],
                       ),
+
+                      // ✅ NEW: ⋮ actions menu instead of only delete
                       trailing: isMe
                           ? null
-                          : IconButton(
-                              tooltip: isLastAdmin
-                                  ? 'Cannot delete the last admin'
-                                  : 'Delete user',
-                              icon: Icon(
-                                Icons.delete_outline,
-                                color: isLastAdmin
-                                    ? Colors.grey
-                                    : Colors.red.shade700,
-                              ),
-                              onPressed: disableDelete
-                                  ? null
-                                  : () => widget.onDeleteUser(
-                                      uid: uid,
-                                      email: email,
-                                      label: label,
-                                      targetRole: role,
-                                      isLastAdmin: isLastAdmin,
-                                    ),
+                          : PopupMenuButton<String>(
+                              tooltip: 'Actions',
+                              icon: const Icon(Icons.more_vert),
+                              onSelected: (value) async {
+                                if (widget.busy) return;
+
+                                if (value == 'edit') {
+                                  await widget.onEditUser(
+                                    uid: uid,
+                                    currentEmail: email,
+                                    currentRole: role,
+                                    currentStatus: status,
+                                  );
+                                } else if (value == 'resendInvite') {
+                                  await widget.onResendInvite(uid: uid);
+                                } else if (value == 'resetPassword') {
+                                  if (!email.contains('@')) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('User has no valid email')),
+                                    );
+                                    return;
+                                  }
+                                  await widget.onSendPasswordReset(uid: uid, email: email);
+                                } else if (value == 'deactivate') {
+                                  if (isLastAdmin) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('You cannot deactivate the last admin.')),
+                                    );
+                                    return;
+                                  }
+                                  final reason = await widget.promptReason(
+                                    title: 'Deactivate user',
+                                    hint: 'Reason (audit note)',
+                                  );
+                                  if (reason == null) return;
+
+                                  await widget.onSetDisabled(uid: uid, disabled: true, reason: reason);
+                                } else if (value == 'reactivate') {
+                                  final reason = await widget.promptReason(
+                                    title: 'Reactivate user',
+                                    hint: 'Reason (audit note)',
+                                  );
+                                  if (reason == null) return;
+
+                                  await widget.onSetDisabled(uid: uid, disabled: false, reason: reason);
+                                } else if (value == 'delete') {
+                                  await widget.onDeleteUser(
+                                    uid: uid,
+                                    email: email,
+                                    label: label,
+                                    targetRole: role,
+                                    isLastAdmin: isLastAdmin,
+                                  );
+                                }
+                              },
+                              itemBuilder: (ctx) => [
+                                const PopupMenuItem(value: 'edit', child: Text('Edit user')),
+                                const PopupMenuItem(value: 'resetPassword', child: Text('Send password reset')),
+                                if (isInvited) const PopupMenuItem(value: 'resendInvite', child: Text('Resend invite')),
+                                const PopupMenuDivider(),
+                                if (isDisabled)
+                                  const PopupMenuItem(value: 'reactivate', child: Text('Reactivate'))
+                                else
+                                  PopupMenuItem(
+                                    value: 'deactivate',
+                                    enabled: !isLastAdmin,
+                                    child: Text(isLastAdmin ? 'Deactivate (not allowed)' : 'Deactivate'),
+                                  ),
+                                const PopupMenuDivider(),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  enabled: !isLastAdmin,
+                                  child: Text(isLastAdmin ? 'Delete (not allowed)' : 'Delete user'),
+                                ),
+                              ],
                             ),
                     );
                   },
@@ -743,10 +1000,14 @@ class _StatusPill extends StatelessWidget {
         label = 'Active';
         break;
       case 'invited':
-        // ✅ Yellow-ish that is still readable
         bg = Colors.amber.withOpacity(0.18);
         fg = Colors.amber.shade900;
         label = 'Invited';
+        break;
+      case 'inactive':
+        bg = Colors.grey.withOpacity(0.14);
+        fg = Colors.grey.shade800;
+        label = 'Inactive';
         break;
       default:
         bg = Colors.grey.withOpacity(0.12);
@@ -764,54 +1025,6 @@ class _StatusPill extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
-      ),
-    );
-  }
-}
-
-class _SearchBar extends StatelessWidget {
-  final TextEditingController controller;
-  final String hint;
-
-  const _SearchBar({required this.controller, required this.hint});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      // ✅ Distinct background just for the search section
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withOpacity(0.05),
-        border: Border(
-          bottom: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
-        ),
-      ),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: const Icon(Icons.search),
-          isDense: true,
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: theme.colorScheme.primary,
-              width: 1.6,
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -869,17 +1082,13 @@ class _EmptyBox extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
