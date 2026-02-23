@@ -1,7 +1,7 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
-export "FLUTTER_ROOT=C:\Users\Guillermo Ramirez\Documents\Flutter SDK\refund_tracker"
-export "FLUTTER_APPLICATION_PATH=C:\Users\Guillermo Ramirez\Documents\Flutter Projects\refund_tracker~"
+export "FLUTTER_ROOT=C:\Flutter SDK\flutter"
+export "FLUTTER_APPLICATION_PATH=C:\Flutter_Projects\refund_tracker\refund_tracker"
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_BUILD_DIR=build"
 export "FLUTTER_BUILD_NAME=1.0.0"
