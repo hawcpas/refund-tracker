@@ -21,6 +21,32 @@ class AuthService {
 
   // =========================
   // Helpers
+  // =========================
+
+  /// ✅ NEW: Promote invited -> active after first successful login.
+  /// Safe: Only transitions invited -> active (won’t override admin-applied states).
+  Future<void> _markActiveIfInvited(User user) async {
+    final ref = _db.collection('users').doc(user.uid);
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? {};
+      final status = (data['status'] as String?)?.toLowerCase();
+
+      if (status == 'invited') {
+        tx.set(ref, {
+          'status': 'active',
+          'activatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    });
+  }
+
+  /// Existing: mark emailVerified in Firestore and optionally promote pending -> active.
+  /// (Kept your original behavior, but now it ALSO avoids overriding invited status here.)
   Future<void> _markActiveIfEmailVerified(User user) async {
     // Make sure we have the latest emailVerified state
     await user.reload();
@@ -35,7 +61,7 @@ class AuthService {
       final data = snap.data() ?? {};
       final currentStatus = (data['status'] as String?)?.toLowerCase();
 
-      // Only auto-promote if they are currently pending (don’t override admin states)
+      // Only auto-promote if they are currently pending (don’t override invited/admin states)
       if (currentStatus == null || currentStatus == 'pending') {
         tx.set(ref, {
           'status': 'active',
@@ -53,25 +79,24 @@ class AuthService {
     });
   }
 
-  
-Future<UserProfile?> getCurrentUserProfile() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return null;
+  Future<UserProfile?> getCurrentUserProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
 
-  final doc =
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
 
-  if (!doc.exists) return null;
+    if (!doc.exists) return null;
 
-  final data = doc.data()!;
-  return UserProfile(
-    firstName: data['firstName'] ?? '',
-    lastName: data['lastName'] ?? '',
-    email: data['email'] ?? user.email ?? '',
-  );
-}
-
-  // =========================
+    final data = doc.data()!;
+    return UserProfile(
+      firstName: data['firstName'] ?? '',
+      lastName: data['lastName'] ?? '',
+      email: data['email'] ?? user.email ?? '',
+    );
+  }
 
   /// Ensures a user profile document exists in Firestore.
   /// Uses merge to avoid overwriting existing fields.
@@ -99,7 +124,7 @@ Future<UserProfile?> getCurrentUserProfile() async {
       if (ln.isNotEmpty) 'lastName': ln,
       if (finalDisplayName.isNotEmpty) 'displayName': finalDisplayName,
       'updatedAt': FieldValue.serverTimestamp(),
-      // ✅ DO NOT set role/status here (prevents reverting active -> pending)
+      // ✅ DO NOT set role/status here
     }, SetOptions(merge: true));
   }
 
@@ -113,9 +138,11 @@ Future<UserProfile?> getCurrentUserProfile() async {
       await _auth.sendPasswordResetEmail(email: email);
       return null;
     } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
       print("PASSWORD RESET ERROR: ${e.code} - ${e.message}");
       return e.code;
     } catch (e) {
+      // ignore: avoid_print
       print("PASSWORD RESET ERROR (unknown): $e");
       return 'unknown-error';
     }
@@ -142,11 +169,18 @@ Future<UserProfile?> getCurrentUserProfile() async {
       final user = userCredential.user;
       if (user == null) return null;
 
-      // ✅ Ensure profile exists/updated for Google sign-ins too
+      // Ensure profile exists/updated for Google sign-ins too
       await _upsertUserProfile(user);
+
+      // ✅ If they were invited (rare for Google), promote on first login
+      await _markActiveIfInvited(user);
+
+      // ✅ If verified, record it (won’t override invited/admin states)
+      await _markActiveIfEmailVerified(user);
 
       return user;
     } catch (e) {
+      // ignore: avoid_print
       print("GOOGLE SIGN-IN ERROR: $e");
       return null;
     }
@@ -156,9 +190,11 @@ Future<UserProfile?> getCurrentUserProfile() async {
   // LOGIN (Email/Password)
   // =========================
 
+  /// ✅ UPDATED: After successful login, promote invited -> active.
   /// Do NOT sign out unverified users — let UI route them to verify screen.
   Future<User?> login(String email, String password) async {
     try {
+      // 1) Auth sign-in (this is the only thing that should decide login success)
       final result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -170,48 +206,40 @@ Future<UserProfile?> getCurrentUserProfile() async {
       // Refresh verification state
       await user.reload();
       final refreshedUser = _auth.currentUser;
+      if (refreshedUser == null) return user;
 
-      // ✅ Optional: ensure profile exists on login as well
-      if (refreshedUser != null) {
+      // 2) Firestore updates should NEVER block login
+      try {
         await _upsertUserProfile(refreshedUser);
-        await _markActiveIfEmailVerified(refreshedUser);
-      }
 
-      // If not verified, keep user signed in
-      if (refreshedUser != null && !refreshedUser.emailVerified) {
-        return refreshedUser;
+        // Promote invited -> active on first successful login
+        await _markActiveIfInvited(refreshedUser);
+
+        // Keep your existing behavior (optional)
+        await _markActiveIfEmailVerified(refreshedUser);
+      } catch (e) {
+        // IMPORTANT: don't fail login because Firestore updates failed
+        // ignore: avoid_print
+        print("Post-login Firestore update failed (non-blocking): $e");
       }
 
       return refreshedUser;
+    } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
+      print("LOGIN AUTH ERROR: ${e.code} - ${e.message}");
+      return null;
     } catch (e) {
-      print("LOGIN ERROR: $e");
+      // ignore: avoid_print
+      print("LOGIN ERROR (unknown): $e");
       return null;
     }
-  }
-
-  // =========================
-  // CHECK IF USER EXISTS
-  // =========================
-
-  // CHECK IF USER EXISTS (deprecated pattern)
-  // Instead, rely on signupDetailed() returning 'email-already-in-use'.
-  Future<bool> userExists(String email) async {
-    // Intentionally avoid email enumeration checks.
-    return false;
   }
 
   // =========================
   // SIGNUP (Email/Password + Profile)
   // =========================
 
-  /// ✅ UPDATED: Signup that can also store profile fields.
-  ///
-  /// - Accepts optional firstName/lastName so you don't break older calls.
-  /// - Writes users/{uid} doc in Firestore.
-  /// - Sets displayName in Auth when names provided.
-  /// - Sends verification email.
-  ///
-  /// Returns AuthResult<User> with code on error.
+  /// Signup detailed - unchanged from your version
   Future<AuthResult<User>> signupDetailed(
     String email,
     String password, {
@@ -242,7 +270,6 @@ Future<UserProfile?> getCurrentUserProfile() async {
         await user.updateDisplayName(displayName);
       }
 
-      // ✅ Firestore write (this is the step that often fails)
       await _db.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'email': user.email,
@@ -261,13 +288,15 @@ Future<UserProfile?> getCurrentUserProfile() async {
 
       return AuthResult<User>(data: user);
     } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
       print("SIGNUP AUTH ERROR: ${e.code} - ${e.message}");
       return AuthResult<User>(data: null, code: e.code, message: e.message);
     } on FirebaseException catch (e) {
-      // ✅ This catches Firestore issues like permission-denied, unavailable, etc.
+      // ignore: avoid_print
       print("SIGNUP FIRESTORE ERROR: ${e.code} - ${e.message}");
       return AuthResult<User>(data: null, code: e.code, message: e.message);
     } catch (e) {
+      // ignore: avoid_print
       print("SIGNUP ERROR (unknown): $e");
       return const AuthResult<User>(
         data: null,
@@ -277,7 +306,7 @@ Future<UserProfile?> getCurrentUserProfile() async {
     }
   }
 
-  /// ✅ Compatibility method
+  /// Compatibility method
   Future<User?> signup(String email, String password) async {
     final result = await signupDetailed(email, password);
     return result.data;
@@ -295,9 +324,11 @@ Future<UserProfile?> getCurrentUserProfile() async {
       await user.sendEmailVerification();
       return null;
     } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
       print("RESEND VERIFICATION ERROR: ${e.code} - ${e.message}");
       return e.code;
     } catch (e) {
+      // ignore: avoid_print
       print("RESEND VERIFICATION ERROR (unknown): $e");
       return 'unknown-error';
     }
@@ -336,9 +367,11 @@ Future<UserProfile?> getCurrentUserProfile() async {
       await user.reload();
       return null;
     } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
       print("UPDATE PASSWORD ERROR: ${e.code} - ${e.message}");
       return e.code;
     } catch (e) {
+      // ignore: avoid_print
       print("UPDATE PASSWORD ERROR (unknown): $e");
       return 'unknown-error';
     }

@@ -81,7 +81,7 @@ function buildTransport() {
 exports.inviteUser = onCall(
   {
     region: "us-central1",
-    secrets: [SMTP_USER, SMTP_PASS], // makes secrets available at runtime [2](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Personal_Files/Other/Microsoft%20Related/Microsoft%20Copilot%20Chat%20Files/firebase.json)
+    secrets: [SMTP_USER, SMTP_PASS],
   },
   async (request) => {
     try {
@@ -120,11 +120,33 @@ exports.inviteUser = onCall(
         });
       }
 
-      // Generate verification link
+      const rawAppUrl = APP_URL.value();
+
+      // 🔎 TEMP DEBUG (remove after confirmed)
+      console.log("RAW APP_URL:", JSON.stringify(rawAppUrl));
+
+      if (
+        typeof rawAppUrl !== "string" ||
+        rawAppUrl.trim() === "" ||
+        !/^https?:\/\/[^\s]+$/.test(rawAppUrl.trim())
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          `APP_URL is invalid: "${rawAppUrl}"`
+        );
+      }
+
       const actionCodeSettings = {
-        url: `${APP_URL.value()}/login`,
+        url: rawAppUrl.trim(),
         handleCodeInApp: false,
       };
+
+      // ✅ 1) Password reset link = "set initial password" experience
+      const resetLink = await admin
+        .auth()
+        .generatePasswordResetLink(email, actionCodeSettings);
+
+      // (Optional) keep verification link if you still want it
       const verifyLink = await admin
         .auth()
         .generateEmailVerificationLink(email, actionCodeSettings);
@@ -172,23 +194,29 @@ exports.inviteUser = onCall(
         const info = await transporter.sendMail({
           from: SMTP_FROM.value(),
           to: email,
-          subject: `You're invited to ${APP_NAME.value()} — verify your email`,
+          subject: `You're invited to ${APP_NAME.value()} — set your password`,
           html: `
-            <div style="font-family:Arial,sans-serif;line-height:1.5">
-              <p>Hi ${firstName},</p>
-              <p>You’ve been invited to <b>${APP_NAME.value()}</b>.</p>
-              <p>Please verify your email to continue:</p>
-              <p><a href="${verifyLink}">Verify Email</a></p>
-              <p>If the button doesn’t work, copy &amp; paste:</p>
-              <p><a href="${verifyLink}">${verifyLink}</a></p>
-            </div>
-          `,
+  <div style="font-family:Arial,sans-serif;line-height:1.5">
+    <p>Hi ${firstName},</p>
+    <p>You’ve been invited to <b>${APP_NAME.value()}</b>.</p>
+
+    <p><b>Step 1:</b> Set your password to activate your account:</p>
+    <p><a href="${resetLink}">Set Password</a></p>
+
+    <p>If the button doesn’t work, copy &amp; paste:</p>
+    <p><a href="${resetLink}">${resetLink}</a></p>
+
+    <hr style="margin:16px 0" />
+
+    <p><b>Step 2 (optional):</b> Verify your email:</p>
+    <p><a href="${verifyLink}">Verify Email</a></p>
+  </div>
+`,
         });
 
         console.log("✅ Email sent successfully:", info.messageId);
       } catch (err) {
         console.error("❌ Email send FAILED:", err);
-        // Return a clearer error to the client (and your UI)
         throw new HttpsError("internal", "SMTP send failed.", {
           message: err?.message ?? String(err),
         });

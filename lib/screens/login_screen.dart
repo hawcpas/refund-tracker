@@ -5,6 +5,7 @@ import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 import '../theme/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -130,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen>
       _authError = null;
     });
 
-    final email = emailController.text.trim();
+    final email = emailController.text.trim().toLowerCase();
     final password = passwordController.text.trim();
 
     bool ok = true;
@@ -163,7 +164,9 @@ class _LoginScreenState extends State<LoginScreen>
 
     await LocalAuthPrefs.saveEmail(email);
 
-    final verified = await _auth.isEmailVerified();
+    // user was already reloaded inside AuthService.login(), but this is safe:
+    await user.reload();
+    final verified = user.emailVerified;
     if (!mounted) return;
 
     Navigator.pushReplacementNamed(
