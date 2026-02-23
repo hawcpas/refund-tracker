@@ -101,18 +101,18 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete user'),
         content: Text(
           'Are you sure you want to delete $label?\n\nThis cannot be undone.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogCtx, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Delete'),
           ),
         ],
@@ -122,13 +122,16 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     if (confirmed != true) return;
 
     setState(() => _busy = true);
+
     try {
       final callable = FirebaseFunctions.instanceFor(
         region: 'us-central1',
       ).httpsCallable('deleteUser');
+
       await callable.call({'uid': uid, 'email': email});
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Deleted $label')));
@@ -139,9 +142,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         if (e.message != null) 'Message: ${e.message}',
         if (e.details != null) 'Details: ${e.details}',
       ].join('\n');
-
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       debugPrint(msg);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
