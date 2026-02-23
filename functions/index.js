@@ -1,31 +1,26 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const {
-  defineSecret,
-  defineString,
-  defineInt,
-  defineBoolean,
-} = require("firebase-functions/params");
+const { defineSecret, defineString, defineInt, defineBoolean } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 
 admin.initializeApp();
 
 // ============================
-// Secrets (stored in Secret Manager)
+// Secrets
 // ============================
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 
 // ============================
-// Non-secret params (from functions/.env.local or CLI prompts)
+// Params
 // ============================
 const APP_NAME = defineString("APP_NAME", { default: "Axume Portal" });
-const APP_URL = defineString("APP_URL");
+const APP_URL  = defineString("APP_URL");
 
-const SMTP_HOST = defineString("SMTP_HOST"); // e.g. smtp.gmail.com
-const SMTP_PORT = defineInt("SMTP_PORT", { default: 587 });
-const SMTP_SECURE = defineBoolean("SMTP_SECURE", { default: false }); // false for 587 STARTTLS
-const SMTP_FROM = defineString("SMTP_FROM"); // e.g. "Axume Portal <yourgmail@gmail.com>"
+const SMTP_HOST   = defineString("SMTP_HOST");
+const SMTP_PORT   = defineInt("SMTP_PORT", { default: 587 });
+const SMTP_SECURE = defineBoolean("SMTP_SECURE", { default: false });
+const SMTP_FROM   = defineString("SMTP_FROM");
 
 // ============================
 // Helpers
@@ -40,38 +35,27 @@ function normalizeName(s) {
 async function assertAdmin(callerUid) {
   const snap = await admin.firestore().collection("users").doc(callerUid).get();
   if (!snap.exists) {
-    throw new HttpsError(
-      "permission-denied",
-      "Admin profile missing in users/{uid}."
-    );
+    throw new HttpsError("permission-denied", "Admin profile missing in users/{uid}.");
   }
   const role = (snap.data()?.role || "").toLowerCase().trim();
   if (role !== "admin") throw new HttpsError("permission-denied", "Admins only.");
 }
 
 function buildTransport() {
-
   console.log("SMTP CONFIG:", {
     host: SMTP_HOST.value(),
     port: SMTP_PORT.value(),
     secure: SMTP_SECURE.value(),
     from: SMTP_FROM.value(),
   });
-  // Uses parameterized config + secrets. Your config values are loaded by the Firebase CLI from .env files. [1](https://github.com/firebase/firebase-functions/issues/1342)[2](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Personal_Files/Other/Microsoft%20Related/Microsoft%20Copilot%20Chat%20Files/firebase.json)
+
   return nodemailer.createTransport({
     host: SMTP_HOST.value(),
     port: SMTP_PORT.value(),
-    secure: SMTP_SECURE.value(), // false for 587 STARTTLS
-    auth: {
-      user: SMTP_USER.value(),
-      pass: SMTP_PASS.value(),
-    },
-    // Helpful when providers require STARTTLS explicitly
+    secure: SMTP_SECURE.value(),
+    auth: { user: SMTP_USER.value(), pass: SMTP_PASS.value() },
     requireTLS: !SMTP_SECURE.value(),
-    tls: {
-      // Keep strict in production; set to true only if you hit cert issues.
-      rejectUnauthorized: true,
-    },
+    tls: { rejectUnauthorized: true },
   });
 }
 
@@ -86,33 +70,39 @@ exports.inviteUser = onCall(
   async (request) => {
     try {
       const { auth, data } = request;
-
-      if (!auth) {
-        throw new HttpsError("unauthenticated", "You must be signed in.");
-      }
+      if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
       const email = normalizeEmail(data.email);
-      const role = (data.role || "associate").toLowerCase().trim();
+      const requestedRole = (data.role || "associate").toLowerCase().trim();
       const firstName = normalizeName(data.firstName);
-      const lastName = normalizeName(data.lastName);
+      const lastName  = normalizeName(data.lastName);
       const displayName = `${firstName} ${lastName}`.trim();
 
       if (!email || !email.includes("@")) {
         throw new HttpsError("invalid-argument", "Valid email is required.");
       }
-      if (!firstName) {
-        throw new HttpsError("invalid-argument", "First name is required.");
+      if (!firstName) throw new HttpsError("invalid-argument", "First name is required.");
+      if (!lastName)  throw new HttpsError("invalid-argument", "Last name is required.");
+
+      // ✅ BLOCK SELF-INVITE (prevents overwriting your own role/status)
+      // Prefer token email, fallback to Admin Auth lookup if needed.
+      let callerEmail = normalizeEmail(auth.token?.email);
+      if (!callerEmail) {
+        const caller = await admin.auth().getUser(auth.uid);
+        callerEmail = normalizeEmail(caller.email);
       }
-      if (!lastName) {
-        throw new HttpsError("invalid-argument", "Last name is required.");
+      if (callerEmail && callerEmail === email) {
+        throw new HttpsError("failed-precondition", "You cannot invite yourself.");
       }
 
       // Create or fetch Auth user
       let userRecord;
+      let existedInAuth = true;
       try {
         userRecord = await admin.auth().getUserByEmail(email);
       } catch (_) {
+        existedInAuth = false;
         userRecord = await admin.auth().createUser({
           email,
           displayName: displayName || undefined,
@@ -120,56 +110,65 @@ exports.inviteUser = onCall(
         });
       }
 
+      // ✅ Validate APP_URL
       const rawAppUrl = APP_URL.value();
-
-      // 🔎 TEMP DEBUG (remove after confirmed)
       console.log("RAW APP_URL:", JSON.stringify(rawAppUrl));
-
       if (
         typeof rawAppUrl !== "string" ||
         rawAppUrl.trim() === "" ||
         !/^https?:\/\/[^\s]+$/.test(rawAppUrl.trim())
       ) {
-        throw new HttpsError(
-          "failed-precondition",
-          `APP_URL is invalid: "${rawAppUrl}"`
-        );
+        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${rawAppUrl}"`);
       }
 
       const actionCodeSettings = {
-        url: rawAppUrl.trim(),
+        url: rawAppUrl.trim(), // redirect after password set
         handleCodeInApp: false,
       };
 
-      // ✅ 1) Password reset link = "set initial password" experience
-      const resetLink = await admin
-        .auth()
-        .generatePasswordResetLink(email, actionCodeSettings);
+      const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+      const verifyLink = await admin.auth().generateEmailVerificationLink(email, actionCodeSettings);
 
-      // (Optional) keep verification link if you still want it
-      const verifyLink = await admin
-        .auth()
-        .generateEmailVerificationLink(email, actionCodeSettings);
+      // ✅ Fetch existing Firestore profile (if any)
+      const userDocRef = admin.firestore().collection("users").doc(userRecord.uid);
+      const existingSnap = await userDocRef.get();
+      const existingData = existingSnap.exists ? (existingSnap.data() || {}) : {};
+      const existingRole = (existingData.role || "").toString().toLowerCase().trim();
+      const existingStatus = (existingData.status || "").toString().toLowerCase().trim();
 
-      // Write Firestore user profile
-      await admin.firestore().collection("users").doc(userRecord.uid).set(
-        {
-          uid: userRecord.uid,
-          email,
-          firstName,
-          lastName,
-          displayName,
-          role,
-          status: "invited",
-          emailVerified: false,
-          invitedAt: admin.firestore.FieldValue.serverTimestamp(),
-          invitedBy: auth.uid,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      // ✅ Prevent downgrading an existing admin via invite (even by another admin)
+      if (existingRole === "admin" && requestedRole !== "admin") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Admins cannot be downgraded via invites."
+        );
+      }
 
-      // Track invites by email
+      // ✅ Do not overwrite role/status for already-active users
+      // Allow re-invites to resend reset/verify links, but keep current role/status.
+      const shouldWriteRoleStatus =
+        !existingSnap.exists || existingStatus === "" || existingStatus === "invited" || existingStatus === "pending";
+
+      const userPayload = {
+        uid: userRecord.uid,
+        email,
+        firstName,
+        lastName,
+        displayName,
+        emailVerified: false,
+        invitedAt: admin.firestore.FieldValue.serverTimestamp(),
+        invitedBy: auth.uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (shouldWriteRoleStatus) {
+        userPayload.role = requestedRole;
+        userPayload.status = "invited";
+      }
+
+      await userDocRef.set(userPayload, { merge: true });
+
+      // Track invites by email (ledger)
       await admin.firestore().collection("invites").doc(email).set(
         {
           email,
@@ -177,7 +176,7 @@ exports.inviteUser = onCall(
           firstName,
           lastName,
           displayName,
-          role,
+          role: requestedRole,
           status: "invited",
           invitedAt: admin.firestore.FieldValue.serverTimestamp(),
           invitedBy: auth.uid,
@@ -223,7 +222,7 @@ exports.inviteUser = onCall(
       }
 
       console.log("inviteUser completed for:", email);
-      return { ok: true, email, role, sent: true };
+      return { ok: true, email, role: requestedRole, sent: true, existedInAuth };
     } catch (err) {
       console.error("inviteUser failed:", err);
       if (err instanceof HttpsError) throw err;
@@ -240,12 +239,11 @@ exports.inviteUser = onCall(
 exports.deleteUser = onCall(
   {
     region: "us-central1",
-    secrets: [SMTP_USER, SMTP_PASS], // harmless here
+    secrets: [SMTP_USER, SMTP_PASS],
   },
   async (request) => {
     try {
       const { auth, data } = request;
-
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
@@ -259,10 +257,28 @@ exports.deleteUser = onCall(
         throw new HttpsError("failed-precondition", "You cannot delete yourself.");
       }
 
+      // ✅ Prevent deleting the last remaining admin
+      const targetSnap = await admin.firestore().collection("users").doc(targetUid).get();
+      const targetRole = (targetSnap.data()?.role || "").toString().toLowerCase().trim();
+
+      if (targetRole === "admin") {
+        const adminsSnap = await admin.firestore()
+          .collection("users")
+          .where("role", "==", "admin")
+          .get();
+
+        if (adminsSnap.size <= 1) {
+          throw new HttpsError(
+            "failed-precondition",
+            "At least one admin must remain."
+          );
+        }
+      }
+
       // Delete Auth user (ignore if missing)
       try {
         await admin.auth().deleteUser(targetUid);
-      } catch (_) { }
+      } catch (_) {}
 
       // Delete Firestore docs (best-effort)
       const batch = admin.firestore().batch();
