@@ -4,7 +4,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../widgets/dashboard_cards.dart';
-import '../services/auth_service.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -15,7 +14,6 @@ class AdminUsersScreen extends StatefulWidget {
 
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
   final _db = FirebaseFirestore.instance;
-  final _authService = AuthService();
 
   bool _busy = false;
   String _role = '';
@@ -32,9 +30,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     final doc = await _db.collection('users').doc(user.uid).get();
-    setState(
-      () => _role = (doc.data()?['role'] ?? '').toString().toLowerCase(),
-    );
+    setState(() => _role = (doc.data()?['role'] ?? '').toString().toLowerCase());
   }
 
   bool get _isAdmin => _role == 'admin';
@@ -48,7 +44,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     setState(() => _busy = true);
 
     try {
-      // 1) Create user + Firestore doc via Cloud Function
       final callable = FirebaseFunctions.instanceFor(
         region: 'us-central1',
       ).httpsCallable('inviteUser');
@@ -65,11 +60,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
       if (!mounted) return;
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('User created for $invitedEmail')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('User created for $invitedEmail')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -90,11 +83,21 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String uid,
     required String email,
     required String label,
+    required String targetRole,
+    required bool isLastAdmin,
   }) async {
-    // UI + server both block self delete, but we also guard here.
+    // Guard: no self-delete
     if (_myUid != null && uid == _myUid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You cannot delete yourself.')),
+      );
+      return;
+    }
+
+    // ✅ UX guard: last admin cannot be deleted
+    if (targetRole.toLowerCase() == 'admin' && isLastAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You cannot delete the last admin.')),
       );
       return;
     }
@@ -132,16 +135,18 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Deleted $label')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $label')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
+
       final msg = [
         'Delete failed: ${e.code}',
         if (e.message != null) 'Message: ${e.message}',
         if (e.details != null) 'Details: ${e.details}',
       ].join('\n');
+
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       debugPrint(msg);
     } finally {
@@ -262,14 +267,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             onTap: _busy ? () {} : _showInviteDialog,
           ),
           const SizedBox(height: 12),
-
           SettingsRow(
             icon: Icons.lock_outline,
             title: 'Invite-only access',
             subtitle: 'Self signup is disabled. Admins create accounts.',
             onTap: () {},
           ),
-
           const SizedBox(height: 18),
           const Text('Users', style: TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 8),
@@ -277,10 +280,18 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('users').snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData)
+              if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());
+              }
 
               final docs = snap.data!.docs.toList();
+
+              // ✅ Count admins for “last admin” UX
+              final adminCount = docs.where((d) {
+                final data = d.data() as Map<String, dynamic>;
+                return (data['role'] ?? '').toString().toLowerCase() == 'admin';
+              }).length;
+
               docs.sort((a, b) {
                 final ae = ((a.data() as Map)['email'] ?? a.id)
                     .toString()
@@ -304,6 +315,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     final status = (data['status'] ?? '').toString();
 
                     final isMe = (_myUid != null && uid == _myUid);
+
                     final nameLabel = displayName.isNotEmpty
                         ? displayName
                         : ('$firstName $lastName').trim();
@@ -311,6 +323,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     final label = nameLabel.isNotEmpty
                         ? '$nameLabel <$email>'
                         : email;
+
+                    final roleLower = role.toLowerCase();
+                    final isTargetAdmin = roleLower == 'admin';
+                    final isLastAdmin = isTargetAdmin && adminCount <= 1;
+
+                    final disableDelete = _busy || isMe || isLastAdmin;
 
                     return ListTile(
                       leading: Icon(
@@ -321,15 +339,22 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       trailing: isMe
                           ? null
                           : IconButton(
-                              tooltip: 'Delete user',
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: _busy
+                              tooltip: isLastAdmin
+                                  ? 'Cannot delete the last admin'
+                                  : 'Delete user',
+                              icon: Icon(
+                                Icons.delete_outline,
+                                color: isLastAdmin ? Colors.grey : null,
+                              ),
+                              onPressed: disableDelete
                                   ? null
                                   : () => _deleteUser(
-                                      uid: uid,
-                                      email: email,
-                                      label: label,
-                                    ),
+                                        uid: uid,
+                                        email: email,
+                                        label: label,
+                                        targetRole: role,
+                                        isLastAdmin: isLastAdmin,
+                                      ),
                             ),
                     );
                   }).toList(),
@@ -345,8 +370,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           StreamBuilder<QuerySnapshot>(
             stream: _db.collection('invites').snapshots(),
             builder: (context, snap) {
-              if (!snap.hasData)
+              if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());
+              }
               final docs = snap.data!.docs;
               if (docs.isEmpty) return const Text('No invites.');
 
