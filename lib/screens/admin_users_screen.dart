@@ -423,10 +423,8 @@ class _SearchHeader extends StatelessWidget {
         label: Text(label),
         selected: active,
         onSelected: (_) => onSelected(value),
-        selectedColor:
-            theme.colorScheme.primary.withOpacity(0.14),
-        backgroundColor:
-            theme.colorScheme.surface.withOpacity(0.4),
+        selectedColor: theme.colorScheme.primary.withOpacity(0.14),
+        backgroundColor: theme.colorScheme.surface.withOpacity(0.4),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w800,
           color: active
@@ -440,9 +438,7 @@ class _SearchHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.primary.withOpacity(0.05),
         border: Border(
-          bottom: BorderSide(
-            color: theme.dividerColor.withOpacity(0.35),
-          ),
+          bottom: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
         ),
       ),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -495,7 +491,8 @@ class _UsersPane extends StatefulWidget {
     required String label,
     required String targetRole,
     required bool isLastAdmin,
-  }) onDeleteUser;
+  })
+  onDeleteUser;
 
   const _UsersPane({
     required this.db,
@@ -514,6 +511,13 @@ class _UsersPaneState extends State<_UsersPane> {
   String _statusFilter = 'all'; // all | active | invited
 
   String _formatInviteDateTime(BuildContext context, DateTime dt) {
+    final loc = MaterialLocalizations.of(context);
+    final dateStr = loc.formatShortDate(dt);
+    final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
+    return '$dateStr • $timeStr';
+  }
+
+  String _formatLastSignIn(BuildContext context, DateTime dt) {
     final loc = MaterialLocalizations.of(context);
     final dateStr = loc.formatShortDate(dt);
     final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
@@ -550,10 +554,7 @@ class _UsersPaneState extends State<_UsersPane> {
 
               final adminCount = docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
-                return (data['role'] ?? '')
-                        .toString()
-                        .toLowerCase() ==
-                    'admin';
+                return (data['role'] ?? '').toString().toLowerCase() == 'admin';
               }).length;
 
               // ✅ SORT
@@ -570,24 +571,18 @@ class _UsersPaneState extends State<_UsersPane> {
               // ✅ SEARCH + STATUS FILTER
               final filtered = docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
-                final email =
-                    (data['email'] ?? '').toString().toLowerCase();
-                final fn =
-                    (data['firstName'] ?? '').toString().toLowerCase();
-                final ln =
-                    (data['lastName'] ?? '').toString().toLowerCase();
-                final dn =
-                    (data['displayName'] ?? '').toString().toLowerCase();
-                final status =
-                    (data['status'] ?? '').toString().toLowerCase();
+                final email = (data['email'] ?? '').toString().toLowerCase();
+                final fn = (data['firstName'] ?? '').toString().toLowerCase();
+                final ln = (data['lastName'] ?? '').toString().toLowerCase();
+                final dn = (data['displayName'] ?? '').toString().toLowerCase();
+                final status = (data['status'] ?? '').toString().toLowerCase();
 
                 final matchesSearch =
                     widget.query.isEmpty ||
                     ('$email $fn $ln $dn').contains(widget.query);
 
                 final matchesStatus =
-                    _statusFilter == 'all' ||
-                    status == _statusFilter;
+                    _statusFilter == 'all' || status == _statusFilter;
 
                 return matchesSearch && matchesStatus;
               }).toList();
@@ -606,28 +601,20 @@ class _UsersPaneState extends State<_UsersPane> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1),
+                  separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final d = filtered[i];
-                    final data =
-                        d.data() as Map<String, dynamic>;
+                    final data = d.data() as Map<String, dynamic>;
 
                     final uid = d.id;
                     final email = (data['email'] ?? '').toString();
-                    final firstName =
-                        (data['firstName'] ?? '').toString();
-                    final lastName =
-                        (data['lastName'] ?? '').toString();
-                    final displayName =
-                        (data['displayName'] ?? '').toString();
-                    final role =
-                        (data['role'] ?? 'associate').toString();
-                    final status =
-                        (data['status'] ?? '').toString();
+                    final firstName = (data['firstName'] ?? '').toString();
+                    final lastName = (data['lastName'] ?? '').toString();
+                    final displayName = (data['displayName'] ?? '').toString();
+                    final role = (data['role'] ?? 'associate').toString();
+                    final status = (data['status'] ?? '').toString();
 
-                    final isInvited =
-                        status.toLowerCase() == 'invited';
+                    final isInvited = status.toLowerCase() == 'invited';
 
                     DateTime? invitedDt;
                     final invitedAt = data['invitedAt'];
@@ -635,9 +622,13 @@ class _UsersPaneState extends State<_UsersPane> {
                       invitedDt = invitedAt.toDate();
                     }
 
-                    final isMe =
-                        widget.myUid != null &&
-                        uid == widget.myUid;
+                    DateTime? lastSignInDt;
+                    final lastSignInAt = data['lastSignInAt'];
+                    if (lastSignInAt is Timestamp) {
+                      lastSignInDt = lastSignInAt.toDate();
+                    }
+
+                    final isMe = widget.myUid != null && uid == widget.myUid;
 
                     final nameLabel = displayName.isNotEmpty
                         ? displayName
@@ -647,39 +638,56 @@ class _UsersPaneState extends State<_UsersPane> {
                         : email;
 
                     final isLastAdmin =
-                        role.toLowerCase() == 'admin' &&
-                        adminCount <= 1;
-                    final disableDelete =
-                        widget.busy || isMe || isLastAdmin;
+                        role.toLowerCase() == 'admin' && adminCount <= 1;
+                    final disableDelete = widget.busy || isMe || isLastAdmin;
 
-                    final rightDetail = isInvited
-                        ? (invitedDt == null
-                            ? 'Invited: —'
-                            : 'Invited: ${_formatInviteDateTime(context, invitedDt)}')
-                        : 'Role: $role';
+                    // ✅ Detail lines under the status pill
+                    final Widget details = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Always show role for non-invited users
+                        if (!isInvited)
+                          Text(
+                            'Role: $role',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: Colors.black54),
+                          ),
+
+                        // If invited (not signed in yet), show invited timestamp
+                        if (isInvited)
+                          Text(
+                            invitedDt == null
+                                ? 'Invited: —'
+                                : 'Invited: ${_formatInviteDateTime(context, invitedDt)}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: Colors.black54),
+                          ),
+
+                        // If not invited, show last sign-in timestamp
+                        if (!isInvited)
+                          Text(
+                            lastSignInDt == null
+                                ? 'Last sign-in: —'
+                                : 'Last sign-in: ${_formatLastSignIn(context, lastSignInDt)}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: Colors.black54),
+                          ),
+                      ],
+                    );
 
                     return ListTile(
                       dense: true,
-                      leading: Icon(isMe
-                          ? Icons.verified_user
-                          : Icons.person_outline),
-                      title:
-                          Text(isMe ? '$label (You)' : label),
+                      leading: Icon(
+                        isMe ? Icons.verified_user : Icons.person_outline,
+                      ),
+                      title: Text(isMe ? '$label (You)' : label),
                       subtitle: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _StatusPill(status: status),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              rightDetail,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                      color: Colors.black54),
-                            ),
-                          ),
+                          Expanded(child: details),
                         ],
                       ),
                       trailing: isMe
@@ -697,12 +705,12 @@ class _UsersPaneState extends State<_UsersPane> {
                               onPressed: disableDelete
                                   ? null
                                   : () => widget.onDeleteUser(
-                                        uid: uid,
-                                        email: email,
-                                        label: label,
-                                        targetRole: role,
-                                        isLastAdmin: isLastAdmin,
-                                      ),
+                                      uid: uid,
+                                      email: email,
+                                      label: label,
+                                      targetRole: role,
+                                      isLastAdmin: isLastAdmin,
+                                    ),
                             ),
                     );
                   },

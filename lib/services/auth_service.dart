@@ -23,6 +23,15 @@ class AuthService {
   // Helpers
   // =========================
 
+  /// ✅ NEW (ADDED): Record last successful sign-in time for admin visibility.
+  /// This is non-blocking and safe to call on every login.
+  Future<void> _recordLastSignIn(User user) async {
+    await _db.collection('users').doc(user.uid).set({
+      'lastSignInAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   /// ✅ NEW: Promote invited -> active after first successful login.
   /// Safe: Only transitions invited -> active (won’t override admin-applied states).
   Future<void> _markActiveIfInvited(User user) async {
@@ -172,6 +181,9 @@ class AuthService {
       // Ensure profile exists/updated for Google sign-ins too
       await _upsertUserProfile(user);
 
+      // ✅ NEW (ADDED): record last sign-in timestamp
+      await _recordLastSignIn(user);
+
       // ✅ If they were invited (rare for Google), promote on first login
       await _markActiveIfInvited(user);
 
@@ -211,6 +223,9 @@ class AuthService {
       // 2) Firestore updates should NEVER block login
       try {
         await _upsertUserProfile(refreshedUser);
+
+        // ✅ NEW (ADDED): record last sign-in timestamp
+        await _recordLastSignIn(refreshedUser);
 
         // Promote invited -> active on first successful login
         await _markActiveIfInvited(refreshedUser);

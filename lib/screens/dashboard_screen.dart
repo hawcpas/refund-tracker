@@ -84,6 +84,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
+          // ✅ Admin-only Manage Users button
+          if (!_loadingProfile && _role.toLowerCase().trim() == 'admin')
+            IconButton(
+              tooltip: 'Manage users',
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              onPressed: () => Navigator.pushNamed(context, '/admin-users'),
+            ),
+
+          // Logout
           IconButton(
             tooltip: "Logout",
             icon: const Icon(Icons.logout),
@@ -103,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ✅ Left icon
                     Container(
                       height: 36,
                       width: 36,
@@ -116,13 +126,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         size: 20,
                       ),
                     ),
+
                     const SizedBox(width: 12),
+
+                    // ✅ Main text column
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (_loadingProfile) ...[
-                            // ✅ Placeholder state (no flicker)
                             Container(
                               height: 22,
                               width: 220,
@@ -172,6 +184,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
+
+                    // ✅ RIGHT‑SIDE ADMIN BUTTON (exact placement you want)
+                    if (!_loadingProfile &&
+                        _role.toLowerCase().trim() == 'admin')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Column(
+                          children: [
+                            // This SizedBox aligns the button vertically
+                            const SizedBox(height: 6),
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/admin-users'),
+                              icon: const Icon(
+                                Icons.admin_panel_settings_outlined,
+                                size: 18,
+                              ),
+                              label: const Text("Admin • Manage users"),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.brandBlue,
+                                side: BorderSide(
+                                  color: AppColors.brandBlue.withOpacity(0.35),
+                                ),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -211,17 +261,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       }
                     },
                   ),
-
-                  // ✅ ADD THIS RIGHT HERE (admin-only tile)
-                  if (_role.toLowerCase().trim() == 'admin') ...[
-                    const SizedBox(height: 10),
-                    _SubtleHoverTile(
-                      icon: Icons.admin_panel_settings_outlined,
-                      title: "Admin • Manage users",
-                      subtitle: "Invite users and manage access",
-                      onTap: () => Navigator.pushNamed(context, '/admin-users'),
-                    ),
-                  ],
                 ],
               ),
             ),
