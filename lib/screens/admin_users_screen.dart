@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../widgets/centered_section.dart';
 import '../widgets/dashboard_cards.dart';
 
 class AdminUsersScreen extends StatefulWidget {
@@ -16,7 +17,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   final _db = FirebaseFirestore.instance;
 
   bool _busy = false;
+
+  bool _roleLoading = true;
   String _role = '';
+  String? _roleError;
+
+  final _userSearchCtrl = TextEditingController();
+  String get _userQuery => _userSearchCtrl.text.trim().toLowerCase();
 
   String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -24,13 +31,52 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   void initState() {
     super.initState();
     _loadMyRole();
+    _userSearchCtrl.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _userSearchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadMyRole() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    final doc = await _db.collection('users').doc(user.uid).get();
-    setState(() => _role = (doc.data()?['role'] ?? '').toString().toLowerCase());
+    setState(() {
+      _roleLoading = true;
+      _roleError = null;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() {
+          _role = '';
+          _roleLoading = false;
+        });
+        return;
+      }
+
+      // Force server read (avoids stale cache)
+      final doc = await _db
+          .collection('users')
+          .doc(user.uid)
+          .get(const GetOptions(source: Source.server));
+
+      final role = (doc.data()?['role'] ?? '').toString().toLowerCase().trim();
+
+      if (!mounted) return;
+      setState(() {
+        _role = role;
+        _roleLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _roleError = e.toString();
+        _roleLoading = false;
+        _role = '';
+      });
+    }
   }
 
   bool get _isAdmin => _role == 'admin';
@@ -60,9 +106,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('User created for $invitedEmail')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('User created for $invitedEmail')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -86,7 +132,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String targetRole,
     required bool isLastAdmin,
   }) async {
-    // Guard: no self-delete
     if (_myUid != null && uid == _myUid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You cannot delete yourself.')),
@@ -94,7 +139,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       return;
     }
 
-    // ✅ UX guard: last admin cannot be deleted
     if (targetRole.toLowerCase() == 'admin' && isLastAdmin) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You cannot delete the last admin.')),
@@ -135,9 +179,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Deleted $label')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Deleted $label')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -239,6 +283,43 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_roleLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Admin • Users')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_roleError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Admin • Users')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 34),
+                const SizedBox(height: 10),
+                const Text('Could not load your admin role.'),
+                const SizedBox(height: 8),
+                Text(
+                  _roleError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 14),
+                FilledButton(
+                  onPressed: _loadMyRole,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (!_isAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Admin')),
@@ -257,41 +338,225 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Stack(
         children: [
-          PrimaryActionCard(
-            icon: Icons.person_add_alt_1,
-            title: 'Invite a user',
-            subtitle: 'Creates the Auth user + reset link + Firestore profile.',
-            onTap: _busy ? () {} : _showInviteDialog,
-          ),
-          const SizedBox(height: 12),
-          SettingsRow(
-            icon: Icons.lock_outline,
-            title: 'Invite-only access',
-            subtitle: 'Self signup is disabled. Admins create accounts.',
-            onTap: () {},
-          ),
-          const SizedBox(height: 18),
-          const Text('Users', style: TextStyle(fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
+          CenteredSection(
+            maxWidth: 1100,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ✅ LEFT: Invite action panel (fixed width)
+                  SizedBox(
+                    width: 360, // ← adjust between 320–420 if you want
+                    child: Column(
+                      children: [
+                        PrimaryActionCard(
+                          icon: Icons.person_add_alt_1,
+                          title: 'Invite a user',
+                          subtitle:
+                              'Creates the Auth user + reset link + Firestore profile.',
+                          onTap: _busy ? () {} : _showInviteDialog,
+                        ),
+                      ],
+                    ),
+                  ),
 
-          StreamBuilder<QuerySnapshot>(
-            stream: _db.collection('users').snapshots(),
+                  const SizedBox(width: 16),
+
+                  // ✅ RIGHT: Users list (fills remaining space)
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 620),
+                        child: Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: _UsersPane(
+                            db: _db,
+                            myUid: _myUid,
+                            busy: _busy,
+                            query: _userQuery,
+                            searchCtrl: _userSearchCtrl,
+                            onDeleteUser: _deleteUser,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_busy)
+            const Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchHeader extends StatelessWidget {
+  final TextEditingController controller;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  const _SearchHeader({
+    required this.controller,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    Widget chip(String label, String value) {
+      final bool active = selected == value;
+      return ChoiceChip(
+        label: Text(label),
+        selected: active,
+        onSelected: (_) => onSelected(value),
+        selectedColor:
+            theme.colorScheme.primary.withOpacity(0.14),
+        backgroundColor:
+            theme.colorScheme.surface.withOpacity(0.4),
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: active
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withOpacity(0.05),
+        border: Border(
+          bottom: BorderSide(
+            color: theme.dividerColor.withOpacity(0.35),
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Row(
+        children: [
+          // ✅ SEARCH
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: 'Search users by name or email…',
+                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // ✅ STATUS FILTER CHIPS
+          Wrap(
+            spacing: 6,
+            children: [
+              chip('All', 'all'),
+              chip('Active', 'active'),
+              chip('Invited', 'invited'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsersPane extends StatefulWidget {
+  final FirebaseFirestore db;
+  final String? myUid;
+  final bool busy;
+  final String query;
+  final TextEditingController searchCtrl;
+
+  final Future<void> Function({
+    required String uid,
+    required String email,
+    required String label,
+    required String targetRole,
+    required bool isLastAdmin,
+  }) onDeleteUser;
+
+  const _UsersPane({
+    required this.db,
+    required this.myUid,
+    required this.busy,
+    required this.query,
+    required this.searchCtrl,
+    required this.onDeleteUser,
+  });
+
+  @override
+  State<_UsersPane> createState() => _UsersPaneState();
+}
+
+class _UsersPaneState extends State<_UsersPane> {
+  String _statusFilter = 'all'; // all | active | invited
+
+  String _formatInviteDateTime(BuildContext context, DateTime dt) {
+    final loc = MaterialLocalizations.of(context);
+    final dateStr = loc.formatShortDate(dt);
+    final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
+    return '$dateStr • $timeStr';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ✅ SEARCH + FILTER HEADER
+        _SearchHeader(
+          controller: widget.searchCtrl,
+          selected: _statusFilter,
+          onSelected: (v) => setState(() => _statusFilter = v),
+        ),
+
+        const Divider(height: 1),
+
+        Flexible(
+          fit: FlexFit.loose,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: widget.db.collection('users').snapshots(),
             builder: (context, snap) {
+              if (snap.hasError) {
+                return _ErrorBox(error: snap.error.toString());
+              }
               if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
 
               final docs = snap.data!.docs.toList();
 
-              // ✅ Count admins for “last admin” UX
               final adminCount = docs.where((d) {
                 final data = d.data() as Map<String, dynamic>;
-                return (data['role'] ?? '').toString().toLowerCase() == 'admin';
+                return (data['role'] ?? '')
+                        .toString()
+                        .toLowerCase() ==
+                    'admin';
               }).length;
 
+              // ✅ SORT
               docs.sort((a, b) {
                 final ae = ((a.data() as Map)['email'] ?? a.id)
                     .toString()
@@ -302,40 +567,121 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 return ae.compareTo(be);
               });
 
-              return Card(
-                child: Column(
-                  children: docs.map((d) {
-                    final data = d.data() as Map<String, dynamic>;
+              // ✅ SEARCH + STATUS FILTER
+              final filtered = docs.where((d) {
+                final data = d.data() as Map<String, dynamic>;
+                final email =
+                    (data['email'] ?? '').toString().toLowerCase();
+                final fn =
+                    (data['firstName'] ?? '').toString().toLowerCase();
+                final ln =
+                    (data['lastName'] ?? '').toString().toLowerCase();
+                final dn =
+                    (data['displayName'] ?? '').toString().toLowerCase();
+                final status =
+                    (data['status'] ?? '').toString().toLowerCase();
+
+                final matchesSearch =
+                    widget.query.isEmpty ||
+                    ('$email $fn $ln $dn').contains(widget.query);
+
+                final matchesStatus =
+                    _statusFilter == 'all' ||
+                    status == _statusFilter;
+
+                return matchesSearch && matchesStatus;
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return const _EmptyBox(
+                  icon: Icons.group_outlined,
+                  title: 'No users found',
+                  subtitle: 'Try adjusting your search or filter.',
+                );
+              }
+
+              return SingleChildScrollView(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(8),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final d = filtered[i];
+                    final data =
+                        d.data() as Map<String, dynamic>;
+
                     final uid = d.id;
                     final email = (data['email'] ?? '').toString();
-                    final firstName = (data['firstName'] ?? '').toString();
-                    final lastName = (data['lastName'] ?? '').toString();
-                    final displayName = (data['displayName'] ?? '').toString();
-                    final role = (data['role'] ?? 'associate').toString();
-                    final status = (data['status'] ?? '').toString();
+                    final firstName =
+                        (data['firstName'] ?? '').toString();
+                    final lastName =
+                        (data['lastName'] ?? '').toString();
+                    final displayName =
+                        (data['displayName'] ?? '').toString();
+                    final role =
+                        (data['role'] ?? 'associate').toString();
+                    final status =
+                        (data['status'] ?? '').toString();
 
-                    final isMe = (_myUid != null && uid == _myUid);
+                    final isInvited =
+                        status.toLowerCase() == 'invited';
+
+                    DateTime? invitedDt;
+                    final invitedAt = data['invitedAt'];
+                    if (invitedAt is Timestamp) {
+                      invitedDt = invitedAt.toDate();
+                    }
+
+                    final isMe =
+                        widget.myUid != null &&
+                        uid == widget.myUid;
 
                     final nameLabel = displayName.isNotEmpty
                         ? displayName
                         : ('$firstName $lastName').trim();
-
                     final label = nameLabel.isNotEmpty
                         ? '$nameLabel <$email>'
                         : email;
 
-                    final roleLower = role.toLowerCase();
-                    final isTargetAdmin = roleLower == 'admin';
-                    final isLastAdmin = isTargetAdmin && adminCount <= 1;
+                    final isLastAdmin =
+                        role.toLowerCase() == 'admin' &&
+                        adminCount <= 1;
+                    final disableDelete =
+                        widget.busy || isMe || isLastAdmin;
 
-                    final disableDelete = _busy || isMe || isLastAdmin;
+                    final rightDetail = isInvited
+                        ? (invitedDt == null
+                            ? 'Invited: —'
+                            : 'Invited: ${_formatInviteDateTime(context, invitedDt)}')
+                        : 'Role: $role';
 
                     return ListTile(
-                      leading: Icon(
-                        isMe ? Icons.verified_user : Icons.person_outline,
+                      dense: true,
+                      leading: Icon(isMe
+                          ? Icons.verified_user
+                          : Icons.person_outline),
+                      title:
+                          Text(isMe ? '$label (You)' : label),
+                      subtitle: Row(
+                        children: [
+                          _StatusPill(status: status),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              rightDetail,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Colors.black54),
+                            ),
+                          ),
+                        ],
                       ),
-                      title: Text(isMe ? '$label (You)' : label),
-                      subtitle: Text('Role: $role • Status: $status'),
                       trailing: isMe
                           ? null
                           : IconButton(
@@ -344,11 +690,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                   : 'Delete user',
                               icon: Icon(
                                 Icons.delete_outline,
-                                color: isLastAdmin ? Colors.grey : null,
+                                color: isLastAdmin
+                                    ? Colors.grey
+                                    : Colors.red.shade700,
                               ),
                               onPressed: disableDelete
                                   ? null
-                                  : () => _deleteUser(
+                                  : () => widget.onDeleteUser(
                                         uid: uid,
                                         email: email,
                                         label: label,
@@ -357,49 +705,176 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                       ),
                             ),
                     );
-                  }).toList(),
+                  },
                 ),
               );
             },
           ),
+        ),
+      ],
+    );
+  }
+}
 
-          const SizedBox(height: 18),
-          const Text('Invites', style: TextStyle(fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
+class _StatusPill extends StatelessWidget {
+  final String status;
+  const _StatusPill({required this.status});
 
-          StreamBuilder<QuerySnapshot>(
-            stream: _db.collection('invites').snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final docs = snap.data!.docs;
-              if (docs.isEmpty) return const Text('No invites.');
+  @override
+  Widget build(BuildContext context) {
+    final s = status.toLowerCase().trim();
 
-              return Card(
-                child: Column(
-                  children: docs.map((d) {
-                    final data = d.data() as Map<String, dynamic>;
-                    final email = (data['email'] ?? d.id).toString();
-                    final role = (data['role'] ?? 'associate').toString();
-                    final status = (data['status'] ?? 'invited').toString();
-                    final displayName = (data['displayName'] ?? '').toString();
+    Color bg;
+    Color fg;
+    String label;
 
-                    return ListTile(
-                      leading: const Icon(Icons.mail_outline),
-                      title: Text(
-                        displayName.isNotEmpty
-                            ? '$displayName <$email>'
-                            : email,
-                      ),
-                      subtitle: Text('Role: $role • Status: $status'),
-                    );
-                  }).toList(),
-                ),
-              );
-            },
+    switch (s) {
+      case 'active':
+        bg = Colors.green.withOpacity(0.12);
+        fg = Colors.green.shade800;
+        label = 'Active';
+        break;
+      case 'invited':
+        // ✅ Yellow-ish that is still readable
+        bg = Colors.amber.withOpacity(0.18);
+        fg = Colors.amber.shade900;
+        label = 'Invited';
+        break;
+      default:
+        bg = Colors.grey.withOpacity(0.12);
+        fg = Colors.grey.shade700;
+        label = status.isEmpty ? '—' : status;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withOpacity(0.25)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+
+  const _SearchBar({required this.controller, required this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      // ✅ Distinct background just for the search section
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withOpacity(0.05),
+        border: Border(
+          bottom: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: const Icon(Icons.search),
+          isDense: true,
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
           ),
-        ],
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: theme.dividerColor.withOpacity(0.35)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: theme.colorScheme.primary,
+              width: 1.6,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorBox extends StatelessWidget {
+  final String error;
+  const _ErrorBox({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.lock_outline, size: 34),
+            const SizedBox(height: 10),
+            const Text('Unable to load users.'),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyBox extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _EmptyBox({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 42, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
