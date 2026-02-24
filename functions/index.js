@@ -309,7 +309,7 @@ exports.deleteUser = onCall(
       // Delete Auth user (ignore if missing)
       try {
         await admin.auth().deleteUser(targetUid);
-      } catch (_) {}
+      } catch (_) { }
 
       // Delete Firestore docs (best-effort)
       const batch = admin.firestore().batch();
@@ -356,7 +356,12 @@ exports.updateUser = onCall(
       const reason = (data.reason || "").toString().trim();
 
       const allowedRoles = new Set(["associate", "admin"]);
-      const allowedStatus = new Set(["active", "invited", "inactive", "pending"]);
+
+      // ✅ normalize legacy values
+      if (status === "inactive") status = "disabled";
+      if (status === "pending") status = "invited";
+
+      const allowedStatus = new Set(["active", "invited", "disabled"]);
 
       if (email && !email.includes("@")) {
         throw new HttpsError("invalid-argument", "Valid email is required.");
@@ -455,9 +460,18 @@ exports.setUserDisabled = onCall(
 
       await admin.auth().updateUser(uid, { disabled });
 
+      // Pull previous status so reactivating an invited user keeps them as invited
+      const prevSnap = await admin.firestore().collection("users").doc(uid).get();
+      const prevStatus = (prevSnap.data()?.status || "").toString().toLowerCase().trim();
+
+      // ✅ Only three statuses going forward: invited | active | disabled
+      const nextStatus = disabled
+        ? "disabled"
+        : (prevStatus === "invited" ? "invited" : "active");
+
       await admin.firestore().collection("users").doc(uid).set(
         {
-          status: disabled ? "inactive" : "active",
+          status: nextStatus,
           disabled: disabled,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedBy: auth.uid,

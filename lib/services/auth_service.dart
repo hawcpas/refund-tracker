@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart'; // ✅ needed for VoidCallback
 import '../models/user_profile.dart';
 import 'dart:async';
 
@@ -19,11 +20,78 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  StreamSubscription<User?>? _authSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSub;
+
+  // =========================
+  // Session Guard (auto-logout disabled users)
+  // =========================
+
+  /// ✅ Start watching session + profile. Call this once when your app starts.
+  /// If the user's Firestore profile flips to disabled (or legacy inactive),
+  /// we immediately sign them out to avoid "half logged in" UI states.
+  void startSessionGuard({VoidCallback? onForcedLogout}) {
+    // Prevent double subscriptions
+    _authSub?.cancel();
+    _profileSub?.cancel();
+
+    _authSub = _auth.idTokenChanges().listen((user) async {
+      // If signed out, stop watching profile.
+      if (user == null) {
+        await _profileSub?.cancel();
+        _profileSub = null;
+        return;
+      }
+
+      // 1) Force refresh token -> catches disabled users quickly on refresh
+      try {
+        await user.getIdToken(true);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'user-disabled' ||
+            e.code == 'user-token-expired' ||
+            e.code == 'invalid-user-token') {
+          await logout();
+          onForcedLogout?.call();
+          return;
+        }
+      } catch (_) {
+        // ignore other errors here (network etc.)
+      }
+
+      // 2) Watch Firestore profile for status/disabled changes.
+      // Cancel previous profile listener if switching users.
+      await _profileSub?.cancel();
+
+      _profileSub = _db.collection('users').doc(user.uid).snapshots().listen((
+        snap,
+      ) async {
+        final data = snap.data() ?? {};
+        final disabledFlag = data['disabled'] == true;
+        final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+        // normalize legacy statuses
+        final normalizedStatus = status == 'inactive' ? 'disabled' : status;
+
+        if (disabledFlag || normalizedStatus == 'disabled') {
+          await logout();
+          onForcedLogout?.call();
+        }
+      });
+    });
+  }
+
+  Future<void> stopSessionGuard() async {
+    await _authSub?.cancel();
+    await _profileSub?.cancel();
+    _authSub = null;
+    _profileSub = null;
+  }
+
   // =========================
   // Helpers
   // =========================
 
-  /// ✅ NEW (ADDED): Record last successful sign-in time for admin visibility.
+  /// ✅ Record last successful sign-in time for admin visibility.
   /// This is non-blocking and safe to call on every login.
   Future<void> _recordLastSignIn(User user) async {
     await _db.collection('users').doc(user.uid).set({
@@ -32,7 +100,7 @@ class AuthService {
     }, SetOptions(merge: true));
   }
 
-  /// ✅ NEW: Promote invited -> active after first successful login.
+  /// ✅ Promote invited -> active after first successful login.
   /// Safe: Only transitions invited -> active (won’t override admin-applied states).
   Future<void> _markActiveIfInvited(User user) async {
     final ref = _db.collection('users').doc(user.uid);
@@ -57,7 +125,6 @@ class AuthService {
   /// Existing: mark emailVerified in Firestore and optionally promote pending -> active.
   /// (Kept your original behavior, but now it ALSO avoids overriding invited status here.)
   Future<void> _markActiveIfEmailVerified(User user) async {
-    // Make sure we have the latest emailVerified state
     await user.reload();
     final refreshed = _auth.currentUser;
 
@@ -71,7 +138,7 @@ class AuthService {
       final currentStatus = (data['status'] as String?)?.toLowerCase();
 
       // Only auto-promote if they are currently pending (don’t override invited/admin states)
-      if (currentStatus == null || currentStatus == 'pending') {
+      if (currentStatus == null || currentStatus == 'invited') {
         tx.set(ref, {
           'status': 'active',
           'emailVerified': true,
@@ -89,14 +156,10 @@ class AuthService {
   }
 
   Future<UserProfile?> getCurrentUserProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
     if (user == null) return null;
 
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
+    final doc = await _db.collection('users').doc(user.uid).get();
     if (!doc.exists) return null;
 
     final data = doc.data()!;
@@ -178,16 +241,9 @@ class AuthService {
       final user = userCredential.user;
       if (user == null) return null;
 
-      // Ensure profile exists/updated for Google sign-ins too
       await _upsertUserProfile(user);
-
-      // ✅ NEW (ADDED): record last sign-in timestamp
       await _recordLastSignIn(user);
-
-      // ✅ If they were invited (rare for Google), promote on first login
       await _markActiveIfInvited(user);
-
-      // ✅ If verified, record it (won’t override invited/admin states)
       await _markActiveIfEmailVerified(user);
 
       return user;
@@ -202,11 +258,10 @@ class AuthService {
   // LOGIN (Email/Password)
   // =========================
 
-  /// ✅ UPDATED: After successful login, promote invited -> active.
+  /// After successful login, promote invited -> active.
   /// Do NOT sign out unverified users — let UI route them to verify screen.
   Future<User?> login(String email, String password) async {
     try {
-      // 1) Auth sign-in (this is the only thing that should decide login success)
       final result = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -215,25 +270,17 @@ class AuthService {
       final user = result.user;
       if (user == null) return null;
 
-      // Refresh verification state
       await user.reload();
       final refreshedUser = _auth.currentUser;
       if (refreshedUser == null) return user;
 
-      // 2) Firestore updates should NEVER block login
+      // Firestore updates should NEVER block login
       try {
         await _upsertUserProfile(refreshedUser);
-
-        // ✅ NEW (ADDED): record last sign-in timestamp
         await _recordLastSignIn(refreshedUser);
-
-        // Promote invited -> active on first successful login
         await _markActiveIfInvited(refreshedUser);
-
-        // Keep your existing behavior (optional)
         await _markActiveIfEmailVerified(refreshedUser);
       } catch (e) {
-        // IMPORTANT: don't fail login because Firestore updates failed
         // ignore: avoid_print
         print("Post-login Firestore update failed (non-blocking): $e");
       }
@@ -254,7 +301,6 @@ class AuthService {
   // SIGNUP (Email/Password + Profile)
   // =========================
 
-  /// Signup detailed - unchanged from your version
   Future<AuthResult<User>> signupDetailed(
     String email,
     String password, {
@@ -321,7 +367,6 @@ class AuthService {
     }
   }
 
-  /// Compatibility method
   Future<User?> signup(String email, String password) async {
     final result = await signupDetailed(email, password);
     return result.data;
@@ -372,7 +417,6 @@ class AuthService {
   // UPDATE PASSWORD
   // =========================
 
-  /// Returns null on success, otherwise returns FirebaseAuthException.code
   Future<String?> updatePassword(String newPassword) async {
     try {
       final user = _auth.currentUser;
@@ -397,6 +441,7 @@ class AuthService {
   // =========================
 
   Future<void> logout() async {
+    await stopSessionGuard();
     await _auth.signOut();
   }
 }

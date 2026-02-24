@@ -2,6 +2,11 @@
 .dart_tool/
 build/
 
+# Firebase
+.firebase/
+.firebaserc
+firebase.json
+
 # IDE
 .idea/
 .vscode/
