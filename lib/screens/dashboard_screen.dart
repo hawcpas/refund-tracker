@@ -84,14 +84,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
-          // ✅ Admin-only Manage Users button
-          if (!_loadingProfile && _role.toLowerCase().trim() == 'admin')
-            IconButton(
-              tooltip: 'Manage users',
-              icon: const Icon(Icons.admin_panel_settings_outlined),
-              onPressed: () => Navigator.pushNamed(context, '/admin-users'),
-            ),
-
           // Logout
           IconButton(
             tooltip: "Logout",
@@ -106,124 +98,184 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
           children: [
             // ✅ HEADER
+            // ✅ HEADER (RESPONSIVE — FIXES MOBILE TEXT SQUEEZE)
             CenteredSection(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ✅ Left icon
-                    Container(
-                      height: 36,
-                      width: 36,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandBlue.withOpacity(0.10),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.dashboard_rounded,
-                        color: AppColors.brandBlue,
-                        size: 20,
-                      ),
-                    ),
+              // optional: give dashboard a bit more room on desktop
+              maxWidth: 1100,
+              child: Builder(
+                builder: (context) {
+                  final w = MediaQuery.of(context).size.width;
+                  final isMobile = w < 520;
+                  final isAdmin =
+                      !_loadingProfile && _role.toLowerCase().trim() == 'admin';
 
-                    const SizedBox(width: 12),
-
-                    // ✅ Main text column
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_loadingProfile) ...[
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Left icon
                             Container(
-                              height: 22,
-                              width: 220,
+                              height: 36,
+                              width: 36,
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.06),
-                                borderRadius: BorderRadius.circular(6),
+                                color: AppColors.brandBlue.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.dashboard_rounded,
+                                color: AppColors.brandBlue,
+                                size: 20,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Container(
-                              height: 14,
-                              width: 260,
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.04),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ),
-                          ] else ...[
-                            Text(
-                              welcomeText,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -0.15,
-                                color: const Color(0xFF101828),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "Manage your account and security settings.",
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF475467),
-                                height: 1.30,
-                              ),
-                            ),
+                            const SizedBox(width: 12),
 
-                            if (_status.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 8,
+                            // ✅ Main text always gets priority space
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _StatusChip(label: _status),
-                                  if (_role.isNotEmpty) _RoleChip(label: _role),
+                                  if (_loadingProfile) ...[
+                                    Container(
+                                      height: 22,
+                                      width: 260,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.06),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      height: 14,
+                                      width: 320,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.04),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                  ] else ...[
+                                    Text(
+                                      welcomeText,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: -0.15,
+                                            color: const Color(0xFF101828),
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Manage your account and security settings.",
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: const Color(0xFF475467),
+                                            height: 1.30,
+                                          ),
+                                    ),
+                                    if (_status.isNotEmpty) ...[
+                                      const SizedBox(height: 10),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _StatusChip(label: _status),
+                                          if (_role.isNotEmpty)
+                                            _RoleChip(label: _role),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
                                 ],
+                              ),
+                            ),
+
+                            // ✅ Desktop-only Admin Console button, width-capped so it never steals all space
+                            if (!isMobile && isAdmin) ...[
+                              const SizedBox(width: 12),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 200,
+                                ),
+                                child: SizedBox(
+                                  height: 40,
+                                  child: FilledButton.icon(
+                                    onPressed: () => Navigator.pushNamed(
+                                      context,
+                                      '/admin-users',
+                                    ),
+                                    icon: const Icon(
+                                      Icons.admin_panel_settings_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text(
+                                      "Admin Console",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFF0B1220),
+                                      foregroundColor: Colors.white,
+                                      elevation: 2,
+                                      shadowColor: Colors.black.withOpacity(
+                                        0.25,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.2,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ],
-                        ],
-                      ),
-                    ),
+                        ),
 
-                    // ✅ RIGHT‑SIDE ADMIN BUTTON (exact placement you want)
-                    if (!_loadingProfile &&
-                        _role.toLowerCase().trim() == 'admin')
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Column(
-                          children: [
-                            // This SizedBox aligns the button vertically
-                            const SizedBox(height: 6),
-                            OutlinedButton.icon(
+                        // ✅ Mobile stacked full-width Admin Console button
+                        if (isMobile && isAdmin) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 44,
+                            child: FilledButton.icon(
                               onPressed: () =>
                                   Navigator.pushNamed(context, '/admin-users'),
                               icon: const Icon(
-                                Icons.admin_panel_settings_outlined,
-                                size: 18,
+                                Icons.admin_panel_settings_rounded,
+                                size: 20,
                               ),
-                              label: const Text("Admin • Manage users"),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.brandBlue,
-                                side: BorderSide(
-                                  color: AppColors.brandBlue.withOpacity(0.35),
-                                ),
+                              label: const Text("Admin Console"),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF0B1220),
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shadowColor: Colors.black.withOpacity(0.25),
                                 textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.3,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
 
