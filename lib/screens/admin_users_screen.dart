@@ -303,8 +303,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               items: const [
                 DropdownMenuItem(value: 'active', child: Text('Active')),
                 DropdownMenuItem(value: 'invited', child: Text('Invited')),
-                DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
-                DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                DropdownMenuItem(value: 'disabled', child: Text('Disabled')),
               ],
               onChanged: (v) => status = (v ?? 'active'),
             ),
@@ -340,6 +339,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       ).showSnackBar(const SnackBar(content: Text('Enter a valid email')));
       return;
     }
+
+    // ✅ Normalize legacy statuses before saving
+    status = status == 'inactive' ? 'disabled' : status;
 
     await _updateUser(
       uid: uid,
@@ -581,14 +583,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             ),
           ),
         ),
-      );
-    }
-
-    // ✅ NOT ADMIN: keep same black Admin Console app bar (prevents flicker)
-    if (!_isAdmin) {
-      return Scaffold(
-        appBar: _adminConsoleAppBar(),
-        body: const Center(child: Text('Access restricted. Admins only.')),
       );
     }
 
@@ -1130,9 +1124,16 @@ class _UsersPaneState extends State<_UsersPane> {
                   final status = (data['status'] ?? '').toString();
 
                   final statusLower = status.toLowerCase().trim();
-                  final isInvited = statusLower == 'invited';
+
+                  // ✅ Normalize legacy inactive → disabled (display + logic)
+                  final normalizedStatus = statusLower == 'inactive'
+                      ? 'disabled'
+                      : statusLower;
+
+                  final isInvited = normalizedStatus == 'invited';
                   final isDisabled =
-                      (data['disabled'] == true) || statusLower == 'inactive';
+                      (data['disabled'] == true) ||
+                      normalizedStatus == 'disabled';
 
                   DateTime? invitedDt;
                   final invitedAt = data['invitedAt'];
@@ -1170,7 +1171,7 @@ class _UsersPaneState extends State<_UsersPane> {
 
                   // ✅ Less clutter on phone: only 2 chips. Meta becomes a line.
                   final chips = <Widget>[
-                    _StatusPill(status: status),
+                    _StatusPill(status: normalizedStatus),
                     _MetaChip(
                       icon: Icons.admin_panel_settings_outlined,
                       text: role,
@@ -1488,10 +1489,10 @@ class _StatusPill extends StatelessWidget {
         fg = Colors.amber.shade900;
         label = 'Invited';
         break;
-      case 'inactive':
-        bg = Colors.grey.withOpacity(0.14);
-        fg = Colors.grey.shade800;
-        label = 'Inactive';
+      case 'disabled':
+        bg = Colors.red.withOpacity(0.14);
+        fg = Colors.red.shade800;
+        label = 'Disabled';
         break;
       default:
         bg = Colors.grey.withOpacity(0.12);
