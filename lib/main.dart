@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:refund_tracker/theme/app_colors.dart';
 import 'firebase_options.dart';
-
 
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
@@ -11,15 +13,13 @@ import 'screens/forgot_password_screen.dart';
 import 'screens/account_settings_screen.dart';
 import 'screens/admin_users_screen.dart';
 
-// ✅ add this import
 import 'services/auth_service.dart';
-import 'widgets/auth_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -33,7 +33,6 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final _authService = AuthService();
 
-  // ✅ Needed so we can navigate + show snackbar from anywhere
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldMessengerState> _messengerKey =
       GlobalKey<ScaffoldMessengerState>();
@@ -42,10 +41,9 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    // ✅ Start guard once for the whole app
+    // ✅ Global session guard (disabled users)
     _authService.startSessionGuard(
       onForcedLogout: () {
-        // 1) show message
         _messengerKey.currentState?.showSnackBar(
           const SnackBar(
             content: Text(
@@ -53,16 +51,16 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         );
-
-        // 2) go to login and clear stack
-        _navKey.currentState?.pushNamedAndRemoveUntil('/login', (r) => false);
+        _navKey.currentState?.pushNamedAndRemoveUntil(
+          '/login',
+          (route) => false,
+        );
       },
     );
   }
 
   @override
   void dispose() {
-    // ✅ Stop guard when app closes
     _authService.stopSessionGuard();
     super.dispose();
   }
@@ -78,16 +76,13 @@ class _MyAppState extends State<MyApp> {
       title: 'Axume & Associates CPAs Portal',
       debugShowCheckedModeBanner: false,
 
-      // ✅ keys so guard can redirect + snackbar
       navigatorKey: _navKey,
       scaffoldMessengerKey: _messengerKey,
 
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: colorScheme,
-
         scaffoldBackgroundColor: AppColors.pageBackgroundLight,
-
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.brandBlue,
           foregroundColor: Colors.white,
@@ -95,7 +90,6 @@ class _MyAppState extends State<MyApp> {
           centerTitle: false,
           surfaceTintColor: Colors.transparent,
         ),
-
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(46),
@@ -105,7 +99,6 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         ),
-
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFFF4F7FF),
@@ -126,29 +119,111 @@ class _MyAppState extends State<MyApp> {
             borderSide: BorderSide(color: AppColors.brandBlue, width: 1.6),
           ),
         ),
-
         iconTheme: const IconThemeData(color: AppColors.brandBlue),
-
         textTheme: const TextTheme(
           titleLarge: TextStyle(fontWeight: FontWeight.w900),
           titleMedium: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
 
-      home: const LoginScreen(),
+      // ❌ NO `home:` — critical for Flutter Web deep links
+      onGenerateRoute: (settings) {
+        final user = FirebaseAuth.instance.currentUser;
+        final route = settings.name ?? '/';
 
-      routes: {
-        '/login': (_) => const LoginScreen(),
-        '/forgot-password': (_) => const ForgotPasswordScreen(),
-        '/verify-email': (_) => const VerifyEmailScreen(),
+        bool isPublic(String r) =>
+            r == '/' ||
+            r == '/login' ||
+            r == '/forgot-password' ||
+            r == '/verify-email';
 
-        '/dashboard': (_) => const AuthGate(child: DashboardScreen()),
+        // -------------------------
+        // PUBLIC ROUTES
+        // -------------------------
+        if (isPublic(route)) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) {
+              switch (route) {
+                case '/forgot-password':
+                  return const ForgotPasswordScreen();
+                case '/verify-email':
+                  return const VerifyEmailScreen();
+                case '/':
+                case '/login':
+                default:
+                  return const LoginScreen();
+              }
+            },
+          );
+        }
 
-        '/account-settings': (_) =>
-            const AuthGate(child: AccountSettingsScreen()),
+        // -------------------------
+        // NOT SIGNED IN → LOGIN
+        // -------------------------
+        if (user == null) {
+          return MaterialPageRoute(
+            builder: (_) => const LoginScreen(),
+          );
+        }
 
-        '/admin-users': (_) =>
-            const AuthGate(requireAdmin: true, child: AdminUsersScreen()),
+        // -------------------------
+        // EMAIL NOT VERIFIED
+        // -------------------------
+        if (!user.emailVerified) {
+          return MaterialPageRoute(
+            builder: (_) => const VerifyEmailScreen(),
+          );
+        }
+
+        // -------------------------
+        // PROTECTED ROUTES
+        // -------------------------
+        return MaterialPageRoute(
+          settings: settings,
+          builder: (_) {
+            switch (route) {
+              case '/dashboard':
+                return const DashboardScreen();
+
+              case '/account-settings':
+                return const AccountSettingsScreen();
+
+              case '/admin-users':
+                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  future: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .get(const GetOptions(source: Source.server)),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    final data = snap.data!.data() ?? {};
+                    final role =
+                        (data['role'] ?? '').toString().toLowerCase().trim();
+                    final status =
+                        (data['status'] ?? '').toString().toLowerCase().trim();
+                    final disabled =
+                        data['disabled'] == true ||
+                        status == 'disabled' ||
+                        status == 'inactive';
+
+                    if (disabled) return const LoginScreen();
+                    if (role != 'admin') return const DashboardScreen();
+
+                    return const AdminUsersScreen();
+                  },
+                );
+
+              default:
+                return const DashboardScreen();
+            }
+          },
+        );
       },
     );
   }
