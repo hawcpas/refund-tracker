@@ -67,23 +67,6 @@ class _LoginScreenState extends State<LoginScreen>
     spawnMinSpeed: 18.0,
   );
 
-  Future<void> _redirectIfAlreadySignedIn() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    // Make sure we have fresh auth state
-    await user.reload();
-    final refreshed = FirebaseAuth.instance.currentUser;
-    if (refreshed == null) return;
-
-    // If user is already signed in, skip login screen
-    if (!mounted) return;
-    Navigator.pushReplacementNamed(
-      context,
-      refreshed.emailVerified ? '/dashboard' : '/verify-email',
-    );
-  }
-
   Future<void> _openLink(String url) async {
     final uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -113,8 +96,6 @@ class _LoginScreenState extends State<LoginScreen>
     _animationController.forward();
     _loadSavedEmail();
 
-    // ✅ If already signed in, don't show login screen
-    _redirectIfAlreadySignedIn();
   }
 
   Future<void> _loadSavedEmail() async {

@@ -100,8 +100,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     }
   }
 
-  bool get _isAdmin => _role == 'admin';
-
   // -------------------------
   // Cloud Function helpers
   // -------------------------
