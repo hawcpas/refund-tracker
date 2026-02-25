@@ -17,10 +17,24 @@ import 'services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
+}
+
+/// ✅ Global "no animation" transitions (removes the slight zoom / slide)
+class NoTransitionsBuilder extends PageTransitionsBuilder {
+  const NoTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child; // ✅ no animation
+  }
 }
 
 class MyApp extends StatefulWidget {
@@ -83,6 +97,18 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: AppColors.pageBackgroundLight,
+
+        // ✅ Removes "zoom" / page transition feel
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: NoTransitionsBuilder(),
+            TargetPlatform.iOS: NoTransitionsBuilder(),
+            TargetPlatform.linux: NoTransitionsBuilder(),
+            TargetPlatform.macOS: NoTransitionsBuilder(),
+            TargetPlatform.windows: NoTransitionsBuilder(),
+          },
+        ),
+
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.brandBlue,
           foregroundColor: Colors.white,
@@ -90,6 +116,7 @@ class _MyAppState extends State<MyApp> {
           centerTitle: false,
           surfaceTintColor: Colors.transparent,
         ),
+
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(46),
@@ -99,6 +126,7 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         ),
+
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFFF4F7FF),
@@ -119,7 +147,9 @@ class _MyAppState extends State<MyApp> {
             borderSide: BorderSide(color: AppColors.brandBlue, width: 1.6),
           ),
         ),
+
         iconTheme: const IconThemeData(color: AppColors.brandBlue),
+
         textTheme: const TextTheme(
           titleLarge: TextStyle(fontWeight: FontWeight.w900),
           titleMedium: TextStyle(fontWeight: FontWeight.w900),
@@ -162,18 +192,14 @@ class _MyAppState extends State<MyApp> {
         // NOT SIGNED IN → LOGIN
         // -------------------------
         if (user == null) {
-          return MaterialPageRoute(
-            builder: (_) => const LoginScreen(),
-          );
+          return MaterialPageRoute(builder: (_) => const LoginScreen());
         }
 
         // -------------------------
         // EMAIL NOT VERIFIED
         // -------------------------
         if (!user.emailVerified) {
-          return MaterialPageRoute(
-            builder: (_) => const VerifyEmailScreen(),
-          );
+          return MaterialPageRoute(builder: (_) => const VerifyEmailScreen());
         }
 
         // -------------------------
@@ -203,10 +229,14 @@ class _MyAppState extends State<MyApp> {
                     }
 
                     final data = snap.data!.data() ?? {};
-                    final role =
-                        (data['role'] ?? '').toString().toLowerCase().trim();
-                    final status =
-                        (data['status'] ?? '').toString().toLowerCase().trim();
+                    final role = (data['role'] ?? '')
+                        .toString()
+                        .toLowerCase()
+                        .trim();
+                    final status = (data['status'] ?? '')
+                        .toString()
+                        .toLowerCase()
+                        .trim();
                     final disabled =
                         data['disabled'] == true ||
                         status == 'disabled' ||

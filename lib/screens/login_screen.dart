@@ -53,7 +53,6 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _accentW = 72;
 
   // ✅ Particle options (tuned for “professional + subtle”)
-  // Based on the ParticleOptions fields shown in examples/docs. [1](https://www.geeksforgeeks.org/flutter/animated-background-in-flutter/)[2](https://pub.dev/documentation/animated_background/latest/)
   final ParticleOptions _particles = const ParticleOptions(
     baseColor: AppColors.brandBlue,
     spawnOpacity: 0.0,
@@ -95,7 +94,6 @@ class _LoginScreenState extends State<LoginScreen>
 
     _animationController.forward();
     _loadSavedEmail();
-
   }
 
   Future<void> _loadSavedEmail() async {
@@ -150,22 +148,35 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
+    // ✅ spinner visible at least briefly
+    final startedAt = DateTime.now();
+    const minSpinnerMs = 300;
+
     setState(() => isLoading = true);
+
     final user = await _auth.login(email, password);
-    setState(() => isLoading = false);
 
     if (!mounted) return;
 
+    // keep spinner visible a moment (prevents flicker on fast logins)
+    final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+    final remaining = minSpinnerMs - elapsed;
+    if (remaining > 0) {
+      await Future.delayed(Duration(milliseconds: remaining));
+      if (!mounted) return;
+    }
+
+    setState(() => isLoading = false);
+
     if (user == null) {
-      setState(
-        () => _authError = "The email or password you entered is incorrect.",
-      );
+      setState(() {
+        _authError = "The email or password you entered is incorrect.";
+      });
       return;
     }
 
     await LocalAuthPrefs.saveEmail(email);
 
-    // user was already reloaded inside AuthService.login(), but this is safe:
     await user.reload();
     final verified = user.emailVerified;
     if (!mounted) return;
@@ -177,8 +188,6 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _loginCard(ThemeData theme, bool showAuthError) {
-    final bool darkBg = AppColors.pageBackgroundLight == AppColors.brandBlue;
-
     return FadeTransition(
       opacity: _fadeAnimation,
       child: SlideTransition(
@@ -207,7 +216,6 @@ class _LoginScreenState extends State<LoginScreen>
                     color: AppColors.brandBlue,
                   ),
                   const SizedBox(height: 10),
-
                   Container(
                     height: _accentH,
                     width: _accentW,
@@ -216,7 +224,6 @@ class _LoginScreenState extends State<LoginScreen>
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-
                   const SizedBox(height: _blockGap),
 
                   Text(
@@ -304,22 +311,36 @@ class _LoginScreenState extends State<LoginScreen>
                   SizedBox(
                     width: double.infinity,
                     height: _buttonH,
-                    child: isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.brandBlue,
-                              foregroundColor: AppColors.cardBackground,
-                              textStyle: const TextStyle(
-                                fontWeight: FontWeight.w900,
+                    child: FilledButton(
+                      onPressed: isLoading ? null : _login,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: AppColors.cardBackground,
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: isLoading
+                          ? Center(
+                              child: Container(
+                                height: 26,
+                                width: 26,
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.92),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: const CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.brandBlue,
+                                  ),
+                                ),
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: _login,
-                            child: const Text("Login"),
-                          ),
+                            )
+                          : const Text("Login"),
+                    ),
                   ),
 
                   const SizedBox(height: 12),
@@ -446,8 +467,6 @@ class _LoginScreenState extends State<LoginScreen>
       resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
-          // ✅ PARTICLE BACKGROUND LAYER
-          // AnimatedBackground usage pattern + vsync requirement per docs/examples. [2](https://pub.dev/documentation/animated_background/latest/)[1](https://www.geeksforgeeks.org/flutter/animated-background-in-flutter/)
           Positioned.fill(
             child: AnimatedBackground(
               vsync: this,
@@ -455,8 +474,6 @@ class _LoginScreenState extends State<LoginScreen>
               child: const SizedBox.expand(),
             ),
           ),
-
-          // ✅ subtle overlay so particles never fight readability
           IgnorePointer(
             child: Container(
               decoration: BoxDecoration(
@@ -472,8 +489,6 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ),
           ),
-
-          // ✅ YOUR EXISTING UI ON TOP
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
