@@ -46,7 +46,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   static const double _btnW = 180;
   static const double _btnH = 44;
 
-  // ✅ NEW: controls how wide the input fields are (so they don’t stretch)
+  // ✅ controls how wide the input fields are (so they don’t stretch)
   static const double _fieldMaxWidth = 320;
 
   @override
@@ -54,7 +54,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
 
-    // ✅ Keep segmented control in sync when user swipes between tabs
+    // ✅ Keep segmented control in sync when index changes
     _tabController.addListener(() {
       if (!mounted) return;
       if (!_tabController.indexIsChanging) {
@@ -100,7 +100,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           : displayName;
 
       nameController.text = bestName;
-      emailController.text = ((data['email'] ?? user.email) ?? '').toString().trim();
+      emailController.text = ((data['email'] ?? user.email) ?? '')
+          .toString()
+          .trim();
       phoneController.text = (data['phone'] ?? '').toString().trim();
     } finally {
       if (!mounted) return;
@@ -117,56 +119,60 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   Widget _errorBanner(ThemeData theme, String msg) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.red.withOpacity(0.20)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                msg,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFFB42318),
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-              ),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.red.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.red.withOpacity(0.20)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFFB42318),
+              fontWeight: FontWeight.w700,
+              height: 1.3,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   Widget _successBanner(ThemeData theme, String msg) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.green.withOpacity(0.25)),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.green.withOpacity(0.10),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.green.withOpacity(0.25)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.check_circle_outline,
+          color: Colors.green.shade800,
+          size: 18,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.check_circle_outline, color: Colors.green.shade800, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                msg,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.green.shade800,
-                  fontWeight: FontWeight.w800,
-                  height: 1.3,
-                ),
-              ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.green.shade800,
+              fontWeight: FontWeight.w800,
+              height: 1.3,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   Widget _primaryButton({
     required String label,
@@ -182,7 +188,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           backgroundColor: AppColors.brandBlue,
           foregroundColor: AppColors.cardBackground,
           textStyle: const TextStyle(fontWeight: FontWeight.w900),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         child: loading
             ? const SizedBox(
@@ -216,7 +224,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       return;
     }
 
-    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.length < 2) {
       _setBanner(error: 'Please enter first and last name.', success: null);
       return;
@@ -247,11 +258,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         try {
           await user.verifyBeforeUpdateEmail(email);
 
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'pendingEmail': email,
-            'pendingEmailRequestedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .set({
+                'pendingEmail': email,
+                'pendingEmailRequestedAt': FieldValue.serverTimestamp(),
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
 
           if (!mounted) return;
           setState(() {
@@ -267,7 +281,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
           if (e.code == 'requires-recent-login') {
             _setBanner(
-              error: 'For security reasons, please log in again to change your email.',
+              error:
+                  'For security reasons, please log in again to change your email.',
               success: null,
             );
             await _auth.logout();
@@ -276,7 +291,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
             return;
           }
 
-          _setBanner(error: 'Email update failed (${e.code}). ${e.message ?? ''}', success: null);
+          _setBanner(
+            error: 'Email update failed (${e.code}). ${e.message ?? ''}',
+            success: null,
+          );
           return;
         }
       }
@@ -290,7 +308,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() => _savingPersonal = false);
-      _setBanner(error: 'Could not save changes. Please try again.', success: null);
+      _setBanner(
+        error: 'Could not save changes. Please try again.',
+        success: null,
+      );
     }
   }
 
@@ -307,7 +328,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       return;
     }
     if (newPass.length < 6) {
-      _setBanner(error: 'New password must be at least 6 characters.', success: null);
+      _setBanner(
+        error: 'New password must be at least 6 characters.',
+        success: null,
+      );
       return;
     }
     if (newPass != confirmPass) {
@@ -324,10 +348,16 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     try {
       final email = user.email;
       if (email == null || email.isEmpty) {
-        throw FirebaseAuthException(code: 'no-email', message: 'No email found for current user.');
+        throw FirebaseAuthException(
+          code: 'no-email',
+          message: 'No email found for current user.',
+        );
       }
 
-      final credential = EmailAuthProvider.credential(email: email, password: currentPass);
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPass,
+      );
       await user.reauthenticateWithCredential(credential);
 
       final code = await _auth.updatePassword(newPass);
@@ -348,7 +378,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
       if (code == 'requires-recent-login') {
         _setBanner(
-          error: 'For security reasons, please log in again to change your password.',
+          error:
+              'For security reasons, please log in again to change your password.',
           success: null,
         );
         await _auth.logout();
@@ -369,7 +400,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
       if (e.code == 'requires-recent-login') {
         _setBanner(
-          error: 'For security reasons, please log in again to change your password.',
+          error:
+              'For security reasons, please log in again to change your password.',
           success: null,
         );
         await _auth.logout();
@@ -382,11 +414,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() => _savingPassword = false);
-      _setBanner(error: 'Could not update password. Please try again.', success: null);
+      _setBanner(
+        error: 'Could not update password. Please try again.',
+        success: null,
+      );
     }
   }
 
-  // ✅ NEW: Segmented (pill) control UI
+  // ✅ Segmented control UI (NO animation)
   Widget _segmentedTabs() {
     final selected = <int>{_tabController.index};
 
@@ -409,8 +444,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         showSelectedIcon: false,
         onSelectionChanged: (newSelection) {
           final idx = newSelection.first;
-          _tabController.animateTo(idx);
-          setState(() {});
+          // ✅ instant change (no slide)
+          setState(() {
+            _tabController.index = idx;
+          });
         },
         style: ButtonStyle(
           backgroundColor: WidgetStateProperty.resolveWith((states) {
@@ -439,7 +476,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     );
   }
 
-  // ✅ NEW: constrains fields so they don’t stretch full width
   Widget _fieldColumn({required List<Widget> children}) {
     return Align(
       alignment: Alignment.topLeft,
@@ -453,6 +489,101 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     );
   }
 
+  // ------- Panels (so build stays tidy) -------
+  Widget _personalInfoPanel(ThemeData theme) {
+    return _fieldColumn(
+      children: [
+        Text(
+          'Personal Information',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF101828),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Name',
+            prefixIcon: Icon(Icons.badge_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Email',
+            prefixIcon: Icon(Icons.mail_outline),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Phone',
+            prefixIcon: Icon(Icons.phone_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _primaryButton(
+          label: 'Save changes',
+          onPressed: _savingPersonal ? null : _savePersonalInfo,
+          loading: _savingPersonal,
+        ),
+      ],
+    );
+  }
+
+  Widget _passwordPanel(ThemeData theme) {
+    return _fieldColumn(
+      children: [
+        Text(
+          'Password',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF101828),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: currentPasswordController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Current Password',
+            prefixIcon: Icon(Icons.lock_outline),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: newPasswordController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'New Password',
+            helperText: 'Minimum 6 characters',
+            prefixIcon: Icon(Icons.lock_reset),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: confirmPasswordController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Repeat New Password',
+            prefixIcon: Icon(Icons.lock_reset_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _primaryButton(
+          label: 'Update password',
+          onPressed: _savingPassword ? null : _changePasswordWithCurrent,
+          loading: _savingPassword,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -463,7 +594,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         fillColor: const Color(0xFFF4F7FF),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: AppColors.brandBlue.withOpacity(0.28), width: 1.2),
+          borderSide: BorderSide(
+            color: AppColors.brandBlue.withOpacity(0.28),
+            width: 1.2,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -496,7 +630,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                         decoration: BoxDecoration(
                           color: AppColors.cardBackground,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.black.withOpacity(0.06)),
+                          border: Border.all(
+                            color: Colors.black.withOpacity(0.06),
+                          ),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withOpacity(0.04),
@@ -508,7 +644,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: _formWidth),
+                            constraints: const BoxConstraints(
+                              maxWidth: _formWidth,
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -520,7 +658,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                                   _successBanner(theme, _success!),
                                   const SizedBox(height: _sectionGap),
                                 ],
-
                                 Text(
                                   "Account Settings",
                                   style: theme.textTheme.titleMedium?.copyWith(
@@ -536,120 +673,21 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                                     height: 1.25,
                                   ),
                                 ),
-
                                 const SizedBox(height: 14),
                                 Divider(color: Colors.black.withOpacity(0.07)),
                                 const SizedBox(height: 12),
 
-                                // ✅ Pill tabs (segmented control)
                                 _segmentedTabs(),
-
                                 const SizedBox(height: 16),
 
+                                // ✅ NO SLIDE: IndexedStack swaps instantly
                                 SizedBox(
                                   height: 420,
-                                  child: TabBarView(
-                                    controller: _tabController,
+                                  child: IndexedStack(
+                                    index: _tabController.index,
                                     children: [
-                                      // Personal Information
-                                      _fieldColumn(
-                                        children: [
-                                          Text(
-                                            'Personal Information',
-                                            style: theme.textTheme.titleMedium?.copyWith(
-                                              fontWeight: FontWeight.w900,
-                                              color: const Color(0xFF101828),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: nameController,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Name',
-                                              prefixIcon: Icon(Icons.badge_outlined),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: emailController,
-                                            keyboardType: TextInputType.emailAddress,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Email',
-                                              prefixIcon: Icon(Icons.mail_outline),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: phoneController,
-                                            keyboardType: TextInputType.phone,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Phone',
-                                              prefixIcon: Icon(Icons.phone_outlined),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-
-                                          _primaryButton(
-                                            label: 'Save changes',
-                                            onPressed: _savingPersonal ? null : _savePersonalInfo,
-                                            loading: _savingPersonal,
-                                          ),
-                                        ],
-                                      ),
-
-                                      // Password
-                                      _fieldColumn(
-                                        children: [
-                                          Text(
-                                            'Password',
-                                            style: theme.textTheme.titleMedium?.copyWith(
-                                              fontWeight: FontWeight.w900,
-                                              color: const Color(0xFF101828),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: currentPasswordController,
-                                            obscureText: true,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Current Password',
-                                              prefixIcon: Icon(Icons.lock_outline),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: newPasswordController,
-                                            obscureText: true,
-                                            decoration: const InputDecoration(
-                                              labelText: 'New Password',
-                                              helperText: 'Minimum 6 characters',
-                                              prefixIcon: Icon(Icons.lock_reset),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 12),
-
-                                          TextField(
-                                            controller: confirmPasswordController,
-                                            obscureText: true,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Repeat New Password',
-                                              prefixIcon: Icon(Icons.lock_reset_outlined),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-
-                                          _primaryButton(
-                                            label: 'Update password',
-                                            onPressed: _savingPassword ? null : _changePasswordWithCurrent,
-                                            loading: _savingPassword,
-                                          ),
-                                        ],
-                                      ),
+                                      _personalInfoPanel(theme),
+                                      _passwordPanel(theme),
                                     ],
                                   ),
                                 ),
