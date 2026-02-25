@@ -44,7 +44,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      // ✅ FORCE fresh data from Firestore (bypass cache)
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -71,24 +70,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // ✅ Immediate logout (no confirmation, no dialog)
+  Future<void> _logout() async {
+    await _auth.logout();
+    if (!mounted) return;
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/login',
+      (_) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final welcomeText = _fullName.isNotEmpty
-        ? "Welcome back, $_fullName"
-        : "Welcome back";
+    final welcomeText =
+        _fullName.isNotEmpty ? "Welcome back, $_fullName" : "Welcome back";
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
       appBar: AppBar(
         title: const Text("Dashboard"),
         actions: [
-          // Logout
           IconButton(
             tooltip: "Logout",
             icon: const Icon(Icons.logout),
-            onPressed: () => _confirmLogout(context),
+            onPressed: _logout, // ✅ immediate
           ),
         ],
       ),
@@ -97,10 +105,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: ListView(
           padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
           children: [
-            // ✅ HEADER
-            // ✅ HEADER (RESPONSIVE — FIXES MOBILE TEXT SQUEEZE)
             CenteredSection(
-              // optional: give dashboard a bit more room on desktop
               maxWidth: 1100,
               child: Builder(
                 builder: (context) {
@@ -117,7 +122,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Left icon
                             Container(
                               height: 36,
                               width: 36,
@@ -133,7 +137,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(width: 12),
 
-                            // ✅ Main text always gets priority space
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,21 +164,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       welcomeText,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                            letterSpacing: -0.15,
-                                            color: const Color(0xFF101828),
-                                          ),
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.15,
+                                        color: const Color(0xFF101828),
+                                      ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       "Manage your account and security settings.",
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: const Color(0xFF475467),
-                                            height: 1.30,
-                                          ),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: const Color(0xFF475467),
+                                        height: 1.30,
+                                      ),
                                     ),
                                     if (_status.isNotEmpty) ...[
                                       const SizedBox(height: 10),
@@ -194,13 +195,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
 
-                            // ✅ Desktop-only Admin Console button, width-capped so it never steals all space
                             if (!isMobile && isAdmin) ...[
                               const SizedBox(width: 12),
                               ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 200,
-                                ),
+                                constraints: const BoxConstraints(maxWidth: 200),
                                 child: SizedBox(
                                   height: 40,
                                   child: FilledButton.icon(
@@ -221,16 +219,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       backgroundColor: const Color(0xFF0B1220),
                                       foregroundColor: Colors.white,
                                       elevation: 2,
-                                      shadowColor: Colors.black.withOpacity(
-                                        0.25,
-                                      ),
+                                      shadowColor: Colors.black.withOpacity(0.25),
                                       textStyle: const TextStyle(
                                         fontWeight: FontWeight.w900,
                                         letterSpacing: 0.2,
                                       ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -242,7 +236,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
 
-                        // ✅ Mobile stacked full-width Admin Console button
                         if (isMobile && isAdmin) ...[
                           const SizedBox(height: 12),
                           SizedBox(
@@ -281,8 +274,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             const SizedBox(height: 18),
 
-            // ✅ ACCOUNT SECTION
-            // ✅ ACCOUNT SECTION
             CenteredSection(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -297,7 +288,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // ✅ Account settings (existing)
                   _SubtleHoverTile(
                     icon: Icons.person_outline,
                     title: "Account settings",
@@ -319,7 +309,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             const SizedBox(height: 28),
 
-            // ✅ LOGOUT
+            // ✅ LOGOUT (immediate)
             CenteredForm(
               child: Column(
                 children: [
@@ -327,7 +317,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     height: 46,
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () => _confirmLogout(context),
+                      onPressed: _logout, // ✅ immediate
                       icon: const Icon(Icons.logout),
                       label: const Text("Logout"),
                       style: FilledButton.styleFrom(
@@ -358,35 +348,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-
-  void _confirmLogout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Log out"),
-        content: const Text("Are you sure you want to log out?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.brandBlue,
-              foregroundColor: AppColors.cardBackground,
-            ),
-            onPressed: () async {
-              Navigator.pop(context);
-              await _auth.logout();
-              if (!context.mounted) return;
-              Navigator.pushReplacementNamed(context, '/login');
-            },
-            child: const Text("Logout"),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ---------- Small chips (optional polish) ----------
@@ -401,9 +362,8 @@ class _StatusChip extends StatelessWidget {
     final Color bg = normalized == 'active'
         ? Colors.green.withOpacity(0.12)
         : AppColors.brandBlue.withOpacity(0.10);
-    final Color fg = normalized == 'active'
-        ? Colors.green.shade800
-        : AppColors.brandBlue;
+    final Color fg =
+        normalized == 'active' ? Colors.green.shade800 : AppColors.brandBlue;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
