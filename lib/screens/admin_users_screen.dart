@@ -32,8 +32,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     return AppBar(
       backgroundColor: Colors.black,
       foregroundColor: Colors.white,
-      systemOverlayStyle:
-          SystemUiOverlayStyle.light, // ✅ white status bar icons
+      systemOverlayStyle: SystemUiOverlayStyle.light,
       elevation: 2,
       title: const Text(
         'Admin Console',
@@ -115,16 +114,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String role,
     required String status,
     required String reason,
+    Map<String, dynamic>? communications, // ✅ optional
   }) async {
     setState(() => _busy = true);
     try {
-      await _callable('updateUser').call({
+      final payload = <String, dynamic>{
         'uid': uid,
         'email': email,
         'role': role,
         'status': status,
         'reason': reason,
-      });
+      };
+
+      if (communications != null) {
+        payload['communications'] = communications; // ✅ NEW
+      }
+
+      await _callable('updateUser').call(payload);
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -251,6 +257,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String currentEmail,
     required String currentRole,
     required String currentStatus,
+    Map<String, dynamic>? currentCommunications, // ✅ NEW
   }) async {
     final emailCtrl = TextEditingController(text: currentEmail);
 
@@ -263,57 +270,105 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     final reasonCtrl = TextEditingController();
 
+    // ✅ Prefill comms
+    final comms = Map<String, dynamic>.from(currentCommunications ?? {});
+    final wildixCtrl = TextEditingController(
+      text: (comms['wildixExtension'] ?? '').toString(),
+    );
+
+    // ✅ One number for Clearfly SMS + eFax
+    final clearflyCtrl = TextEditingController(
+      text: (comms['clearflySmsNumber'] ?? '').toString(),
+    );
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Edit user'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: emailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                prefixIcon: Icon(Icons.mail_outline),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.mail_outline),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: role,
-              decoration: const InputDecoration(
-                labelText: 'Role',
-                prefixIcon: Icon(Icons.admin_panel_settings_outlined),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: role,
+                decoration: const InputDecoration(
+                  labelText: 'Role',
+                  prefixIcon: Icon(Icons.admin_panel_settings_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'associate',
+                    child: Text('Associate'),
+                  ),
+                  DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                ],
+                onChanged: (v) => role = (v ?? 'associate'),
               ),
-              items: const [
-                DropdownMenuItem(value: 'associate', child: Text('Associate')),
-                DropdownMenuItem(value: 'admin', child: Text('Admin')),
-              ],
-              onChanged: (v) => role = (v ?? 'associate'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: status,
-              decoration: const InputDecoration(
-                labelText: 'Status',
-                prefixIcon: Icon(Icons.verified_outlined),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: status,
+                decoration: const InputDecoration(
+                  labelText: 'Status',
+                  prefixIcon: Icon(Icons.verified_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'active', child: Text('Active')),
+                  DropdownMenuItem(value: 'invited', child: Text('Invited')),
+                  DropdownMenuItem(value: 'disabled', child: Text('Disabled')),
+                ],
+                onChanged: (v) => status = (v ?? 'active'),
               ),
-              items: const [
-                DropdownMenuItem(value: 'active', child: Text('Active')),
-                DropdownMenuItem(value: 'invited', child: Text('Invited')),
-                DropdownMenuItem(value: 'disabled', child: Text('Disabled')),
-              ],
-              onChanged: (v) => status = (v ?? 'active'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Reason (audit note)',
-                prefixIcon: Icon(Icons.note_alt_outlined),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Reason (audit note)',
+                  prefixIcon: Icon(Icons.note_alt_outlined),
+                ),
               ),
-            ),
-          ],
+
+              // ✅ Communications section
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Communications',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              TextField(
+                controller: wildixCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Wildix Extension',
+                  prefixIcon: Icon(Icons.phone_in_talk_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              TextField(
+                controller: clearflyCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Clearfly SMS / eFax Number',
+                  prefixIcon: Icon(Icons.sms_outlined),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -347,6 +402,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       role: role,
       status: status,
       reason: reasonCtrl.text.trim(),
+      communications: {
+        'wildixExtension': wildixCtrl.text.trim(),
+        'clearflySmsNumber': clearflyCtrl.text.trim(),
+      },
     );
   }
 
@@ -545,7 +604,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ LOADING: keep same black Admin Console app bar (prevents flicker)
     if (_roleLoading) {
       return Scaffold(
         appBar: _adminConsoleAppBar(),
@@ -553,7 +611,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       );
     }
 
-    // ✅ ERROR: keep same black Admin Console app bar (prevents flicker)
     if (_roleError != null) {
       return Scaffold(
         appBar: _adminConsoleAppBar(),
@@ -584,7 +641,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       );
     }
 
-    // ✅ MAIN ADMIN UI
     return Scaffold(
       appBar: _adminConsoleAppBar(),
       body: Stack(
@@ -596,7 +652,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   final isDesktopWide = pageConstraints.maxWidth >= 1200;
 
                   return CenteredSection(
-                    // ✅ Wider desktop, unchanged mobile/tablet
                     maxWidth: isDesktopWide ? 1600 : 1100,
                     child: Padding(
                       padding: EdgeInsets.symmetric(
@@ -610,9 +665,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           final inviteCard = Opacity(
                             opacity: _busy ? 0.6 : 1,
                             child: Card(
-                              color: const Color(
-                                0xFF1F2937,
-                              ), // ✅ dark grey (slate)
+                              color: const Color(0xFF1F2937),
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
@@ -642,11 +695,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                         ),
                                       ),
                                       const SizedBox(width: 12),
-                                      Expanded(
+                                      const Expanded(
                                         child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
-                                          children: const [
+                                          children: [
                                             Text(
                                               'Invite a user',
                                               style: TextStyle(
@@ -660,9 +713,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                             Text(
                                               'Creates the Auth user + reset link + Firestore profile.',
                                               style: TextStyle(
-                                                color: Color(
-                                                  0xFFCBD5E1,
-                                                ), // light grey text
+                                                color: Color(0xFFCBD5E1),
                                                 fontWeight: FontWeight.w600,
                                                 height: 1.25,
                                               ),
@@ -673,7 +724,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                       const SizedBox(width: 10),
                                       Icon(
                                         Icons.chevron_right,
-                                        color: Colors.white.withOpacity(0.85),
+                                        color: Colors.white70,
                                       ),
                                     ],
                                   ),
@@ -699,7 +750,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                             ),
                           );
 
-                          // ✅ MOBILE
                           if (isNarrow) {
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -711,7 +761,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                             );
                           }
 
-                          // ✅ DESKTOP / TABLET (WIDER + NO HEIGHT CLAMP)
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -731,7 +780,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               ),
             ),
           ),
-
           if (_busy)
             const Positioned(
               left: 0,
@@ -815,7 +863,6 @@ class _SearchHeader extends StatelessWidget {
           );
 
           if (isNarrow) {
-            // ✅ MOBILE: stack search then chips, chips scroll if needed
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -829,7 +876,6 @@ class _SearchHeader extends StatelessWidget {
             );
           }
 
-          // ✅ WIDE: keep as one row
           return Row(
             children: [
               Expanded(child: searchField),
@@ -864,6 +910,7 @@ class _UsersPane extends StatefulWidget {
     required String currentEmail,
     required String currentRole,
     required String currentStatus,
+    Map<String, dynamic>? currentCommunications, // ✅ NEW
   })
   onEditUser;
 
@@ -903,13 +950,6 @@ class _UsersPane extends StatefulWidget {
 class _UsersPaneState extends State<_UsersPane> {
   String _statusFilter = 'all'; // all | active | invited
 
-  String _formatDateTime(BuildContext context, DateTime dt) {
-    final loc = MaterialLocalizations.of(context);
-    final dateStr = loc.formatShortDate(dt);
-    final timeStr = loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt));
-    return '$dateStr • $timeStr';
-  }
-
   String _formatDateOnly(BuildContext context, DateTime dt) {
     return MaterialLocalizations.of(context).formatShortDate(dt);
   }
@@ -924,10 +964,10 @@ class _UsersPaneState extends State<_UsersPane> {
     required String role,
     required String status,
     required String titleName,
+    required Map<String, dynamic> communications, // ✅ NEW
   }) {
     if (isMe) return const SizedBox(width: 40, height: 36);
 
-    // Reserve fixed space so the menu never overlaps content.
     return SizedBox(
       width: 40,
       height: 36,
@@ -946,6 +986,7 @@ class _UsersPaneState extends State<_UsersPane> {
                 currentEmail: email,
                 currentRole: role,
                 currentStatus: status,
+                currentCommunications: communications, // ✅ NEW
               );
             } else if (value == 'resendInvite') {
               await widget.onResendInvite(uid: uid);
@@ -1039,7 +1080,6 @@ class _UsersPaneState extends State<_UsersPane> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.max,
       children: [
         _SearchHeader(
           controller: widget.searchCtrl,
@@ -1047,7 +1087,6 @@ class _UsersPaneState extends State<_UsersPane> {
           onSelected: (v) => setState(() => _statusFilter = v),
         ),
         const Divider(height: 1),
-
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: widget.db.collection('users').snapshots(),
@@ -1105,10 +1144,9 @@ class _UsersPaneState extends State<_UsersPane> {
                   height: 16,
                   thickness: 1,
                   color: Theme.of(context).dividerColor.withOpacity(0.35),
-                  indent: 12, // left padding of the line
-                  endIndent: 12, // right padding of the line
+                  indent: 12,
+                  endIndent: 12,
                 ),
-
                 itemBuilder: (context, i) {
                   final d = filtered[i];
                   final data = d.data() as Map<String, dynamic>;
@@ -1121,9 +1159,19 @@ class _UsersPaneState extends State<_UsersPane> {
                   final role = (data['role'] ?? 'associate').toString();
                   final status = (data['status'] ?? '').toString();
 
-                  final statusLower = status.toLowerCase().trim();
+                  // ✅ NEW: communications pulled from user doc
+                  final communications = Map<String, dynamic>.from(
+                    data['communications'] ?? {},
+                  );
+                  final wildixExt = (communications['wildixExtension'] ?? '')
+                      .toString()
+                      .trim();
+                  final clearflyNum =
+                      (communications['clearflySmsNumber'] ?? '')
+                          .toString()
+                          .trim();
 
-                  // ✅ Normalize legacy inactive → disabled (display + logic)
+                  final statusLower = status.toLowerCase().trim();
                   final normalizedStatus = statusLower == 'inactive'
                       ? 'disabled'
                       : statusLower;
@@ -1149,11 +1197,9 @@ class _UsersPaneState extends State<_UsersPane> {
                   final nameLabel = displayName.isNotEmpty
                       ? displayName
                       : ('$firstName $lastName').trim();
-
                   final titleName = nameLabel.isNotEmpty
                       ? nameLabel
                       : (email.isNotEmpty ? email : uid);
-
                   final emailLine = email.isNotEmpty ? email : uid;
 
                   final isLastAdmin =
@@ -1167,37 +1213,17 @@ class _UsersPaneState extends State<_UsersPane> {
                             ? 'Last sign-in • —'
                             : 'Last sign-in • ${_formatDateOnly(context, lastSignInDt)}');
 
-                  // ✅ Less clutter on phone: only 2 chips. Meta becomes a line.
-                  final chips = <Widget>[
-                    _StatusPill(status: normalizedStatus),
-                    _MetaChip(
-                      icon: Icons.admin_panel_settings_outlined,
-                      text: role,
-                    ),
-                  ];
-
-                  // ---- CLEAN USER CARD ROW ----
-                  final isDesktop = MediaQuery.of(context).size.width >= 900;
-
                   return Material(
                     color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(14),
                     child: Padding(
                       padding: EdgeInsets.symmetric(
-                        horizontal: isPhone ? 12 : 14, // minimal space
-                        vertical: isPhone ? 10 : 10, // minimal space
+                        horizontal: isPhone ? 12 : 14,
+                        vertical: 10,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // =========================
-                          // Row 1: [name][status][role] (⋮)
-                          // =========================
-                          // =========================
-                          // Row 1 (RESPONSIVE):
-                          // Mobile: name can be 2 lines, chips/menu drop below (no truncation)
-                          // Desktop: keep single-line compact row
-                          // =========================
                           if (isPhone) ...[
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1215,11 +1241,10 @@ class _UsersPaneState extends State<_UsersPane> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-
                                 Expanded(
                                   child: Text(
                                     isMe ? '$titleName (You)' : titleName,
-                                    maxLines: 2, // ✅ allow full name to show
+                                    maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleSmall?.copyWith(
                                       fontWeight: FontWeight.w900,
@@ -1228,8 +1253,6 @@ class _UsersPaneState extends State<_UsersPane> {
                                     ),
                                   ),
                                 ),
-
-                                // actions stays top-right but doesn't steal name width too much
                                 _actionsMenu(
                                   isMe: isMe,
                                   isInvited: isInvited,
@@ -1240,13 +1263,11 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
+                                  communications: communications, // ✅ NEW
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 6),
-
-                            // ✅ chips moved below name, still left aligned and compact
                             Row(
                               children: [
                                 _StatusPill(status: status),
@@ -1274,10 +1295,8 @@ class _UsersPaneState extends State<_UsersPane> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-
                                 Flexible(
-                                  fit: FlexFit
-                                      .loose, // ✅ keeps chips close (no right push)
+                                  fit: FlexFit.loose,
                                   child: ConstrainedBox(
                                     constraints: const BoxConstraints(
                                       maxWidth: 520,
@@ -1295,7 +1314,6 @@ class _UsersPaneState extends State<_UsersPane> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-
                                 _StatusPill(status: status),
                                 const SizedBox(width: 8),
                                 _MetaChip(
@@ -1303,7 +1321,6 @@ class _UsersPaneState extends State<_UsersPane> {
                                   text: role,
                                 ),
                                 const SizedBox(width: 6),
-
                                 _actionsMenu(
                                   isMe: isMe,
                                   isInvited: isInvited,
@@ -1314,34 +1331,33 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
+                                  communications: communications, // ✅ NEW
                                 ),
                               ],
                             ),
                           ],
-
                           const SizedBox(height: 6),
-
-                          // =========================
-                          // Row 2: [email] [last signed in]
-                          // =========================
-                          LayoutBuilder(
-                            builder: (context, c) {
-                              // Keep it on one line on desktop; allow wrap on small screens.
-                              final metaAsInline =
-                                  isDesktop && c.maxWidth >= 620;
-
-                              final emailWidget = Text(
-                                emailLine,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: isPhone ? 12 : 12.5,
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 520,
                                 ),
-                              );
-
-                              final metaWidget = Text(
+                                child: Text(
+                                  emailLine,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: isPhone ? 12 : 12.5,
+                                  ),
+                                ),
+                              ),
+                              Text(
                                 metaLine,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -1350,49 +1366,54 @@ class _UsersPaneState extends State<_UsersPane> {
                                   fontWeight: FontWeight.w600,
                                   fontSize: isPhone ? 11.5 : 12,
                                 ),
-                              );
-
-                              // Mobile / narrow: allow them to wrap cleanly
-                              return Wrap(
-                                spacing: 12,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 520,
-                                    ),
-                                    child: Text(
-                                      emailLine,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: isPhone ? 12 : 12.5,
-                                          ),
-                                    ),
-                                  ),
-                                  Text(
-                                    metaLine,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.labelMedium
-                                        ?.copyWith(
-                                          color: theme
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: isPhone ? 11.5 : 12,
-                                        ),
-                                  ),
-                                ],
-                              );
-                            },
+                              ),
+                            ],
                           ),
+                          if (wildixExt.isNotEmpty ||
+                              clearflyNum.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (wildixExt.isNotEmpty)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.phone_in_talk_outlined,
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Ext: $wildixExt',
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+
+                                if (clearflyNum.isNotEmpty)
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.sms_outlined, size: 14),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Clearfly/eFax: $clearflyNum',
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1417,7 +1438,6 @@ class _MetaChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isPhone = MediaQuery.of(context).size.width < 520;
-
     final maxChipWidth = isPhone
         ? MediaQuery.of(context).size.width * 0.60
         : 420.0;

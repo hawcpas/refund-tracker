@@ -422,59 +422,34 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   // ✅ Segmented control UI (NO animation)
-  Widget _segmentedTabs() {
-    final selected = <int>{_tabController.index};
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: SegmentedButton<int>(
-        segments: const [
-          ButtonSegment<int>(
-            value: 0,
-            label: Text('Personal Information'),
-            icon: Icon(Icons.person_outline),
-          ),
-          ButtonSegment<int>(
-            value: 1,
-            label: Text('Password'),
-            icon: Icon(Icons.lock_outline),
-          ),
-        ],
-        selected: selected,
-        showSelectedIcon: false,
-        onSelectionChanged: (newSelection) {
-          final idx = newSelection.first;
-          // ✅ instant change (no slide)
-          setState(() {
-            _tabController.index = idx;
-          });
-        },
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppColors.brandBlue.withOpacity(0.12);
-            }
-            return Colors.black.withOpacity(0.04);
-          }),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return AppColors.brandBlue;
-            }
-            return const Color(0xFF475467);
-          }),
-          textStyle: WidgetStateProperty.all(
-            const TextStyle(fontWeight: FontWeight.w900),
-          ),
-          shape: WidgetStateProperty.all(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-          ),
-          padding: WidgetStateProperty.all(
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          ),
+  Widget _tabsBar(ThemeData theme) {
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: TabBar(
+      controller: _tabController,
+      isScrollable: true,
+      labelColor: AppColors.brandBlue,
+      unselectedLabelColor: const Color(0xFF475467),
+      labelStyle: const TextStyle(fontWeight: FontWeight.w900),
+      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
+      indicatorColor: AppColors.brandBlue,
+      indicatorWeight: 3,
+      indicatorSize: TabBarIndicatorSize.label,
+      overlayColor: WidgetStateProperty.all(Colors.transparent),
+      dividerColor: Colors.black.withOpacity(0.10),
+      tabs: const [
+        Tab(
+          icon: Icon(Icons.person_outline, size: 18),
+          text: 'Personal Information',
         ),
-      ),
-    );
-  }
+        Tab(
+          icon: Icon(Icons.lock_outline, size: 18),
+          text: 'Password',
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _fieldColumn({required List<Widget> children}) {
     return Align(
@@ -677,7 +652,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                                 Divider(color: Colors.black.withOpacity(0.07)),
                                 const SizedBox(height: 12),
 
-                                _segmentedTabs(),
+                                _tabsBar(theme),
                                 const SizedBox(height: 16),
 
                                 // ✅ NO SLIDE: IndexedStack swaps instantly

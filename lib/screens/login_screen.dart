@@ -5,7 +5,6 @@ import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 import '../theme/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

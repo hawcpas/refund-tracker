@@ -352,8 +352,14 @@ exports.updateUser = onCall(
 
       const email = normalizeEmail(data.email);
       const role = (data.role || "").toString().toLowerCase().trim();
-      const status = (data.status || "").toString().toLowerCase().trim();
+
+      // ✅ FIX: status must be mutable because you normalize legacy values
+      let status = (data.status || "").toString().toLowerCase().trim();
+
       const reason = (data.reason || "").toString().trim();
+
+      // ✅ NEW: communications payload (optional)
+      const communicationsRaw = data.communications ?? null;
 
       const allowedRoles = new Set(["associate", "admin"]);
 
@@ -392,17 +398,50 @@ exports.updateUser = onCall(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: auth.uid,
       };
+
       if (email) patch.email = email;
       if (role) patch.role = role;
       if (status) patch.status = status;
 
+      // ✅ NEW: merge communications if provided
+      if (communicationsRaw && typeof communicationsRaw === "object") {
+        const clean = {};
+
+        const wildixExtension = (communicationsRaw.wildixExtension ?? "").toString().trim();
+        const clearflySmsNumber = (communicationsRaw.clearflySmsNumber ?? "").toString().trim();
+        const clearflyEfaxNumber = (communicationsRaw.clearflyEfaxNumber ?? "").toString().trim();
+
+        if (wildixExtension) clean.wildixExtension = wildixExtension;
+        if (clearflySmsNumber) clean.clearflySmsNumber = clearflySmsNumber;
+        if (clearflyEfaxNumber) clean.clearflyEfaxNumber = clearflyEfaxNumber;
+
+        // Only write communications if at least one field is provided
+        if (Object.keys(clean).length > 0) {
+          patch.communications = clean;
+        }
+      }
+
       await ref.set(patch, { merge: true });
 
-      // Audit log
+      // Audit log (include communications keys if they were provided)
+      const commsChange =
+        patch.communications
+          ? {
+              wildixExtension: patch.communications.wildixExtension || null,
+              clearflySmsNumber: patch.communications.clearflySmsNumber || null,
+              clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
+            }
+          : null;
+
       await admin.firestore().collection("auditLogs").add({
         type: "user_update",
         targetUid: uid,
-        changes: { email: email || null, role: role || null, status: status || null },
+        changes: {
+          email: email || null,
+          role: role || null,
+          status: status || null,
+          communications: commsChange,
+        },
         reason: reason || null,
         actorUid: auth.uid,
         at: admin.firestore.FieldValue.serverTimestamp(),

@@ -9,9 +9,9 @@ class ResourcesScreen extends StatelessWidget {
     final uri = Uri.parse(url);
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open link')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open link')));
     }
   }
 
@@ -24,25 +24,40 @@ class ResourcesScreen extends StatelessWidget {
 
     final sections = <_ResourceSection>[
       _ResourceSection(
-        title: 'Firm Tools',
-        description: 'Core firm platforms and communications.',
+        title: 'Research',
+        description: 'Tools for research and guided workflows.',
         items: const [
           _ResourceLink(
-            title: 'Axume & Associates Website',
-            subtitle: 'Company homepage',
-            url: 'https://www.axumecpas.com/',
-            icon: Icons.public,
+            title: 'CoCounsel (Thomson Reuters)',
+            subtitle: 'AI-assisted accounting research and workflows',
+            url:
+                'https://accounting.cocounsel.thomsonreuters.com/login?callbackUrl=https%3A%2F%2Faccounting.cocounsel.thomsonreuters.com%2F',
+            icon: Icons.psychology_outlined,
           ),
+        ],
+      ),
+
+      _ResourceSection(
+        title: 'Communication',
+        description: 'Phone system and key communication portals.',
+        items: const [
           _ResourceLink(
             title: 'Wildix',
             subtitle: 'Phone system / communications portal',
             url: 'https://farmlaborpayroll.wildixin.com/authorization/',
             icon: Icons.phone_in_talk_outlined,
           ),
+          _ResourceLink(
+            title: 'Clearfly',
+            subtitle: 'SMS texting portal',
+            url: 'https://portal.clearfly.net/login',
+            icon: Icons.sms_outlined,
+          ),
         ],
       ),
+
       _ResourceSection(
-        title: 'Client Portals',
+        title: 'File Transfer',
         description: 'Secure portals for exchanging client documents.',
         items: const [
           _ResourceLink(
@@ -60,6 +75,7 @@ class ResourcesScreen extends StatelessWidget {
           ),
         ],
       ),
+
       _ResourceSection(
         title: 'Security',
         description:
@@ -73,24 +89,11 @@ class ResourcesScreen extends StatelessWidget {
           ),
         ],
       ),
-      _ResourceSection(
-        title: 'Research & Intelligence',
-        description: 'Tools for research and guided workflows.',
-        items: const [
-          _ResourceLink(
-            title: 'CoCounsel (Thomson Reuters)',
-            subtitle: 'AI-assisted accounting research and workflows',
-            url:
-                'https://accounting.cocounsel.thomsonreuters.com/login?callbackUrl=https%3A%2F%2Faccounting.cocounsel.thomsonreuters.com%2F',
-            icon: Icons.psychology_outlined,
-          ),
-        ],
-      ),
     ];
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Sites & Resources')),
+      appBar: AppBar(title: const Text('Websites & Portals')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -106,9 +109,7 @@ class ResourcesScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.black.withOpacity(0.05),
-                      ),
+                      border: Border.all(color: Colors.black.withOpacity(0.05)),
                     ),
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
                     child: Column(
@@ -150,9 +151,11 @@ class ResourcesScreen extends StatelessWidget {
                                   padding: EdgeInsets.only(left: rowIndent),
                                   child: Column(
                                     children: [
-                                      for (int i = 0;
-                                          i < s.items.length;
-                                          i++) ...[
+                                      for (
+                                        int i = 0;
+                                        i < s.items.length;
+                                        i++
+                                      ) ...[
                                         _ResourceRow(
                                           icon: s.items[i].icon,
                                           title: s.items[i].title,
@@ -165,8 +168,9 @@ class ResourcesScreen extends StatelessWidget {
                                         if (i != s.items.length - 1)
                                           Divider(
                                             height: 1,
-                                            color:
-                                                Colors.black.withOpacity(0.06),
+                                            color: Colors.black.withOpacity(
+                                              0.06,
+                                            ),
                                           ),
                                       ],
                                     ],
@@ -226,10 +230,7 @@ class _SectionHeader extends StatelessWidget {
   final String title;
   final String description;
 
-  const _SectionHeader({
-    required this.title,
-    required this.description,
-  });
+  const _SectionHeader({required this.title, required this.description});
 
   @override
   Widget build(BuildContext context) {
@@ -343,9 +344,7 @@ class _ResourceRowState extends State<_ResourceRow> {
               Icon(
                 Icons.open_in_new,
                 size: 16,
-                color: AppColors.brandBlue.withOpacity(
-                  _hovered ? 0.75 : 0.55,
-                ),
+                color: AppColors.brandBlue.withOpacity(_hovered ? 0.75 : 0.55),
               ),
             ],
           ),
