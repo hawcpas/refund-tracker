@@ -339,18 +339,14 @@ class _WelcomeCardContent extends StatelessWidget {
                     ),
 
                     // ✅ Compact, left-aligned comms under welcome text
+                    // ✅ Professional comms block under welcome text
                     if (showNumbers) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        [
-                          if (hasWildix) 'Wildix: Ext $wildixExtension',
-                          if (hasClearfly) 'Clearfly: $clearflyNumber',
-                        ].join('\n'),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF475467),
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
-                        ),
+                      const SizedBox(height: 10),
+                      _CommsInlineBar(
+                        hasWildix: hasWildix,
+                        hasClearfly: hasClearfly,
+                        wildixExtension: wildixExtension,
+                        clearflyNumber: clearflyNumber,
                       ),
                     ],
                   ],
@@ -426,110 +422,18 @@ class _WelcomeCardContent extends StatelessWidget {
   }
 }
 
-class _CommsInline extends StatelessWidget {
-  const _CommsInline({
-    required this.wildixExtension,
-    required this.clearflyNumber,
+class _CommsInlineBar extends StatelessWidget {
+  const _CommsInlineBar({
     required this.hasWildix,
     required this.hasClearfly,
+    required this.wildixExtension,
+    required this.clearflyNumber,
   });
 
-  final String wildixExtension;
-  final String clearflyNumber;
   final bool hasWildix;
   final bool hasClearfly;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    // Wrap keeps it left-aligned and prevents awkward spacing on narrow widths
-    return Wrap(
-      alignment: WrapAlignment.start,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        if (hasWildix)
-          _MiniPill(
-            icon: Icons.phone_in_talk_outlined,
-            label: 'Wildix',
-            value: 'Ext $wildixExtension',
-            theme: theme,
-          ),
-        if (hasClearfly)
-          _MiniPill(
-            icon: Icons.sms_outlined,
-            label: 'Clearfly',
-            value: clearflyNumber,
-            theme: theme,
-          ),
-      ],
-    );
-  }
-}
-
-class _MiniPill extends StatelessWidget {
-  const _MiniPill({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.theme,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.brandBlue.withOpacity(0.90)),
-          const SizedBox(width: 6),
-          Text(
-            '$label:',
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF475467),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF101828),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Professional “tile” used for Wildix/Clearfly, no copy icon.
-class _ContactTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final String? badgeText;
-
-  const _ContactTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.badgeText,
-  });
+  final String wildixExtension;
+  final String clearflyNumber;
 
   @override
   Widget build(BuildContext context) {
@@ -538,87 +442,81 @@ class _ContactTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.03),
+        color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.black.withOpacity(0.06)),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.start, // ✅ left aligned
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            height: 34,
-            width: 34,
-            decoration: BoxDecoration(
-              color: AppColors.brandBlue.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 18,
+          if (hasWildix) ...[
+            Icon(
+              Icons.phone_in_talk_outlined,
+              size: 16,
               color: AppColors.brandBlue.withOpacity(0.90),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      label,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF475467),
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                    if (badgeText != null && badgeText!.trim().isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      _Badge(text: badgeText!.trim()),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: const Color(0xFF101828),
-                    height: 1.1,
-                  ),
-                ),
-              ],
+            const SizedBox(width: 6),
+            Text(
+              'Wildix',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF667085),
+                letterSpacing: 0.2,
+              ),
             ),
-          ),
+            const SizedBox(width: 6),
+            Text(
+              'Ext $wildixExtension',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: const Color(0xFF101828),
+              ),
+            ),
+          ],
+
+          // ✅ light separator
+          if (hasWildix && hasClearfly) ...[
+            const SizedBox(width: 10),
+            Text(
+              '|',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF98A2B3), // light grey
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
+
+          if (hasClearfly) ...[
+            Icon(
+              Icons.sms_outlined,
+              size: 16,
+              color: AppColors.brandBlue.withOpacity(0.90),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Clearfly/eFax',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF667085),
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                clearflyNumber,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: const Color(0xFF101828),
+                ),
+              ),
+            ),
+          ],
         ],
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  final String text;
-  const _Badge({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.brandBlue.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.brandBlue.withOpacity(0.18)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontWeight: FontWeight.w900,
-          fontSize: 11.5,
-          color: AppColors.brandBlue,
-          height: 1.0,
-        ),
       ),
     );
   }
