@@ -37,17 +37,14 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<Offset> _slideAnimation;
 
   // ✅ Refined density (matches your “less bulky” direction)
-  static const double _pageVPad = 28;
   static const double _cardRadius = 18;
   static const double _cardPad = 16;
   static const double _fieldGap = 12;
   static const double _blockGap = 16;
   static const double _buttonH = 46;
-  static const double _footerGap = 24;
 
   // ✅ Logo inside card (larger, no box)
   static const double _logoSize = 80;
-  static const double _logoPad = 10;
   static const double _accentH = 4;
   static const double _accentW = 72;
 
