@@ -1,12 +1,30 @@
+# =========================
 # Flutter / Dart
+# =========================
 .dart_tool/
 build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+coverage/
 
+# =========================
 # Firebase
+# =========================
 .firebase/
 .firebaserc
 firebase.json
 
-# IDE
+# =========================
+# IDEs / Editors
+# =========================
 .idea/
 .vscode/
+*.iml
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
