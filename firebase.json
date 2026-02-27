@@ -2,7 +2,6 @@
   "functions": {
     "source": "functions"
   },
-
   "flutter": {
     "platforms": {
       "android": {
@@ -26,7 +25,6 @@
       }
     }
   },
-
   "hosting": {
     "public": "build/web",
     "ignore": [
@@ -34,10 +32,46 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "headers": [
+      {
+        "source": "/email/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "**/*.png",
+        "headers": [
+          { "key": "Content-Type", "value": "image/png" },
+          { "key": "Cache-Control", "value": "public, max-age=31536000" }
+        ]
+      },
+      {
+        "source": "**/*.jpg",
+        "headers": [
+          { "key": "Content-Type", "value": "image/jpeg" },
+          { "key": "Cache-Control", "value": "public, max-age=31536000" }
+        ]
+      },
+      {
+        "source": "**/*.jpeg",
+        "headers": [
+          { "key": "Content-Type", "value": "image/jpeg" },
+          { "key": "Cache-Control", "value": "public, max-age=31536000" }
+        ]
+      },
+      {
+        "source": "**/*.svg",
+        "headers": [
+          { "key": "Content-Type", "value": "image/svg+xml" },
+          { "key": "Cache-Control", "value": "public, max-age=31536000" }
+        ]
+      }
+    ],
     "rewrites": [
       {
-        "source": "/icons/**",
-        "destination": "/icons/**"
+        "source": "/email/**",
+        "destination": "/email/**"
       },
       {
         "source": "**",
