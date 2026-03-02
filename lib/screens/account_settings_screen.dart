@@ -469,7 +469,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     return _fieldColumn(
       children: [
         Text(
-          'Personal Information',
+          'Change your Personal Information',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w900,
             color: const Color(0xFF101828),
@@ -515,7 +515,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     return _fieldColumn(
       children: [
         Text(
-          'Password',
+          'Change your Password',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w900,
             color: const Color(0xFF101828),

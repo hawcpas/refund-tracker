@@ -733,21 +733,34 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                             ),
                           );
 
-                          final usersCard = Card(
-                            clipBehavior: Clip.antiAlias,
-                            child: _UsersPane(
-                              db: _db,
-                              myUid: _myUid,
-                              busy: _busy,
-                              query: _userQuery,
-                              searchCtrl: _userSearchCtrl,
-                              onDeleteUser: _deleteUser,
-                              onEditUser: _showEditUserDialog,
-                              onResendInvite: _resendInvite,
-                              onSendPasswordReset: _sendPasswordReset,
-                              onSetDisabled: _setUserDisabled,
-                              promptReason: _promptReason,
-                            ),
+                          final usersCard = LayoutBuilder(
+                            builder: (context, c) {
+                              // max height available for the users panel
+                              final maxH = c.maxHeight;
+
+                              return ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  // ✅ users panel will NOT grow taller than available space
+                                  maxHeight: maxH,
+                                ),
+                                child: Card(
+                                  clipBehavior: Clip.antiAlias,
+                                  child: _UsersPane(
+                                    db: _db,
+                                    myUid: _myUid,
+                                    busy: _busy,
+                                    query: _userQuery,
+                                    searchCtrl: _userSearchCtrl,
+                                    onDeleteUser: _deleteUser,
+                                    onEditUser: _showEditUserDialog,
+                                    onResendInvite: _resendInvite,
+                                    onSendPasswordReset: _sendPasswordReset,
+                                    onSetDisabled: _setUserDisabled,
+                                    promptReason: _promptReason,
+                                  ),
+                                ),
+                              );
+                            },
                           );
 
                           if (isNarrow) {
@@ -756,7 +769,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                               children: [
                                 inviteCard,
                                 const SizedBox(height: 12),
-                                Expanded(child: usersCard),
+
+                                // ✅ shrink when list is short, grow when list is long
+                                Flexible(fit: FlexFit.loose, child: usersCard),
                               ],
                             );
                           }
@@ -769,7 +784,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                 child: Column(children: [inviteCard]),
                               ),
                               const SizedBox(width: 20),
-                              Expanded(child: usersCard),
+                              Flexible(fit: FlexFit.loose, child: usersCard),
                             ],
                           );
                         },
@@ -964,7 +979,7 @@ class _UsersPaneState extends State<_UsersPane> {
     required String role,
     required String status,
     required String titleName,
-    required Map<String, dynamic> communications, // ✅ NEW
+    required Map<String, dynamic> communications,
   }) {
     if (isMe) return const SizedBox(width: 40, height: 36);
 
@@ -986,7 +1001,7 @@ class _UsersPaneState extends State<_UsersPane> {
                 currentEmail: email,
                 currentRole: role,
                 currentStatus: status,
-                currentCommunications: communications, // ✅ NEW
+                currentCommunications: communications,
               );
             } else if (value == 'resendInvite') {
               await widget.onResendInvite(uid: uid);
@@ -1007,6 +1022,7 @@ class _UsersPaneState extends State<_UsersPane> {
                 );
                 return;
               }
+
               final reason = await widget.promptReason(
                 title: 'Deactivate user',
                 hint: 'Reason (audit note)',
@@ -1080,6 +1096,7 @@ class _UsersPaneState extends State<_UsersPane> {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min, // ✅ allow the column to shrink
       children: [
         _SearchHeader(
           controller: widget.searchCtrl,
@@ -1087,13 +1104,17 @@ class _UsersPaneState extends State<_UsersPane> {
           onSelected: (v) => setState(() => _statusFilter = v),
         ),
         const Divider(height: 1),
-        Expanded(
+
+        // ✅ Flexible(loose) allows panel to shrink when list is short
+        Flexible(
+          fit: FlexFit.loose,
           child: StreamBuilder<QuerySnapshot>(
             stream: widget.db.collection('users').snapshots(),
             builder: (context, snap) {
               if (snap.hasError) return _ErrorBox(error: snap.error.toString());
-              if (!snap.hasData)
+              if (!snap.hasData) {
                 return const Center(child: CircularProgressIndicator());
+              }
 
               final docs = snap.data!.docs.toList();
 
@@ -1123,6 +1144,7 @@ class _UsersPaneState extends State<_UsersPane> {
                 final matchesSearch =
                     widget.query.isEmpty ||
                     ('$email $fn $ln $dn').contains(widget.query);
+
                 final matchesStatus =
                     _statusFilter == 'all' || status == _statusFilter;
 
@@ -1138,6 +1160,12 @@ class _UsersPaneState extends State<_UsersPane> {
               }
 
               return ListView.separated(
+                // ✅ key: shrink to content if short
+                shrinkWrap: true,
+                // ✅ don’t claim primary scroll controller (prevents weird sizing)
+                primary: false,
+                // ✅ still scrolls naturally when content grows
+                physics: const ClampingScrollPhysics(),
                 padding: const EdgeInsets.all(10),
                 itemCount: filtered.length,
                 separatorBuilder: (_, __) => Divider(
@@ -1159,7 +1187,6 @@ class _UsersPaneState extends State<_UsersPane> {
                   final role = (data['role'] ?? 'associate').toString();
                   final status = (data['status'] ?? '').toString();
 
-                  // ✅ NEW: communications pulled from user doc
                   final communications = Map<String, dynamic>.from(
                     data['communications'] ?? {},
                   );
@@ -1263,7 +1290,7 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
-                                  communications: communications, // ✅ NEW
+                                  communications: communications,
                                 ),
                               ],
                             ),
@@ -1331,7 +1358,7 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
-                                  communications: communications, // ✅ NEW
+                                  communications: communications,
                                 ),
                               ],
                             ),
@@ -1395,7 +1422,6 @@ class _UsersPaneState extends State<_UsersPane> {
                                       ),
                                     ],
                                   ),
-
                                 if (clearflyNum.isNotEmpty)
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
