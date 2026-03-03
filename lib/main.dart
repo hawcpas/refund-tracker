@@ -13,6 +13,7 @@ import 'screens/forgot_password_screen.dart';
 import 'screens/account_settings_screen.dart';
 import 'screens/admin_users_screen.dart';
 import 'screens/resources_screen.dart';
+import 'screens/shared_files_screen.dart';
 
 import 'services/auth_service.dart';
 
@@ -180,6 +181,8 @@ class _MyAppState extends State<MyApp> {
                   return const ForgotPasswordScreen();
                 case '/verify-email':
                   return const VerifyEmailScreen();
+                case '/shared-files':
+                  return const SharedFilesScreen();
                 case '/':
                 case '/login':
                 default:
@@ -218,6 +221,9 @@ class _MyAppState extends State<MyApp> {
 
               case '/resources':
                 return const ResourcesScreen();
+
+              case '/shared-files': // ✅ ADD THIS BLOCK
+                return const SharedFilesScreen();
 
               case '/admin-users':
                 return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
