@@ -170,6 +170,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _loadProfile();
                         }
                       },
+                      onOpenSharedFiles: () => Navigator.pushNamed(
+                        context,
+                        '/shared-files',
+                      ), // ✅ add
                     ),
                   );
 
@@ -529,16 +533,24 @@ class _QuickLinksCard extends StatelessWidget {
   const _QuickLinksCard({
     required this.onOpenResources,
     required this.onOpenSettings,
+    required this.onOpenSharedFiles, // ✅ add
   });
 
   final VoidCallback onOpenResources;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenSharedFiles;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     final links = const <_DashLink>[
+      _DashLink(
+        title: 'Shared Files',
+        subtitle: 'Files shared with everyone',
+        icon: Icons.folder_shared_outlined,
+        action: _DashAction.openSharedFiles,
+      ),
       _DashLink(
         title: 'Websites & Portals',
         subtitle: 'Portals, tools and useful websites',
@@ -555,6 +567,8 @@ class _QuickLinksCard extends StatelessWidget {
 
     VoidCallback resolveAction(_DashAction a) {
       switch (a) {
+        case _DashAction.openSharedFiles:
+          return onOpenSharedFiles;
         case _DashAction.openResources:
           return onOpenResources;
         case _DashAction.openSettings:
@@ -610,7 +624,7 @@ class _QuickLinksCard extends StatelessWidget {
   }
 }
 
-enum _DashAction { openResources, openSettings }
+enum _DashAction { openSharedFiles, openResources, openSettings }
 
 class _DashLink {
   final String title;
