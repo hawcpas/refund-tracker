@@ -158,31 +158,37 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         final ref = FirebaseStorage.instance.ref(storagePath);
         await ref.putData(bytes, SettableMetadata(contentType: contentType));
 
-        await FirebaseFirestore.instance
+        final batch = FirebaseFirestore.instance.batch();
+
+        final fileRef = FirebaseFirestore.instance
             .collection('dropoff_requests')
             .doc(_rid)
             .collection('files')
-            .doc(fileId)
-            .set({
-              'createdAt': FieldValue.serverTimestamp(),
-              'originalName': f.name,
-              'storagePath': storagePath,
-              'sizeBytes': f.size,
-              'contentType': contentType,
-              'uploadedBy': {
-                'type': 'client',
-                'email': (_info?['clientEmail'] ?? '').toString(),
-                'name': (_info?['clientName'] ?? '').toString(),
-              },
-            });
+            .doc(fileId);
 
-        await FirebaseFirestore.instance
-            .collection('dropoff_requests')
-            .doc(_rid)
-            .set({
-              'lastUploadedAt': FieldValue.serverTimestamp(),
-              'fileCount': FieldValue.increment(1),
-            }, SetOptions(merge: true));
+        batch.set(fileRef, {
+          'createdAt': FieldValue.serverTimestamp(),
+          'originalName': f.name,
+          'storagePath': storagePath,
+          'sizeBytes': f.size,
+          'contentType': contentType,
+          'uploadedBy': {
+            'type': 'client',
+            'email': (_info?['clientEmail'] ?? '').toString(),
+            'name': (_info?['clientName'] ?? '').toString(),
+          },
+        });
+
+        batch.set(
+          FirebaseFirestore.instance.collection('dropoff_requests').doc(_rid),
+          {
+            'lastUploadedAt': FieldValue.serverTimestamp(),
+            'fileCount': FieldValue.increment(1),
+          },
+          SetOptions(merge: true),
+        );
+
+        await batch.commit();
       }
 
       if (!mounted) return;
@@ -198,6 +204,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final status = (_info?['status'] ?? 'open').toString();
+    final canUpload = status == 'open';
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
@@ -270,11 +278,26 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                       const SizedBox(height: 16),
 
+                      // ✅ PASTE THIS RIGHT HERE (before the upload button)
+                      if (!canUpload)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            'This drop-off request is no longer accepting uploads.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+
                       SizedBox(
                         height: 46,
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: _uploading ? null : _pickAndUpload,
+                          onPressed: (!canUpload || _uploading)
+                              ? null
+                              : _pickAndUpload,
                           icon: _uploading
                               ? const SizedBox(
                                   height: 18,

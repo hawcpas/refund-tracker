@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:html' as html;
 
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
@@ -219,15 +221,33 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   }) async {
     setState(() => _busy = true);
     try {
-      final ref = FirebaseStorage.instance.ref(storagePath);
-      final url = await ref.getDownloadURL();
+      // Call Cloud Function to get a signed download URL (admin-only)
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getAdminDownloadUrl')
+          .call({
+            'storagePath': storagePath,
+            'filename': filename, // ✅ ADD THIS
+          });
 
-      await Clipboard.setData(ClipboardData(text: url));
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final url = (data['url'] ?? '').toString();
+
+      if (url.isEmpty) {
+        throw Exception('Could not generate download link.');
+      }
+
+      html.window.open(url, '_blank');
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Download link copied for $filename')),
       );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      final details = e.details == null ? '' : '\nDetails: ${e.details}';
+      final msg = 'Download failed: ${e.code} ${e.message ?? ''}$details';
+      debugPrint(msg);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
