@@ -96,7 +96,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       // ✅ Anonymous auth so Storage rules allow upload
       User? user;
       if (kIsWeb) {
-        user = FirebaseAuth.instance.currentUser ??
+        user =
+            FirebaseAuth.instance.currentUser ??
             (await FirebaseAuth.instance.signInAnonymously()).user;
       } else {
         user = await _auth.signInAnonymouslyIfNeeded();
@@ -151,8 +152,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         final contentType = _guessContentType(f.name);
 
         final fileId = FirebaseFirestore.instance.collection('_tmp').doc().id;
-        final safeName =
-            f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         final storagePath = 'dropoffs/${_rid!}/$fileId\_$safeName';
 
         final ref = FirebaseStorage.instance.ref(storagePath);
@@ -164,24 +164,25 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
             .collection('files')
             .doc(fileId)
             .set({
-          'createdAt': FieldValue.serverTimestamp(),
-          'originalName': f.name,
-          'storagePath': storagePath,
-          'sizeBytes': f.size,
-          'contentType': contentType,
-          'uploadedBy': {
-            'type': 'client',
-            'email': (_info?['clientEmail'] ?? '').toString(),
-          },
-        });
+              'createdAt': FieldValue.serverTimestamp(),
+              'originalName': f.name,
+              'storagePath': storagePath,
+              'sizeBytes': f.size,
+              'contentType': contentType,
+              'uploadedBy': {
+                'type': 'client',
+                'email': (_info?['clientEmail'] ?? '').toString(),
+                'name': (_info?['clientName'] ?? '').toString(),
+              },
+            });
 
         await FirebaseFirestore.instance
             .collection('dropoff_requests')
             .doc(_rid)
             .set({
-          'lastUploadedAt': FieldValue.serverTimestamp(),
-          'fileCount': FieldValue.increment(1),
-        }, SetOptions(merge: true));
+              'lastUploadedAt': FieldValue.serverTimestamp(),
+              'fileCount': FieldValue.increment(1),
+            }, SetOptions(merge: true));
       }
 
       if (!mounted) return;
@@ -244,7 +245,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                     ] else if (_error != null) ...[
                       _ErrorBanner(message: _error!),
                     ] else ...[
-                      if ((_info?['message'] ?? '').toString().trim().isNotEmpty)
+                      if ((_info?['message'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty)
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -282,7 +286,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                 )
                               : const Icon(Icons.upload_file),
                           label: Text(
-                            _uploading ? 'Uploading…' : 'Choose files to upload',
+                            _uploading
+                                ? 'Uploading…'
+                                : 'Choose files to upload',
                             style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           style: FilledButton.styleFrom(

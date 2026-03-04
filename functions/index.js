@@ -119,7 +119,7 @@ exports.inviteUser = onCall(
       if (!firstName) throw new HttpsError("invalid-argument", "First name is required.");
       if (!lastName) throw new HttpsError("invalid-argument", "Last name is required.");
 
-      // ✅ BLOCK SELF-INVITE (prevents overwriting your own role/status)
+      // BLOCK SELF-INVITE
       let callerEmail = normalizeEmail(auth.token?.email);
       if (!callerEmail) {
         const caller = await admin.auth().getUser(auth.uid);
@@ -143,7 +143,7 @@ exports.inviteUser = onCall(
         });
       }
 
-      // ✅ Validate APP_URL
+      // Validate APP_URL
       const rawAppUrl = APP_URL.value();
       console.log("RAW APP_URL:", JSON.stringify(rawAppUrl));
       if (!isValidHttpUrl(rawAppUrl)) {
@@ -155,29 +155,20 @@ exports.inviteUser = onCall(
         handleCodeInApp: false,
       };
 
-      const resetLink = await admin
-        .auth()
-        .generatePasswordResetLink(email, actionCodeSettings);
-      const verifyLink = await admin
-        .auth()
-        .generateEmailVerificationLink(email, actionCodeSettings);
+      const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+      const verifyLink = await admin.auth().generateEmailVerificationLink(email, actionCodeSettings);
 
-      // ✅ Fetch existing Firestore profile (if any)
+      // Firestore profile
       const userDocRef = admin.firestore().collection("users").doc(userRecord.uid);
       const existingSnap = await userDocRef.get();
       const existingData = existingSnap.exists ? (existingSnap.data() || {}) : {};
       const existingRole = (existingData.role || "").toString().toLowerCase().trim();
       const existingStatus = (existingData.status || "").toString().toLowerCase().trim();
 
-      // ✅ Prevent downgrading an existing admin via invite
       if (existingRole === "admin" && requestedRole !== "admin") {
-        throw new HttpsError(
-          "failed-precondition",
-          "Admins cannot be downgraded via invites."
-        );
+        throw new HttpsError("failed-precondition", "Admins cannot be downgraded via invites.");
       }
 
-      // ✅ Do not overwrite role/status for already-active users
       const shouldWriteRoleStatus =
         !existingSnap.exists ||
         existingStatus === "" ||
@@ -203,7 +194,7 @@ exports.inviteUser = onCall(
 
       await userDocRef.set(userPayload, { merge: true });
 
-      // Track invites by email (ledger)
+      // invites ledger
       await admin.firestore().collection("invites").doc(email).set(
         {
           email,
@@ -220,15 +211,13 @@ exports.inviteUser = onCall(
         { merge: true }
       );
 
-      // Send email
-      console.log("About to send invite email to:", email);
+      // send invite email
       const transporter = buildTransport();
-      try {
-        const info = await transporter.sendMail({
-          from: SMTP_FROM.value(),
-          to: email,
-          subject: `You're invited to ${APP_NAME.value()} — set your password`,
-          html: `
+      await transporter.sendMail({
+        from: SMTP_FROM.value(),
+        to: email,
+        subject: `You're invited to ${APP_NAME.value()} — set your password`,
+        html: `
 <div style="font-family:Arial,sans-serif;line-height:1.5">
   <p>Hi ${firstName},</p>
   <p>You’ve been invited to <b>${APP_NAME.value()}</b>.</p>
@@ -236,7 +225,7 @@ exports.inviteUser = onCall(
   <p><b>Step 1:</b> Set your password to activate your account:</p>
   <p><a href="${resetLink}">Set Password</a></p>
 
-  <p>If the button doesn’t work, copy &amp; paste:</p>
+  <p>If the button doesn’t work, copy & paste:</p>
   <p><a href="${resetLink}">${resetLink}</a></p>
 
   <hr style="margin:16px 0" />
@@ -245,17 +234,8 @@ exports.inviteUser = onCall(
   <p><a href="${verifyLink}">Verify Email</a></p>
 </div>
 `,
-        });
+      });
 
-        console.log("✅ Email sent successfully:", info.messageId);
-      } catch (err) {
-        console.error("❌ Email send FAILED:", err);
-        throw new HttpsError("internal", "SMTP send failed.", {
-          message: err?.message ?? String(err),
-        });
-      }
-
-      console.log("inviteUser completed for:", email);
       return { ok: true, email, role: requestedRole, sent: true, existedInAuth };
     } catch (err) {
       console.error("inviteUser failed:", err);
@@ -283,35 +263,23 @@ exports.deleteUser = onCall(
 
       const targetUid = (data.uid || "").toString().trim();
       const email = normalizeEmail(data.email);
-
       if (!targetUid) throw new HttpsError("invalid-argument", "uid is required.");
 
-      // Never allow deleting yourself
       if (targetUid === auth.uid) {
         throw new HttpsError("failed-precondition", "You cannot delete yourself.");
       }
 
-      // ✅ Prevent deleting the last remaining admin
       const targetSnap = await admin.firestore().collection("users").doc(targetUid).get();
       const targetRole = (targetSnap.data()?.role || "").toString().toLowerCase().trim();
-
       if (targetRole === "admin") {
-        const adminsSnap = await admin.firestore()
-          .collection("users")
-          .where("role", "==", "admin")
-          .get();
-
+        const adminsSnap = await admin.firestore().collection("users").where("role", "==", "admin").get();
         if (adminsSnap.size <= 1) {
           throw new HttpsError("failed-precondition", "At least one admin must remain.");
         }
       }
 
-      // Delete Auth user (ignore if missing)
-      try {
-        await admin.auth().deleteUser(targetUid);
-      } catch (_) { }
+      try { await admin.auth().deleteUser(targetUid); } catch (_) {}
 
-      // Delete Firestore docs (best-effort)
       const batch = admin.firestore().batch();
       batch.delete(admin.firestore().collection("users").doc(targetUid));
       if (email) batch.delete(admin.firestore().collection("invites").doc(email));
@@ -344,94 +312,60 @@ exports.updateUser = onCall(
 
       const uid = (data.uid || "").toString().trim();
       if (!uid) throw new HttpsError("invalid-argument", "uid is required.");
-
-      // optional guard: don’t edit yourself through this endpoint
-      if (uid === auth.uid) {
-        throw new HttpsError("failed-precondition", "You cannot edit yourself here.");
-      }
+      if (uid === auth.uid) throw new HttpsError("failed-precondition", "You cannot edit yourself here.");
 
       const email = normalizeEmail(data.email);
       const role = (data.role || "").toString().toLowerCase().trim();
-
-      // ✅ FIX: status must be mutable because you normalize legacy values
       let status = (data.status || "").toString().toLowerCase().trim();
-
       const reason = (data.reason || "").toString().trim();
-
-      // ✅ NEW: communications payload (optional)
       const communicationsRaw = data.communications ?? null;
 
       const allowedRoles = new Set(["associate", "admin"]);
-
-      // ✅ normalize legacy values
       if (status === "inactive") status = "disabled";
       if (status === "pending") status = "invited";
-
       const allowedStatus = new Set(["active", "invited", "disabled"]);
 
-      if (email && !email.includes("@")) {
-        throw new HttpsError("invalid-argument", "Valid email is required.");
-      }
-      if (role && !allowedRoles.has(role)) {
-        throw new HttpsError("invalid-argument", "Invalid role.");
-      }
-      if (status && !allowedStatus.has(status)) {
-        throw new HttpsError("invalid-argument", "Invalid status.");
-      }
+      if (email && !email.includes("@")) throw new HttpsError("invalid-argument", "Valid email is required.");
+      if (role && !allowedRoles.has(role)) throw new HttpsError("invalid-argument", "Invalid role.");
+      if (status && !allowedStatus.has(status)) throw new HttpsError("invalid-argument", "Invalid status.");
 
-      // If changing email, update Auth first
-      if (email) {
-        await admin.auth().updateUser(uid, { email });
-      }
+      if (email) await admin.auth().updateUser(uid, { email });
 
       const { ref, data: existing } = await getUserDocByUid(uid);
 
-      // Prevent downgrading the last admin
       if ((existing.role || "").toString().toLowerCase() === "admin" && role === "associate") {
         const adminsSnap = await admin.firestore().collection("users").where("role", "==", "admin").get();
-        if (adminsSnap.size <= 1) {
-          throw new HttpsError("failed-precondition", "At least one admin must remain.");
-        }
+        if (adminsSnap.size <= 1) throw new HttpsError("failed-precondition", "At least one admin must remain.");
       }
 
       const patch = {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: auth.uid,
       };
-
       if (email) patch.email = email;
       if (role) patch.role = role;
       if (status) patch.status = status;
 
-      // ✅ NEW: merge communications if provided
       if (communicationsRaw && typeof communicationsRaw === "object") {
         const clean = {};
-
         const wildixExtension = (communicationsRaw.wildixExtension ?? "").toString().trim();
         const clearflySmsNumber = (communicationsRaw.clearflySmsNumber ?? "").toString().trim();
         const clearflyEfaxNumber = (communicationsRaw.clearflyEfaxNumber ?? "").toString().trim();
-
         if (wildixExtension) clean.wildixExtension = wildixExtension;
         if (clearflySmsNumber) clean.clearflySmsNumber = clearflySmsNumber;
         if (clearflyEfaxNumber) clean.clearflyEfaxNumber = clearflyEfaxNumber;
-
-        // Only write communications if at least one field is provided
-        if (Object.keys(clean).length > 0) {
-          patch.communications = clean;
-        }
+        if (Object.keys(clean).length > 0) patch.communications = clean;
       }
 
       await ref.set(patch, { merge: true });
 
-      // Audit log (include communications keys if they were provided)
-      const commsChange =
-        patch.communications
-          ? {
+      const commsChange = patch.communications
+        ? {
             wildixExtension: patch.communications.wildixExtension || null,
             clearflySmsNumber: patch.communications.clearflySmsNumber || null,
             clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
           }
-          : null;
+        : null;
 
       await admin.firestore().collection("auditLogs").add({
         type: "user_update",
@@ -485,28 +419,20 @@ exports.setUserDisabled = onCall(
       if (!uid) throw new HttpsError("invalid-argument", "uid is required.");
       if (uid === auth.uid) throw new HttpsError("failed-precondition", "You cannot disable yourself.");
 
-      // If disabling an admin, ensure at least one admin remains
       if (disabled) {
         const targetSnap = await admin.firestore().collection("users").doc(uid).get();
         const targetRole = (targetSnap.data()?.role || "").toString().toLowerCase().trim();
         if (targetRole === "admin") {
           const adminsSnap = await admin.firestore().collection("users").where("role", "==", "admin").get();
-          if (adminsSnap.size <= 1) {
-            throw new HttpsError("failed-precondition", "At least one admin must remain.");
-          }
+          if (adminsSnap.size <= 1) throw new HttpsError("failed-precondition", "At least one admin must remain.");
         }
       }
 
       await admin.auth().updateUser(uid, { disabled });
 
-      // Pull previous status so reactivating an invited user keeps them as invited
       const prevSnap = await admin.firestore().collection("users").doc(uid).get();
       const prevStatus = (prevSnap.data()?.status || "").toString().toLowerCase().trim();
-
-      // ✅ Only three statuses going forward: invited | active | disabled
-      const nextStatus = disabled
-        ? "disabled"
-        : (prevStatus === "invited" ? "invited" : "active");
+      const nextStatus = disabled ? "disabled" : (prevStatus === "invited" ? "invited" : "active");
 
       await admin.firestore().collection("users").doc(uid).set(
         {
@@ -554,20 +480,13 @@ exports.sendPasswordReset = onCall(
       const email = normalizeEmail(data.email);
       const uid = (data.uid || "").toString().trim();
 
-      if (!email || !email.includes("@")) {
-        throw new HttpsError("invalid-argument", "Valid email is required.");
-      }
-      if (!isValidHttpUrl(APP_URL.value())) {
-        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${APP_URL.value()}"`);
-      }
+      if (!email || !email.includes("@")) throw new HttpsError("invalid-argument", "Valid email is required.");
+      if (!isValidHttpUrl(APP_URL.value())) throw new HttpsError("failed-precondition", `APP_URL is invalid: "${APP_URL.value()}"`);
 
-      // Optional: verify uid matches email if provided
       if (uid) {
         const u = await admin.auth().getUser(uid);
         const authEmail = normalizeEmail(u.email);
-        if (authEmail && authEmail !== email) {
-          throw new HttpsError("failed-precondition", "UID/email mismatch.");
-        }
+        if (authEmail && authEmail !== email) throw new HttpsError("failed-precondition", "UID/email mismatch.");
       }
 
       const resetLink = await admin.auth().generatePasswordResetLink(email, {
@@ -583,7 +502,7 @@ exports.sendPasswordReset = onCall(
   <p>Hi,</p>
   <p>Use the link below to reset your password:</p>
   <p><a href="${resetLink}">Reset Password</a></p>
-  <p>If the button doesn’t work, copy &amp; paste:</p>
+  <p>If the button doesn’t work, copy & paste:</p>
   <p><a href="${resetLink}">${resetLink}</a></p>
 </div>
 `,
@@ -629,9 +548,7 @@ exports.resendInvite = onCall(
       const email = normalizeEmail(userRecord.email);
 
       if (!email) throw new HttpsError("failed-precondition", "Target user has no email.");
-      if (!isValidHttpUrl(APP_URL.value())) {
-        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${APP_URL.value()}"`);
-      }
+      if (!isValidHttpUrl(APP_URL.value())) throw new HttpsError("failed-precondition", `APP_URL is invalid: "${APP_URL.value()}"`);
 
       const actionCodeSettings = { url: APP_URL.value().trim(), handleCodeInApp: false };
       const resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
@@ -647,14 +564,13 @@ exports.resendInvite = onCall(
   <p><b>Set your password:</b> <a href="${resetLink}">Set Password</a></p>
   <p><b>Verify email:</b> <a href="${verifyLink}">Verify Email</a></p>
   <hr style="margin:16px 0" />
-  <p>If the buttons don’t work, copy &amp; paste:</p>
+  <p>If the buttons don’t work, copy & paste:</p>
   <p><a href="${resetLink}">${resetLink}</a></p>
   <p><a href="${verifyLink}">${verifyLink}</a></p>
 </div>
 `,
       });
 
-      // Mark as invited again & refresh timestamps
       await admin.firestore().collection("users").doc(uid).set(
         {
           status: "invited",
@@ -665,7 +581,6 @@ exports.resendInvite = onCall(
         { merge: true }
       );
 
-      // Update invites ledger too (best-effort)
       await admin.firestore().collection("invites").doc(email).set(
         {
           email,
@@ -701,7 +616,6 @@ exports.resendInvite = onCall(
 // Drop-Off Helpers
 // ============================
 const crypto = require("crypto");
-
 function sha256(s) {
   return crypto.createHash("sha256").update(String(s)).digest("hex");
 }
@@ -717,30 +631,52 @@ exports.createDropoffRequest = onCall(
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const clientEmail = normalizeEmail(data.clientEmail);
-      const clientName = normalizeName(data.clientName);
+      const firstName = normalizeName(data.firstName);
+      const lastName = normalizeName(data.lastName);
       const message = normalizeName(data.message);
 
-      if (!clientEmail || !clientEmail.includes("@")) {
-        throw new HttpsError("invalid-argument", "Valid clientEmail is required.");
-      }
+      const clientEmailRaw = normalizeEmail(data.clientEmail);
+      const clientEmail =
+        clientEmailRaw && clientEmailRaw.includes("@") ? clientEmailRaw : "";
 
-      // token (plaintext) in URL only; tokenHash stored in Firestore
+      if (!firstName) throw new HttpsError("invalid-argument", "First name is required.");
+      if (!lastName) throw new HttpsError("invalid-argument", "Last name is required.");
+
+      const clientName = `${firstName} ${lastName}`.trim();
+
+      // token in URL only; tokenHash stored
       const token = crypto.randomBytes(32).toString("hex");
       const tokenHash = sha256(token);
 
+      // create unique request id
       const ref = admin.firestore().collection("dropoff_requests").doc();
+
+      // build url and store it
+      const baseUrl = APP_URL.value();
+      if (!isValidHttpUrl(baseUrl)) {
+        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${baseUrl}"`);
+      }
+      const cleanBase = baseUrl.replace(/\/$/, "");
+      const url = `${cleanBase}/#/dropoff?rid=${ref.id}&t=${token}`;
+
       await ref.set({
         requestId: ref.id,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdByUid: auth.uid,
         createdByEmail: normalizeEmail(auth.token?.email),
+
         clientEmail,
-        clientName: clientName || "",
+        clientName,
+        clientFirstName: firstName,
+        clientLastName: lastName,
+
         message: message || "",
         status: "open",
         expiresAt: null,
+
         tokenHash,
+        url,
+
         lastViewedAt: null,
         lastUploadedAt: null,
         fileCount: 0,
@@ -756,15 +692,6 @@ exports.createDropoffRequest = onCall(
         },
         at: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      // ✅ IMPORTANT: your site uses hash routing, so generate /#/dropoff
-      const baseUrl = APP_URL.value();
-      if (!isValidHttpUrl(baseUrl)) {
-        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${baseUrl}"`);
-      }
-
-      const cleanBase = baseUrl.replace(/\/$/, "");
-      const url = `${cleanBase}/#/dropoff?rid=${ref.id}&t=${token}`;
 
       return { ok: true, requestId: ref.id, url };
     } catch (err) {
@@ -785,6 +712,7 @@ exports.validateDropoffLink = onCall(
   async (request) => {
     try {
       const { data } = request;
+
       const rid = (data.rid || "").toString().trim();
       const token = (data.token || "").toString().trim();
 
@@ -792,8 +720,12 @@ exports.validateDropoffLink = onCall(
         throw new HttpsError("invalid-argument", "rid and token are required.");
       }
 
-      const snap = await admin.firestore().collection("dropoff_requests").doc(rid).get();
-      if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+      const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+      const snap = await ref.get();
+
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Drop-off request not found.");
+      }
 
       const doc = snap.data() || {};
       const status = (doc.status || "").toString().toLowerCase().trim();
@@ -806,7 +738,8 @@ exports.validateDropoffLink = onCall(
         throw new HttpsError("permission-denied", "Invalid token.");
       }
 
-      await snap.ref.set(
+      // mark viewed
+      await ref.set(
         { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
         { merge: true }
       );
@@ -860,7 +793,7 @@ exports.deleteDropoffRequest = onCall(
       const snap = await ref.get();
       if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
 
-      // ✅ Delete Storage files referenced in the files subcollection
+      // delete storage files
       const filesSnap = await ref.collection("files").get();
       for (const doc of filesSnap.docs) {
         const path = doc.data().storagePath;
@@ -873,15 +806,12 @@ exports.deleteDropoffRequest = onCall(
         }
       }
 
-      // ✅ Delete Firestore subcollection docs + parent doc
+      // delete firestore docs
       const batch = db.batch();
-      for (const doc of filesSnap.docs) {
-        batch.delete(doc.ref);
-      }
+      for (const doc of filesSnap.docs) batch.delete(doc.ref);
       batch.delete(ref);
       await batch.commit();
 
-      // ✅ Audit log
       await db.collection("auditLogs").add({
         type: "dropoff_deleted",
         requestId,

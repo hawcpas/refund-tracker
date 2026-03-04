@@ -20,10 +20,49 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
   bool _busy = false;
 
+  Future<void> _showCreatedLinkDialog(String url) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Drop-off link created'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Copy and share this link with your client:'),
+            const SizedBox(height: 12),
+            SelectableText(
+              url,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: url));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Link copied to clipboard.')),
+                );
+              }
+            },
+            child: const Text('Copy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
   HttpsCallable _callable(String name) => _functions.httpsCallable(name);
 
   // ✅ IMPORTANT: Use the same region as the rest of your functions
-  HttpsCallable get _deleteDropoffCallable => _functions.httpsCallable('deleteDropoffRequest');
+  HttpsCallable get _deleteDropoffCallable =>
+      _functions.httpsCallable('deleteDropoffRequest');
 
   PreferredSizeWidget _appBar() {
     return AppBar(
@@ -46,8 +85,8 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   }
 
   Future<void> _showCreateDialog() async {
-    final emailCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
     final msgCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
@@ -58,19 +97,18 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
           child: Column(
             children: [
               TextField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
+                controller: firstCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Client Email',
-                  prefixIcon: Icon(Icons.mail_outline),
+                  labelText: 'First name',
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: nameCtrl,
+                controller: lastCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Client Name (optional)',
-                  prefixIcon: Icon(Icons.person_outline),
+                  labelText: 'Last name',
+                  prefixIcon: Icon(Icons.badge_outlined),
                 ),
               ),
               const SizedBox(height: 12),
@@ -100,13 +138,13 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
     if (ok != true) return;
 
-    final email = emailCtrl.text.trim().toLowerCase();
-    final name = nameCtrl.text.trim();
+    final firstName = firstCtrl.text.trim();
+    final lastName = lastCtrl.text.trim();
     final msg = msgCtrl.text.trim();
 
-    if (!email.contains('@')) {
+    if (firstName.isEmpty || lastName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid client email.')),
+        const SnackBar(content: Text('Enter first and last name.')),
       );
       return;
     }
@@ -114,14 +152,14 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     setState(() => _busy = true);
     try {
       final res = await _callable('createDropoffRequest').call({
-        'clientEmail': email,
-        'clientName': name,
+        'firstName': firstName,
+        'lastName': lastName,
         'message': msg,
+        // no email
       });
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
-
       if (url.isNotEmpty) {
         await Clipboard.setData(ClipboardData(text: url));
       }
@@ -143,9 +181,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -157,19 +195,19 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       await _deleteDropoffCallable.call({'requestId': requestId});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Drop-off deleted.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Drop-off deleted.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? 'Delete failed')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message ?? 'Delete failed')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -192,9 +230,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -342,6 +380,7 @@ class _RequestsList extends StatelessWidget {
                     final data = d.data();
                     final email = (data['clientEmail'] ?? '').toString();
                     final name = (data['clientName'] ?? '').toString();
+                    final url = (data['url'] ?? '').toString();
                     final status = (data['status'] ?? 'open').toString();
                     final msg = (data['message'] ?? '').toString();
 
@@ -388,6 +427,26 @@ class _RequestsList extends StatelessWidget {
                             const SizedBox(width: 10),
                             _StatusPill(status: status),
                             const SizedBox(width: 6),
+
+                            // ✅ PASTE THIS RIGHT HERE
+                            if (url.isNotEmpty)
+                              IconButton(
+                                tooltip: 'Copy drop-off link',
+                                icon: const Icon(Icons.copy),
+                                onPressed: () async {
+                                  await Clipboard.setData(
+                                    ClipboardData(text: url),
+                                  );
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Drop-off link copied.'),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+
                             Icon(
                               Icons.chevron_right,
                               color: AppColors.brandBlue.withOpacity(0.55),
@@ -413,7 +472,8 @@ class _DropoffDetailScreen extends StatelessWidget {
   final Future<void> Function({
     required String storagePath,
     required String filename,
-  }) onDownload;
+  })
+  onDownload;
 
   final Future<void> Function(String requestId) onDelete;
 
@@ -441,11 +501,22 @@ class _DropoffDetailScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
                   child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: db.collection('dropoff_requests').doc(requestId).snapshots(),
+                    stream: db
+                        .collection('dropoff_requests')
+                        .doc(requestId)
+                        .snapshots(),
                     builder: (context, reqSnap) {
                       final reqData = reqSnap.data?.data() ?? {};
-                      final status = (reqData['status'] ?? 'open').toString().toLowerCase().trim();
-                      final canDelete = status == 'open'; // ✅ delete only open (adjust if you want)
+                      final dropoffUrl = (reqData['url'] ?? '')
+                          .toString()
+                          .trim();
+                      final status = (reqData['status'] ?? 'open')
+                          .toString()
+                          .toLowerCase()
+                          .trim();
+                      final canDelete =
+                          status ==
+                          'open'; // ✅ delete only open (adjust if you want)
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -466,13 +537,128 @@ class _DropoffDetailScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 10),
+                          const SizedBox(height: 10),
 
+                          // ✅ Drop-off link section (copyable)
+                          if (dropoffUrl.isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.brandBlue.withOpacity(0.06),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.brandBlue.withOpacity(0.18),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.link,
+                                    color: AppColors.brandBlue,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Drop-off Link',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w900,
+                                                color: const Color(0xFF101828),
+                                              ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        SelectableText(
+                                          dropoffUrl,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(0xFF475467),
+                                                height: 1.25,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        SizedBox(
+                                          height: 40,
+                                          child: FilledButton.icon(
+                                            onPressed: () async {
+                                              await Clipboard.setData(
+                                                ClipboardData(text: dropoffUrl),
+                                              );
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Drop-off link copied.',
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons.copy,
+                                              size: 18,
+                                            ),
+                                            label: const Text(
+                                              'Copy Link',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  AppColors.brandBlue,
+                                              foregroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ] else ...[
+                            // Optional: show something for older requests created before url was stored
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.amber.withOpacity(0.25),
+                                ),
+                              ),
+                              child: Text(
+                                'No stored link found for this request (older requests may not have a saved URL).',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.amber.shade900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
                           // ✅ DELETE BUTTON (Step B) — only when open
                           if (canDelete) ...[
                             SizedBox(
                               height: 44,
                               child: OutlinedButton.icon(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
                                 label: const Text(
                                   'Delete Drop-Off',
                                   style: TextStyle(fontWeight: FontWeight.w900),
@@ -488,17 +674,21 @@ class _DropoffDetailScreen extends StatelessWidget {
                                   final confirm = await showDialog<bool>(
                                     context: context,
                                     builder: (ctx) => AlertDialog(
-                                      title: const Text('Delete Drop-Off Request'),
+                                      title: const Text(
+                                        'Delete Drop-Off Request',
+                                      ),
                                       content: const Text(
                                         'This will permanently delete the drop-off request and all uploaded files. This action cannot be undone.',
                                       ),
                                       actions: [
                                         TextButton(
-                                          onPressed: () => Navigator.pop(ctx, false),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
                                           child: const Text('Cancel'),
                                         ),
                                         FilledButton(
-                                          onPressed: () => Navigator.pop(ctx, true),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
                                           child: const Text('Delete'),
                                         ),
                                       ],
@@ -546,7 +736,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                               if (docs.isEmpty) {
                                 return const Padding(
                                   padding: EdgeInsets.all(16),
-                                  child: Text('No uploads yet for this request.'),
+                                  child: Text(
+                                    'No uploads yet for this request.',
+                                  ),
                                 );
                               }
 
@@ -561,7 +753,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       ),
                                     ),
                                     if (i != docs.length - 1)
-                                      Divider(color: Colors.black.withOpacity(0.06)),
+                                      Divider(
+                                        color: Colors.black.withOpacity(0.06),
+                                      ),
                                   ],
                                 ],
                               );
