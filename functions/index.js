@@ -149,6 +149,14 @@ exports.validateDropoffLink = onCall(
     }
 
     const doc = snap.data();
+
+    if ((doc.status || "open") !== "open") {
+      throw new HttpsError(
+        "failed-precondition",
+        "This drop-off link is no longer active."
+      );
+    }
+
     if (sha256(token) !== doc.tokenHash) {
       throw new HttpsError("permission-denied", "Invalid token.");
     }
@@ -209,6 +217,52 @@ exports.getAdminDownloadUrl = onCall(
         message: err?.message ?? String(err),
       });
     }
+  }
+);
+
+// ============================
+// setDropoffStatus (admin-only)
+// Enables/disables a drop-off link by setting status=open|closed
+// ============================
+exports.setDropoffStatus = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    await assertAdmin(auth.uid);
+
+    const requestId = (data?.requestId || "").toString().trim();
+    const status = (data?.status || "").toString().toLowerCase().trim();
+
+    if (!requestId) {
+      throw new HttpsError("invalid-argument", "requestId required.");
+    }
+
+    if (!["open", "closed"].includes(status)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "status must be 'open' or 'closed'"
+      );
+    }
+
+    const ref = admin.firestore().collection("dropoff_requests").doc(requestId);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Drop-off request not found.");
+    }
+
+    await ref.set(
+      {
+        status,
+        statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        statusUpdatedBy: auth.uid,
+      },
+      { merge: true }
+    );
+
+    return { ok: true, requestId, status };
   }
 );
 

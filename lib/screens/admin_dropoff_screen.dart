@@ -4,7 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:html' as html;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
@@ -66,9 +66,12 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   HttpsCallable get _deleteDropoffCallable =>
       _functions.httpsCallable('deleteDropoffRequest');
 
+  HttpsCallable get _setDropoffStatusCallable =>
+      _functions.httpsCallable('setDropoffStatus');
+
   PreferredSizeWidget _appBar() {
     return AppBar(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.brandBlue,
       foregroundColor: Colors.white,
       systemOverlayStyle: SystemUiOverlayStyle.light,
       elevation: 2,
@@ -191,6 +194,42 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     }
   }
 
+  Future<void> _setDropoffStatus(String requestId, String status) async {
+    setState(() => _busy = true);
+    try {
+      await _setDropoffStatusCallable.call({
+        'requestId': requestId,
+        'status': status, // "open" or "closed"
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Drop-off ${status == "open" ? "enabled" : "disabled"}',
+          ),
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      final details = e.details == null ? '' : '\nDetails: ${e.details}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Status update failed: ${e.code} ${e.message ?? ''}$details',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Status update failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _deleteDropoffRequest(String requestId) async {
     setState(() => _busy = true);
     try {
@@ -236,11 +275,20 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
         throw Exception('Could not generate download link.');
       }
 
-      html.window.open(url, '_blank');
+      final uri = Uri.parse(url);
+      final ok = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+        webOnlyWindowName: '_blank',
+      );
+
+      if (!ok) {
+        throw Exception('Could not launch download URL.');
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download link copied for $filename')),
+        SnackBar(content: Text('Download completed for $filename')),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -290,10 +338,13 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
                                         requestId: rid,
                                         onDownload: _downloadFile,
                                         onDelete: _deleteDropoffRequest,
+                                        onSetStatus:
+                                            _setDropoffStatus, // ✅ ADD THIS
                                       ),
                                     ),
                                   );
                                 },
+                                onSetStatus: _setDropoffStatus,
                               ),
                             ),
                           ),
@@ -335,10 +386,13 @@ class _RequestsList extends StatelessWidget {
   final bool busy;
   final void Function(String requestId) onSelect;
 
+  final Future<void> Function(String requestId, String status) onSetStatus;
+
   const _RequestsList({
     required this.db,
     required this.busy,
     required this.onSelect,
+    required this.onSetStatus, // ✅ ADD THIS
   });
 
   @override
@@ -445,31 +499,164 @@ class _RequestsList extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            _StatusPill(status: status),
-                            const SizedBox(width: 6),
 
-                            // ✅ PASTE THIS RIGHT HERE
-                            if (url.isNotEmpty)
-                              IconButton(
-                                tooltip: 'Copy drop-off link',
-                                icon: const Icon(Icons.copy),
-                                onPressed: () async {
-                                  await Clipboard.setData(
-                                    ClipboardData(text: url),
-                                  );
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Drop-off link copied.'),
-                                      ),
-                                    );
-                                  }
-                                },
-                              ),
+                            // ✅ Tight action cluster (pill + toggle + copy + chevron)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _StatusPill(status: status),
 
-                            Icon(
-                              Icons.chevron_right,
-                              color: AppColors.brandBlue.withOpacity(0.55),
+                                const SizedBox(width: 6),
+
+                                // ✅ Enable/Disable toggle next to the pill
+                                Tooltip(
+                                  message: busy
+                                      ? 'Working...'
+                                      : (status.toLowerCase().trim() == 'open'
+                                            ? 'Disable link'
+                                            : 'Enable link'),
+                                  child: IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints.tightFor(
+                                      width: 36,
+                                      height: 36,
+                                    ),
+
+                                    // ✅ Spinner while busy, icon otherwise
+                                    icon: busy
+                                        ? SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    status
+                                                                .toLowerCase()
+                                                                .trim() ==
+                                                            'open'
+                                                        ? Colors.red
+                                                        : AppColors.brandBlue,
+                                                  ),
+                                            ),
+                                          )
+                                        : Icon(
+                                            status.toLowerCase().trim() ==
+                                                    'open'
+                                                ? Icons.link_off
+                                                : Icons.link,
+                                            size: 18,
+                                            color:
+                                                status.toLowerCase().trim() ==
+                                                    'open'
+                                                ? Colors.red
+                                                : AppColors.brandBlue,
+                                          ),
+
+                                    // ✅ Disable tap while busy
+                                    onPressed: busy
+                                        ? null
+                                        : () async {
+                                            final isOpen =
+                                                status.toLowerCase().trim() ==
+                                                'open';
+
+                                            final confirm = await showDialog<bool>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: Text(
+                                                  isOpen
+                                                      ? 'Disable Drop-off Link'
+                                                      : 'Enable Drop-off Link',
+                                                ),
+                                                content: Text(
+                                                  isOpen
+                                                      ? 'Clients will no longer be able to upload using this link.'
+                                                      : 'Clients will be able to upload again using this link.',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          ctx,
+                                                          false,
+                                                        ),
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          ctx,
+                                                          true,
+                                                        ),
+                                                    child: Text(
+                                                      isOpen
+                                                          ? 'Disable'
+                                                          : 'Enable',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+
+                                            if (confirm != true) return;
+
+                                            await onSetStatus(
+                                              d.id,
+                                              isOpen ? 'closed' : 'open',
+                                            );
+                                          },
+                                  ),
+                                ),
+
+                                // ✅ Copy link button (compact)
+                                if (url.isNotEmpty) ...[
+                                  const SizedBox(width: 2),
+                                  Tooltip(
+                                    message: busy
+                                        ? 'Working...'
+                                        : 'Copy drop-off link',
+                                    child: IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: EdgeInsets.zero,
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                            width: 36,
+                                            height: 36,
+                                          ),
+                                      icon: const Icon(Icons.copy, size: 18),
+
+                                      // ✅ Disable while busy
+                                      onPressed: (busy || url.isEmpty)
+                                          ? null
+                                          : () async {
+                                              await Clipboard.setData(
+                                                ClipboardData(text: url),
+                                              );
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Drop-off link copied.',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                    ),
+                                  ),
+                                ],
+
+                                const SizedBox(width: 2),
+
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.brandBlue.withOpacity(0.55),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -501,7 +688,10 @@ class _DropoffDetailScreen extends StatelessWidget {
     required this.requestId,
     required this.onDownload,
     required this.onDelete,
+    required this.onSetStatus, // ✅ ADD THIS
   });
+
+  final Future<void> Function(String requestId, String status) onSetStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -537,7 +727,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                       final canDelete =
                           status ==
                           'open'; // ✅ delete only open (adjust if you want)
-
+                      final isOpen = status == 'open';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -670,6 +860,76 @@ class _DropoffDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 14),
                           ],
+                          // ✅ ENABLE / DISABLE LINK BUTTON
+                          SizedBox(
+                            height: 44,
+                            child: OutlinedButton.icon(
+                              icon: Icon(
+                                isOpen ? Icons.link_off : Icons.link,
+                                color: isOpen
+                                    ? Colors.red
+                                    : AppColors.brandBlue,
+                              ),
+                              label: Text(
+                                isOpen ? 'Disable Link' : 'Enable Link',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: isOpen
+                                    ? Colors.red
+                                    : AppColors.brandBlue,
+                                side: BorderSide(
+                                  color: isOpen
+                                      ? Colors.red
+                                      : AppColors.brandBlue,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Text(
+                                      isOpen
+                                          ? 'Disable Drop-off Link'
+                                          : 'Enable Drop-off Link',
+                                    ),
+                                    content: Text(
+                                      isOpen
+                                          ? 'Clients will no longer be able to upload using this link.'
+                                          : 'Clients will be able to upload again using this link.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        child: Text(
+                                          isOpen ? 'Disable' : 'Enable',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirm != true) return;
+
+                                await onSetStatus(
+                                  requestId,
+                                  isOpen ? 'closed' : 'open',
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 14),
                           // ✅ DELETE BUTTON (Step B) — only when open
                           if (canDelete) ...[
                             SizedBox(
@@ -954,13 +1214,13 @@ class _StatusPill extends StatelessWidget {
         label = 'Open';
         break;
       case 'closed':
-        bg = Colors.grey.withOpacity(0.14);
-        fg = Colors.grey.shade800;
+        bg = Colors.red.withOpacity(0.14); // ✅ RED for closed
+        fg = Colors.red.shade800;
         label = 'Closed';
         break;
       case 'expired':
-        bg = Colors.red.withOpacity(0.14);
-        fg = Colors.red.shade800;
+        bg = Colors.red.withOpacity(0.20); // ✅ slightly stronger red
+        fg = const Color.fromARGB(255, 128, 10, 10);
         label = 'Expired';
         break;
       default:
