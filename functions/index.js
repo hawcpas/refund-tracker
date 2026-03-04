@@ -427,10 +427,10 @@ exports.updateUser = onCall(
       const commsChange =
         patch.communications
           ? {
-              wildixExtension: patch.communications.wildixExtension || null,
-              clearflySmsNumber: patch.communications.clearflySmsNumber || null,
-              clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
-            }
+            wildixExtension: patch.communications.wildixExtension || null,
+            clearflySmsNumber: patch.communications.clearflySmsNumber || null,
+            clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
+          }
           : null;
 
       await admin.firestore().collection("auditLogs").add({
@@ -691,6 +691,213 @@ exports.resendInvite = onCall(
       console.error("resendInvite failed:", err);
       if (err instanceof HttpsError) throw err;
       throw new HttpsError("internal", "Resend invite failed on server.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
+
+// ============================
+// Drop-Off Helpers
+// ============================
+const crypto = require("crypto");
+
+function sha256(s) {
+  return crypto.createHash("sha256").update(String(s)).digest("hex");
+}
+
+// ============================
+// createDropoffRequest (admin-only)
+// ============================
+exports.createDropoffRequest = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
+      await assertAdmin(auth.uid);
+
+      const clientEmail = normalizeEmail(data.clientEmail);
+      const clientName = normalizeName(data.clientName);
+      const message = normalizeName(data.message);
+
+      if (!clientEmail || !clientEmail.includes("@")) {
+        throw new HttpsError("invalid-argument", "Valid clientEmail is required.");
+      }
+
+      // token (plaintext) in URL only; tokenHash stored in Firestore
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = sha256(token);
+
+      const ref = admin.firestore().collection("dropoff_requests").doc();
+      await ref.set({
+        requestId: ref.id,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdByUid: auth.uid,
+        createdByEmail: normalizeEmail(auth.token?.email),
+        clientEmail,
+        clientName: clientName || "",
+        message: message || "",
+        status: "open",
+        expiresAt: null,
+        tokenHash,
+        lastViewedAt: null,
+        lastUploadedAt: null,
+        fileCount: 0,
+      });
+
+      await admin.firestore().collection("auditLogs").add({
+        type: "dropoff_created",
+        requestId: ref.id,
+        actor: {
+          type: "staff",
+          uid: auth.uid,
+          email: normalizeEmail(auth.token?.email),
+        },
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ✅ IMPORTANT: your site uses hash routing, so generate /#/dropoff
+      const baseUrl = APP_URL.value();
+      if (!isValidHttpUrl(baseUrl)) {
+        throw new HttpsError("failed-precondition", `APP_URL is invalid: "${baseUrl}"`);
+      }
+
+      const cleanBase = baseUrl.replace(/\/$/, "");
+      const url = `${cleanBase}/#/dropoff?rid=${ref.id}&t=${token}`;
+
+      return { ok: true, requestId: ref.id, url };
+    } catch (err) {
+      console.error("createDropoffRequest failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Create dropoff failed on server.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
+
+// ============================
+// validateDropoffLink (public callable)
+// ============================
+exports.validateDropoffLink = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { data } = request;
+      const rid = (data.rid || "").toString().trim();
+      const token = (data.token || "").toString().trim();
+
+      if (!rid || !token) {
+        throw new HttpsError("invalid-argument", "rid and token are required.");
+      }
+
+      const snap = await admin.firestore().collection("dropoff_requests").doc(rid).get();
+      if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+      const doc = snap.data() || {};
+      const status = (doc.status || "").toString().toLowerCase().trim();
+      if (status !== "open") {
+        throw new HttpsError("failed-precondition", "This drop-off link is not open.");
+      }
+
+      const tokenHash = sha256(token);
+      if (tokenHash !== doc.tokenHash) {
+        throw new HttpsError("permission-denied", "Invalid token.");
+      }
+
+      await snap.ref.set(
+        { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      await admin.firestore().collection("auditLogs").add({
+        type: "dropoff_viewed",
+        requestId: rid,
+        actor: {
+          type: "client",
+          uid: null,
+          email: normalizeEmail(doc.clientEmail),
+        },
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        ok: true,
+        requestId: rid,
+        clientEmail: normalizeEmail(doc.clientEmail),
+        clientName: (doc.clientName || "").toString(),
+        message: (doc.message || "").toString(),
+      };
+    } catch (err) {
+      console.error("validateDropoffLink failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Validate dropoff failed on server.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
+
+// ============================
+// deleteDropoffRequest (admin-only)
+// ============================
+exports.deleteDropoffRequest = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+      await assertAdmin(auth.uid);
+
+      const requestId = (data.requestId || "").toString().trim();
+      if (!requestId) throw new HttpsError("invalid-argument", "requestId is required.");
+
+      const db = admin.firestore();
+      const bucket = admin.storage().bucket();
+
+      const ref = db.collection("dropoff_requests").doc(requestId);
+      const snap = await ref.get();
+      if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+      // ✅ Delete Storage files referenced in the files subcollection
+      const filesSnap = await ref.collection("files").get();
+      for (const doc of filesSnap.docs) {
+        const path = doc.data().storagePath;
+        if (path) {
+          try {
+            await bucket.file(path).delete();
+          } catch (e) {
+            console.warn("Failed to delete storage file:", path, e?.message || e);
+          }
+        }
+      }
+
+      // ✅ Delete Firestore subcollection docs + parent doc
+      const batch = db.batch();
+      for (const doc of filesSnap.docs) {
+        batch.delete(doc.ref);
+      }
+      batch.delete(ref);
+      await batch.commit();
+
+      // ✅ Audit log
+      await db.collection("auditLogs").add({
+        type: "dropoff_deleted",
+        requestId,
+        actor: {
+          type: "staff",
+          uid: auth.uid,
+          email: normalizeEmail(auth.token?.email),
+        },
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return { ok: true };
+    } catch (err) {
+      console.error("deleteDropoffRequest failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Delete dropoff failed on server.", {
         message: err?.message ?? String(err),
       });
     }

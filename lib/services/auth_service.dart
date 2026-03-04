@@ -43,6 +43,13 @@ class AuthService {
         return;
       }
 
+      // ✅ NEW: Skip session guard for anonymous users (client drop-off)
+      if (user.isAnonymous) {
+        await _profileSub?.cancel();
+        _profileSub = null;
+        return;
+      }
+
       // 1) Force refresh token -> catches disabled users quickly on refresh
       try {
         await user.getIdToken(true);
@@ -435,6 +442,34 @@ class AuthService {
       return 'unknown-error';
     }
   }
+
+  // =========================
+  // ANONYMOUS AUTH (for client drop-off)
+  // =========================
+
+  /// ✅ Signs in anonymously ONLY if there is no current FirebaseAuth user.
+  /// This allows "no-password" client uploads while still giving request.auth != null
+  /// for Firebase Storage rules.
+  Future<User?> signInAnonymouslyIfNeeded() async {
+    final existing = _auth.currentUser;
+    if (existing != null) return existing;
+
+    try {
+      final cred = await _auth.signInAnonymously();
+      return cred.user;
+    } on FirebaseAuthException catch (e) {
+      // ignore: avoid_print
+      print("ANON SIGN-IN ERROR: ${e.code} - ${e.message}");
+      return null;
+    } catch (e) {
+      // ignore: avoid_print
+      print("ANON SIGN-IN ERROR (unknown): $e");
+      return null;
+    }
+  }
+
+  /// Convenience helper
+  bool get isAnonymous => _auth.currentUser?.isAnonymous ?? false;
 
   // =========================
   // LOGOUT
