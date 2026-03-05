@@ -366,6 +366,7 @@ class _RequestsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
@@ -566,111 +567,216 @@ class _RequestsList extends StatelessWidget {
 
                           const SizedBox(width: 10),
 
-                          _StatusPill(status: status),
-                          const SizedBox(width: 6),
+                          if (isMobile) ...[
+                            // ✅ Mobile: stack actions vertically so the name column has room
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                _StatusPill(status: status),
+                                const SizedBox(height: 6),
 
-                          // quick copy
-                          if (url.isNotEmpty)
-                            Tooltip(
-                              message: busy ? 'Working…' : 'Copy link',
-                              child: IconButton(
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                  height: 36,
-                                ),
-                                icon: const Icon(Icons.copy, size: 18),
-                                onPressed: busy
-                                    ? null
-                                    : () async {
-                                        await Clipboard.setData(
-                                          ClipboardData(text: url),
-                                        );
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Drop-off link copied.',
-                                              ),
+                                // On mobile, keep actions under a single menu to save width
+                                PopupMenuButton<String>(
+                                  enabled: !busy,
+                                  tooltip: busy ? 'Working…' : 'Actions',
+                                  position: PopupMenuPosition.under,
+                                  icon: Icon(
+                                    Icons.more_vert,
+                                    color: AppColors.brandBlue.withOpacity(
+                                      0.85,
+                                    ),
+                                  ),
+                                  onSelected: (value) async {
+                                    if (busy) return;
+
+                                    if (value == 'view') {
+                                      onSelect(d.id);
+                                      return;
+                                    }
+                                    if (value == 'copy' && url.isNotEmpty) {
+                                      await Clipboard.setData(
+                                        ClipboardData(text: url),
+                                      );
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Drop-off link copied.',
                                             ),
-                                          );
-                                        }
-                                      },
-                              ),
-                            ),
-
-                          // more actions: view + toggle
-                          Tooltip(
-                            message: busy ? 'Working…' : 'More actions',
-                            child: PopupMenuButton<String>(
-                              enabled: !busy,
-                              tooltip: 'More actions',
-                              position: PopupMenuPosition.under,
-                              icon: Icon(
-                                Icons.more_horiz,
-                                color: AppColors.brandBlue.withOpacity(0.85),
-                              ),
-                              onSelected: (value) async {
-                                if (busy) return;
-
-                                if (value == 'view') {
-                                  onSelect(d.id);
-                                  return;
-                                }
-                                if (value == 'toggle') {
-                                  final nextStatus = isOpen ? 'closed' : 'open';
-                                  await onSetStatus(d.id, nextStatus);
-                                }
-                              },
-                              itemBuilder: (ctx) => [
-                                const PopupMenuItem<String>(
-                                  value: 'view',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.open_in_new, size: 18),
-                                      SizedBox(width: 10),
-                                      Text('View details'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuDivider(),
-                                PopupMenuItem<String>(
-                                  value: 'toggle',
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isOpen ? Icons.link_off : Icons.link,
-                                        size: 18,
+                                          ),
+                                        );
+                                      }
+                                      return;
+                                    }
+                                    if (value == 'toggle') {
+                                      final nextStatus = isOpen
+                                          ? 'closed'
+                                          : 'open';
+                                      await onSetStatus(d.id, nextStatus);
+                                    }
+                                  },
+                                  itemBuilder: (ctx) => [
+                                    const PopupMenuItem<String>(
+                                      value: 'view',
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.open_in_new, size: 18),
+                                          SizedBox(width: 10),
+                                          Text('View details'),
+                                        ],
                                       ),
-                                      SizedBox(width: 10),
-                                      Text(
-                                        isOpen ? 'Disable link' : 'Enable link',
+                                    ),
+                                    if (url.isNotEmpty) ...[
+                                      const PopupMenuItem<String>(
+                                        value: 'copy',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.copy, size: 18),
+                                            SizedBox(width: 10),
+                                            Text('Copy link'),
+                                          ],
+                                        ),
                                       ),
                                     ],
-                                  ),
+                                    const PopupMenuDivider(),
+                                    PopupMenuItem<String>(
+                                      value: 'toggle',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isOpen
+                                                ? Icons.link_off
+                                                : Icons.link,
+                                            size: 18,
+                                          ),
+                                          SizedBox(width: 10),
+                                          Text(
+                                            isOpen
+                                                ? 'Disable link'
+                                                : 'Enable link',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ),
+                          ] else ...[
+                            // ✅ Desktop/tablet: keep your original horizontal actions
+                            _StatusPill(status: status),
+                            const SizedBox(width: 6),
 
-                          // chevron -> view details
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 36,
-                              height: 36,
+                            // quick copy
+                            if (url.isNotEmpty)
+                              Tooltip(
+                                message: busy ? 'Working…' : 'Copy link',
+                                child: IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 36,
+                                    height: 36,
+                                  ),
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  onPressed: busy
+                                      ? null
+                                      : () async {
+                                          await Clipboard.setData(
+                                            ClipboardData(text: url),
+                                          );
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Drop-off link copied.',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                ),
+                              ),
+
+                            // more actions: view + toggle
+                            Tooltip(
+                              message: busy ? 'Working…' : 'More actions',
+                              child: PopupMenuButton<String>(
+                                enabled: !busy,
+                                tooltip: 'More actions',
+                                position: PopupMenuPosition.under,
+                                icon: Icon(
+                                  Icons.more_horiz,
+                                  color: AppColors.brandBlue.withOpacity(0.85),
+                                ),
+                                onSelected: (value) async {
+                                  if (busy) return;
+
+                                  if (value == 'view') {
+                                    onSelect(d.id);
+                                    return;
+                                  }
+                                  if (value == 'toggle') {
+                                    final nextStatus = isOpen
+                                        ? 'closed'
+                                        : 'open';
+                                    await onSetStatus(d.id, nextStatus);
+                                  }
+                                },
+                                itemBuilder: (ctx) => [
+                                  const PopupMenuItem<String>(
+                                    value: 'view',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.open_in_new, size: 18),
+                                        SizedBox(width: 10),
+                                        Text('View details'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuDivider(),
+                                  PopupMenuItem<String>(
+                                    value: 'toggle',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          isOpen ? Icons.link_off : Icons.link,
+                                          size: 18,
+                                        ),
+                                        SizedBox(width: 10),
+                                        Text(
+                                          isOpen
+                                              ? 'Disable link'
+                                              : 'Enable link',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            tooltip: 'View details',
-                            onPressed: busy ? null : () => onSelect(d.id),
-                            icon: Icon(
-                              Icons.chevron_right,
-                              color: AppColors.brandBlue.withOpacity(0.55),
+
+                            // chevron -> view details
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 36,
+                                height: 36,
+                              ),
+                              tooltip: 'View details',
+                              onPressed: busy ? null : () => onSelect(d.id),
+                              icon: Icon(
+                                Icons.chevron_right,
+                                color: AppColors.brandBlue.withOpacity(0.55),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     );
