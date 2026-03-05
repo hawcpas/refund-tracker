@@ -31,6 +31,13 @@ const SMTP_FROM = defineString("SMTP_FROM");
 // ============================
 // Helpers
 // ============================
+function safeFilename(name) {
+  return name
+    .replace(/[/\\?%*:|"<>]/g, "_") // illegal filesystem chars
+    .replace(/[\r\n]+/g, " ")
+    .replace(/"/g, "'");
+}
+
 function normalizeEmail(email) {
   return (email || "").toLowerCase().trim();
 }
@@ -192,22 +199,35 @@ exports.getAdminDownloadUrl = onCall(
       await assertAdmin(auth.uid);
 
       const storagePath = (data?.storagePath || "").toString().trim();
-      const filename = (data?.filename || "").toString().trim();
+      const rawFilename = (data?.filename || "").toString().trim();
+      const contentType = (data?.contentType || "").toString().trim();
 
-      if (!storagePath || !filename) {
-        throw new HttpsError("invalid-argument", "storagePath and filename required.");
+      if (!storagePath || !rawFilename) {
+        throw new HttpsError(
+          "invalid-argument",
+          "storagePath and filename required."
+        );
       }
+
+      const safeName = safeFilename(rawFilename);
 
       const bucket = admin.storage().bucket();
       const file = bucket.file(storagePath);
 
-      // ✅ FORCE DOWNLOAD WITH CLEAN FILENAME
-      const [url] = await file.getSignedUrl({
+      const options = {
         version: "v4",
         action: "read",
         expires: Date.now() + 5 * 60 * 1000,
-        responseDisposition: `attachment; filename="${filename}"`,
-      });
+        responseDisposition:
+          `attachment; filename="${safeName}"; ` +
+          `filename*=UTF-8''${encodeURIComponent(safeName)}`,
+      };
+
+      if (contentType) {
+        options.responseType = contentType;
+      }
+
+      const [url] = await file.getSignedUrl(options);
 
       return { ok: true, url };
     } catch (err) {

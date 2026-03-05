@@ -212,12 +212,17 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   Future<void> _downloadFile({
     required String storagePath,
     required String filename,
+    String? contentType,
   }) async {
     setState(() => _busy = true);
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getAdminDownloadUrl')
-          .call({'storagePath': storagePath, 'filename': filename});
+          .call({
+            'storagePath': storagePath,
+            'filename': filename,
+            'contentType': (contentType ?? '').toString(),
+          });
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
@@ -227,12 +232,32 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       }
 
       final uri = Uri.parse(url);
-      final ok = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-        webOnlyWindowName: '_blank',
+
+      if (!mounted) return;
+
+      // ✅ Safari-safe: second user gesture
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Download ready'),
+          content: Text(filename),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await launchUrl(uri, webOnlyWindowName: '_self');
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Download'),
+            ),
+          ],
+        ),
       );
 
+      final ok = await launchUrl(uri, webOnlyWindowName: '_blank');
       if (!ok) {
         throw Exception('Could not launch download URL.');
       }
@@ -677,7 +702,9 @@ class _DropoffDetailScreen extends StatelessWidget {
   final Future<void> Function({
     required String storagePath,
     required String filename,
-  }) onDownload;
+    String? contentType,
+  })
+  onDownload;
 
   final Future<void> Function(String requestId) onDelete;
 
@@ -694,10 +721,7 @@ class _DropoffDetailScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(
-        title: const Text('Drop‑Off Details'),
-        elevation: 1,
-      ),
+      appBar: AppBar(title: const Text('Drop‑Off Details'), elevation: 1),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -708,7 +732,10 @@ class _DropoffDetailScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: db.collection('dropoff_requests').doc(requestId).snapshots(),
+                    stream: db
+                        .collection('dropoff_requests')
+                        .doc(requestId)
+                        .snapshots(),
                     builder: (context, reqSnap) {
                       if (reqSnap.hasError) {
                         return Text(
@@ -727,15 +754,26 @@ class _DropoffDetailScreen extends StatelessWidget {
                       }
 
                       final reqData = reqSnap.data?.data() ?? {};
-                      final dropoffUrl = (reqData['url'] ?? '').toString().trim();
-                      final status = (reqData['status'] ?? 'open').toString().toLowerCase().trim();
+                      final dropoffUrl = (reqData['url'] ?? '')
+                          .toString()
+                          .trim();
+                      final status = (reqData['status'] ?? 'open')
+                          .toString()
+                          .toLowerCase()
+                          .trim();
                       final canDelete = status == 'open';
 
                       // Optional metadata if available (won’t break if missing)
-                      final clientName = (reqData['clientName'] ?? '').toString().trim();
-                      final clientEmail = (reqData['clientEmail'] ?? '').toString().trim();
+                      final clientName = (reqData['clientName'] ?? '')
+                          .toString()
+                          .trim();
+                      final clientEmail = (reqData['clientEmail'] ?? '')
+                          .toString()
+                          .trim();
                       final createdAt = reqData['createdAt'];
-                      final createdText = createdAt is Timestamp ? _formatDate(createdAt.toDate()) : '';
+                      final createdText = createdAt is Timestamp
+                          ? _formatDate(createdAt.toDate())
+                          : '';
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,11 +798,16 @@ class _DropoffDetailScreen extends StatelessWidget {
                           ),
 
                           const SizedBox(height: 10),
-                          Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                          Divider(
+                            color: Colors.black.withOpacity(0.06),
+                            height: 1,
+                          ),
                           const SizedBox(height: 12),
 
                           // ===== Overview (dense, enterprise) =====
-                          if (clientName.isNotEmpty || clientEmail.isNotEmpty || createdText.isNotEmpty)
+                          if (clientName.isNotEmpty ||
+                              clientEmail.isNotEmpty ||
+                              createdText.isNotEmpty)
                             _WhiteInset(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -788,14 +831,17 @@ class _DropoffDetailScreen extends StatelessWidget {
                               ),
                             ),
 
-                          if (clientName.isNotEmpty || clientEmail.isNotEmpty || createdText.isNotEmpty)
+                          if (clientName.isNotEmpty ||
+                              clientEmail.isNotEmpty ||
+                              createdText.isNotEmpty)
                             const SizedBox(height: 12),
 
                           // ===== Drop-off link (compact, actionable) =====
                           if (dropoffUrl.isNotEmpty) ...[
                             _SectionHeader(
                               title: 'Access link',
-                              subtitle: 'Share this link to allow uploads without sign‑in.',
+                              subtitle:
+                                  'Share this link to allow uploads without sign‑in.',
                             ),
                             const SizedBox(height: 8),
                             _WhiteInset(
@@ -804,11 +850,12 @@ class _DropoffDetailScreen extends StatelessWidget {
                                   Expanded(
                                     child: SelectableText(
                                       dropoffUrl,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF475467),
-                                        height: 1.2,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: const Color(0xFF475467),
+                                            height: 1.2,
+                                          ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
@@ -816,13 +863,25 @@ class _DropoffDetailScreen extends StatelessWidget {
                                     message: 'Copy link',
                                     child: IconButton(
                                       visualDensity: VisualDensity.compact,
-                                      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                            width: 36,
+                                            height: 36,
+                                          ),
                                       icon: const Icon(Icons.copy, size: 18),
                                       onPressed: () async {
-                                        await Clipboard.setData(ClipboardData(text: dropoffUrl));
+                                        await Clipboard.setData(
+                                          ClipboardData(text: dropoffUrl),
+                                        );
                                         if (!context.mounted) return;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Link copied to clipboard.')),
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Link copied to clipboard.',
+                                            ),
+                                          ),
                                         );
                                       },
                                     ),
@@ -857,7 +916,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                               if (!snap.hasData) {
                                 return const Padding(
                                   padding: EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(child: CircularProgressIndicator()),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
                                 );
                               }
 
@@ -875,17 +936,25 @@ class _DropoffDetailScreen extends StatelessWidget {
                                   children: [
                                     for (int i = 0; i < docs.length; i++) ...[
                                       Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                        ),
                                         child: _FileRow(
                                           data: docs[i].data(),
-                                          onDownload: (path, name) => onDownload(
-                                            storagePath: path,
-                                            filename: name,
-                                          ),
+                                          onDownload:
+                                              (path, name, contentType) =>
+                                                  onDownload(
+                                                    storagePath: path,
+                                                    filename: name,
+                                                    contentType: contentType,
+                                                  ),
                                         ),
                                       ),
                                       if (i != docs.length - 1)
-                                        Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                                        Divider(
+                                          color: Colors.black.withOpacity(0.06),
+                                          height: 1,
+                                        ),
                                     ],
                                   ],
                                 ),
@@ -897,12 +966,16 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                           // ===== Delete action (compact width, enterprise copy) =====
                           if (canDelete) ...[
-                            Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                            Divider(
+                              color: Colors.black.withOpacity(0.06),
+                              height: 1,
+                            ),
                             const SizedBox(height: 12),
 
                             _SectionHeader(
                               title: 'Request administration',
-                              subtitle: 'Permanently remove this request and associated uploads.',
+                              subtitle:
+                                  'Permanently remove this request and associated uploads.',
                             ),
                             const SizedBox(height: 10),
 
@@ -912,10 +985,15 @@ class _DropoffDetailScreen extends StatelessWidget {
                                 child: SizedBox(
                                   height: 44,
                                   child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
                                     label: const Text(
                                       'Delete request',
-                                      style: TextStyle(fontWeight: FontWeight.w700),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: Colors.red,
@@ -923,7 +1001,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
-                                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                      ),
                                     ),
                                     onPressed: () async {
                                       final confirm = await showDialog<bool>(
@@ -936,11 +1016,13 @@ class _DropoffDetailScreen extends StatelessWidget {
                                           ),
                                           actions: [
                                             TextButton(
-                                              onPressed: () => Navigator.pop(ctx, false),
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, false),
                                               child: const Text('Cancel'),
                                             ),
                                             FilledButton(
-                                              onPressed: () => Navigator.pop(ctx, true),
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, true),
                                               child: const Text('Delete'),
                                             ),
                                           ],
@@ -1076,7 +1158,9 @@ class _InlineMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = tone == _InlineTone.error ? Colors.red.shade700 : const Color(0xFF667085);
+    final color = tone == _InlineTone.error
+        ? Colors.red.shade700
+        : const Color(0xFF667085);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1116,7 +1200,8 @@ class _WhiteInset extends StatelessWidget {
 
 class _FileRow extends StatefulWidget {
   final Map<String, dynamic> data;
-  final void Function(String storagePath, String filename) onDownload;
+  final void Function(String storagePath, String filename, String? contentType)
+  onDownload;
 
   const _FileRow({required this.data, required this.onDownload});
 
@@ -1132,6 +1217,7 @@ class _FileRowState extends State<_FileRow> {
     final theme = Theme.of(context);
     final name = (widget.data['originalName'] ?? 'Untitled').toString();
     final path = (widget.data['storagePath'] ?? '').toString();
+    final contentType = (widget.data['contentType'] ?? '').toString();
     final size = (widget.data['sizeBytes'] is num)
         ? (widget.data['sizeBytes'] as num).toInt()
         : 0;
@@ -1140,7 +1226,9 @@ class _FileRowState extends State<_FileRow> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: InkWell(
-        onTap: path.isEmpty ? null : () => widget.onDownload(path, name),
+        onTap: path.isEmpty
+            ? null
+            : () => widget.onDownload(path, name, contentType),
         hoverColor: Colors.black.withOpacity(0.03),
         splashColor: Colors.black.withOpacity(0.02),
         child: Padding(
