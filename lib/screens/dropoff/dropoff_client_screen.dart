@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_file_selector/flutter_web_file_selector.dart';
 
 import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
@@ -126,28 +127,22 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     }
   }
 
-  Future<void> _pickAndUpload() async {
-    if (_uploading) return;
-
+  Future<void> _uploadPickedFiles(FilePickerResult result) async {
     setState(() {
       _uploading = true;
       _error = null;
     });
 
     try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) {
-        setState(() => _uploading = false);
-        return;
-      }
+      int uploadedCount = 0;
 
       for (final f in result.files) {
         final bytes = f.bytes;
-        if (bytes == null) continue;
+        if (bytes == null) {
+          throw Exception(
+            'Selected file data was unavailable. Please reselect the file and try again.',
+          );
+        }
 
         final contentType = _guessContentType(f.name);
 
@@ -189,9 +184,148 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         );
 
         await batch.commit();
+        uploadedCount++;
       }
 
       if (!mounted) return;
+
+      if (uploadedCount == 0) {
+        setState(() => _error = 'No uploads were processed. Please try again.');
+        return;
+      }
+
+      Navigator.pushReplacementNamed(context, '/dropoff/success');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Upload failed. Please try again.\n$e');
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _handleIOSWebFiles(List<XFile> files) async {
+    if (!mounted) return;
+
+    if (files.isEmpty) {
+      setState(() => _error = 'No file was selected.');
+      return;
+    }
+
+    // Convert XFile -> FilePickerResult so you can reuse _uploadPickedFiles()
+    final picked = <PlatformFile>[];
+    for (final xf in files) {
+      final bytes = await xf.readAsBytes();
+      picked.add(PlatformFile(name: xf.name, size: bytes.length, bytes: bytes));
+    }
+
+    await _uploadPickedFiles(FilePickerResult(picked));
+  }
+
+  Future<void> _pickAndUpload() async {
+    if (_uploading) return;
+
+    setState(() {
+      _uploading = true;
+      _error = null;
+    });
+
+    try {
+      // iOS Safari (web) can behave oddly; keep selection simple on web if needed.
+      final result = await FilePicker.platform
+          .pickFiles(
+            allowMultiple: !kIsWeb
+                ? true
+                : true, // set to false if Safari still hangs
+            withData: kIsWeb, // web: get bytes
+            withReadStream: !kIsWeb, // mobile: stream/path
+          )
+          .timeout(
+            const Duration(seconds: 60),
+            onTimeout: () {
+              throw Exception(
+                'File selection did not complete. If you are on iPhone Safari, try selecting a single file or use a different browser.',
+              );
+            },
+          );
+
+      if (result == null || result.files.isEmpty) {
+        // User cancelled OR iOS returned null; give a visible message
+        if (!mounted) return;
+        setState(() {
+          _uploading = false;
+          _error = 'No file was selected.';
+        });
+        return;
+      }
+
+      int uploadedCount = 0;
+
+      for (final f in result.files) {
+        final fileId = FirebaseFirestore.instance.collection('_tmp').doc().id;
+        final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final storagePath = 'dropoffs/${_rid!}/$fileId\_$safeName';
+        final ref = FirebaseStorage.instance.ref(storagePath);
+
+        final contentType = _guessContentType(f.name);
+        final meta = SettableMetadata(contentType: contentType);
+
+        // ---- Upload (Web vs Native) ----
+        if (kIsWeb) {
+          // Web: bytes should be present when withData:true
+          final bytes = f.bytes;
+          if (bytes == null) {
+            // Safari edge case: surface the issue instead of silently skipping
+            throw Exception(
+              'Selected file data was unavailable. Please retry and select the file again.',
+            );
+          }
+          await ref.putData(bytes, meta);
+        }
+
+        // ---- Firestore metadata update ----
+        final batch = FirebaseFirestore.instance.batch();
+
+        final fileRef = FirebaseFirestore.instance
+            .collection('dropoff_requests')
+            .doc(_rid)
+            .collection('files')
+            .doc(fileId);
+
+        batch.set(fileRef, {
+          'createdAt': FieldValue.serverTimestamp(),
+          'originalName': f.name,
+          'storagePath': storagePath,
+          'sizeBytes': f.size,
+          'contentType': contentType,
+          'uploadedBy': {
+            'type': 'client',
+            'email': (_info?['clientEmail'] ?? '').toString(),
+            'name': (_info?['clientName'] ?? '').toString(),
+          },
+        });
+
+        batch.set(
+          FirebaseFirestore.instance.collection('dropoff_requests').doc(_rid),
+          {
+            'lastUploadedAt': FieldValue.serverTimestamp(),
+            'fileCount': FieldValue.increment(1),
+          },
+          SetOptions(merge: true),
+        );
+
+        await batch.commit();
+        uploadedCount++;
+      }
+
+      if (!mounted) return;
+
+      if (uploadedCount == 0) {
+        setState(() {
+          _error = 'No uploads were processed. Please try again.';
+        });
+        return;
+      }
+
       Navigator.pushReplacementNamed(context, '/dropoff/success');
     } catch (e) {
       if (!mounted) return;
@@ -250,9 +384,13 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ] else if (_error != null) ...[
-                      _ErrorBanner(message: _error!),
                     ] else ...[
+                      // ✅ SHOW ERROR WITHOUT HIDING UI
+                      if (_error != null) ...[
+                        _ErrorBanner(message: _error!),
+                        const SizedBox(height: 12),
+                      ],
+
                       if ((_info?['message'] ?? '')
                           .toString()
                           .trim()
@@ -278,7 +416,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                       const SizedBox(height: 16),
 
-                      // ✅ PASTE THIS RIGHT HERE (before the upload button)
                       if (!canUpload)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -291,37 +428,77 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                           ),
                         ),
 
+                      // ✅ UPLOAD BUTTON ALWAYS STAYS
                       SizedBox(
                         height: 46,
                         width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: (!canUpload || _uploading)
-                              ? null
-                              : _pickAndUpload,
-                          icon: _uploading
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        child: WebFileSelector.isIOSWeb
+                            ? WebFileSelector(
+                                multiple: true,
+                                accept:
+                                    '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.csv,.txt',
+                                onData: _handleIOSWebFiles,
+                                child: FilledButton.icon(
+                                  onPressed: (!canUpload || _uploading)
+                                      ? null
+                                      : () {},
+                                  icon: _uploading
+                                      ? const SizedBox(
+                                          height: 18,
+                                          width: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Icon(Icons.upload_file),
+                                  label: Text(
+                                    _uploading
+                                        ? 'Uploading…'
+                                        : 'Choose files to upload',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                )
-                              : const Icon(Icons.upload_file),
-                          label: Text(
-                            _uploading
-                                ? 'Uploading…'
-                                : 'Choose files to upload',
-                            style: const TextStyle(fontWeight: FontWeight.w900),
-                          ),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.brandBlue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppColors.brandBlue,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : FilledButton.icon(
+                                onPressed: (!canUpload || _uploading)
+                                    ? null
+                                    : _pickAndUpload,
+                                icon: _uploading
+                                    ? const SizedBox(
+                                        height: 18,
+                                        width: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.upload_file),
+                                label: Text(
+                                  _uploading
+                                      ? 'Uploading…'
+                                      : 'Choose files to upload',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.brandBlue,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                       ),
 
                       const SizedBox(height: 10),
