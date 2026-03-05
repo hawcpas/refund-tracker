@@ -75,10 +75,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       foregroundColor: Colors.white,
       systemOverlayStyle: SystemUiOverlayStyle.light,
       elevation: 2,
-      title: const Text(
-        'Drop-Off Requests',
-        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.2),
-      ),
+      title: const Text('Drop-Off Requests'),
       actions: [
         IconButton(
           tooltip: 'Create drop-off link',
@@ -461,10 +458,29 @@ class _RequestsList extends StatelessWidget {
                     final title = name.isNotEmpty ? name : email;
                     final subtitle = name.isNotEmpty ? email : msg;
 
-                    return InkWell(
-                      onTap: busy ? null : () => onSelect(d.id),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
+                    final statusLower = status.toLowerCase().trim();
+
+                    final isOpen = statusLower == 'open';
+                    final isClosed = statusLower == 'closed';
+
+                    final rowOpacity = isClosed ? 0.65 : 1.0;
+                    final rowBg = isClosed
+                        ? Colors.black.withOpacity(0.03)
+                        : Colors.transparent;
+
+                    return AnimatedOpacity(
+                      opacity: rowOpacity,
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOut,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: rowBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 6,
+                        ),
                         child: Row(
                           children: [
                             Icon(
@@ -472,6 +488,7 @@ class _RequestsList extends StatelessWidget {
                               color: AppColors.brandBlue.withOpacity(0.85),
                             ),
                             const SizedBox(width: 12),
+
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,6 +503,8 @@ class _RequestsList extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 2),
+
+                                  // existing subtitle
                                   Text(
                                     subtitle,
                                     maxLines: 2,
@@ -498,165 +517,164 @@ class _RequestsList extends StatelessWidget {
                                 ],
                               ),
                             ),
+
                             const SizedBox(width: 10),
 
-                            // ✅ Tight action cluster (pill + toggle + copy + chevron)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _StatusPill(status: status),
+                            // ✅ Status pill stays visible
+                            _StatusPill(status: status),
 
-                                const SizedBox(width: 6),
+                            const SizedBox(width: 6),
 
-                                // ✅ Enable/Disable toggle next to the pill
-                                Tooltip(
-                                  message: busy
-                                      ? 'Working...'
-                                      : (status.toLowerCase().trim() == 'open'
-                                            ? 'Disable link'
-                                            : 'Enable link'),
-                                  child: IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints.tightFor(
-                                      width: 36,
-                                      height: 36,
-                                    ),
-
-                                    // ✅ Spinner while busy, icon otherwise
-                                    icon: busy
-                                        ? SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                    status
-                                                                .toLowerCase()
-                                                                .trim() ==
-                                                            'open'
-                                                        ? Colors.red
-                                                        : AppColors.brandBlue,
-                                                  ),
-                                            ),
-                                          )
-                                        : Icon(
-                                            status.toLowerCase().trim() ==
-                                                    'open'
-                                                ? Icons.link_off
-                                                : Icons.link,
-                                            size: 18,
-                                            color:
-                                                status.toLowerCase().trim() ==
-                                                    'open'
-                                                ? Colors.red
-                                                : AppColors.brandBlue,
-                                          ),
-
-                                    // ✅ Disable tap while busy
-                                    onPressed: busy
-                                        ? null
-                                        : () async {
-                                            final isOpen =
-                                                status.toLowerCase().trim() ==
-                                                'open';
-
-                                            final confirm = await showDialog<bool>(
-                                              context: context,
-                                              builder: (ctx) => AlertDialog(
-                                                title: Text(
-                                                  isOpen
-                                                      ? 'Disable Drop-off Link'
-                                                      : 'Enable Drop-off Link',
-                                                ),
+                            // ✅ Quick Copy icon (not in the menu)
+                            if (url.isNotEmpty)
+                              Tooltip(
+                                message: busy ? 'Working…' : 'Copy link',
+                                child: IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 36,
+                                    height: 36,
+                                  ),
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  onPressed: busy
+                                      ? null
+                                      : () async {
+                                          await Clipboard.setData(
+                                            ClipboardData(text: url),
+                                          );
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
                                                 content: Text(
-                                                  isOpen
-                                                      ? 'Clients will no longer be able to upload using this link.'
-                                                      : 'Clients will be able to upload again using this link.',
+                                                  'Drop-off link copied.',
                                                 ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          ctx,
-                                                          false,
-                                                        ),
-                                                    child: const Text('Cancel'),
-                                                  ),
-                                                  FilledButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          ctx,
-                                                          true,
-                                                        ),
-                                                    child: Text(
-                                                      isOpen
-                                                          ? 'Disable'
-                                                          : 'Enable',
-                                                    ),
-                                                  ),
-                                                ],
                                               ),
                                             );
-
-                                            if (confirm != true) return;
-
-                                            await onSetStatus(
-                                              d.id,
-                                              isOpen ? 'closed' : 'open',
-                                            );
-                                          },
-                                  ),
+                                          }
+                                        },
                                 ),
+                              ),
 
-                                // ✅ Copy link button (compact)
-                                if (url.isNotEmpty) ...[
-                                  const SizedBox(width: 2),
-                                  Tooltip(
-                                    message: busy
-                                        ? 'Working...'
-                                        : 'Copy drop-off link',
-                                    child: IconButton(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero,
-                                      constraints:
-                                          const BoxConstraints.tightFor(
-                                            width: 36,
-                                            height: 36,
+                            // ✅ More actions menu (⋯): View details + Enable/Disable only
+                            Tooltip(
+                              message: busy ? 'Working…' : 'More actions',
+                              child: PopupMenuButton<String>(
+                                enabled: !busy,
+                                tooltip: 'More actions',
+                                position: PopupMenuPosition.under,
+
+                                icon: busy
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.more_horiz,
+                                        color: AppColors.brandBlue.withOpacity(
+                                          0.85,
+                                        ),
+                                      ),
+
+                                onSelected: (value) async {
+                                  if (busy) return;
+
+                                  if (value == 'view') {
+                                    onSelect(d.id);
+                                    return;
+                                  }
+
+                                  if (value == 'toggle') {
+                                    final nextStatus = isOpen
+                                        ? 'closed'
+                                        : 'open';
+
+                                    // Toggle immediately (no confirmation popup)
+                                    await onSetStatus(d.id, nextStatus);
+
+                                    // Optional: Undo snackbar (recommended)
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).clearSnackBars();
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            nextStatus == 'closed'
+                                                ? 'Drop-off link disabled'
+                                                : 'Drop-off link enabled',
                                           ),
-                                      icon: const Icon(Icons.copy, size: 18),
-
-                                      // ✅ Disable while busy
-                                      onPressed: (busy || url.isEmpty)
-                                          ? null
-                                          : () async {
-                                              await Clipboard.setData(
-                                                ClipboardData(text: url),
+                                          action: SnackBarAction(
+                                            label: 'Undo',
+                                            onPressed: () {
+                                              // Best effort: revert (don’t await inside SnackBarAction)
+                                              onSetStatus(
+                                                d.id,
+                                                isOpen ? 'open' : 'closed',
                                               );
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  const SnackBar(
-                                                    content: Text(
-                                                      'Drop-off link copied.',
-                                                    ),
-                                                  ),
-                                                );
-                                              }
                                             },
+                                          ),
+                                          duration: const Duration(seconds: 4),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+
+                                itemBuilder: (ctx) => [
+                                  const PopupMenuItem<String>(
+                                    value: 'view',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.open_in_new, size: 18),
+                                        SizedBox(width: 10),
+                                        Text('View details'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuDivider(),
+                                  PopupMenuItem<String>(
+                                    value: 'toggle',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          isOpen ? Icons.link_off : Icons.link,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          isOpen
+                                              ? 'Disable link'
+                                              : 'Enable link',
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
+                              ),
+                            ),
 
-                                const SizedBox(width: 2),
-
-                                Icon(
-                                  Icons.chevron_right,
-                                  color: AppColors.brandBlue.withOpacity(0.55),
-                                ),
-                              ],
+                            // ✅ Chevron is now a real button for details (no reliance on row tap)
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 36,
+                                height: 36,
+                              ),
+                              tooltip: 'View details',
+                              onPressed: busy ? null : () => onSelect(d.id),
+                              icon: Icon(
+                                Icons.chevron_right,
+                                color: AppColors.brandBlue.withOpacity(0.55),
+                              ),
                             ),
                           ],
                         ),
@@ -731,263 +749,117 @@ class _DropoffDetailScreen extends StatelessWidget {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Uploaded Files',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: const Color(0xFF101828),
-                            ),
+                          // =========================
+                          // Header / Summary
+                          // =========================
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Drop-Off Request',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF101828),
+                                  ),
+                                ),
+                              ),
+                              _StatusPill(status: status),
+                            ],
                           ),
+
                           const SizedBox(height: 6),
+
                           Text(
                             'Request ID: $requestId',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: const Color(0xFF667085),
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          const SizedBox(height: 10),
 
-                          // ✅ Drop-off link section (copyable)
+                          const SizedBox(height: 16),
+                          const Divider(height: 1),
+                          const SizedBox(height: 16),
+
+                          // =========================
+                          // Drop‑off Link (Read‑only field)
+                          // =========================
                           if (dropoffUrl.isNotEmpty) ...[
+                            Text(
+                              'Drop‑off Link',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF344054),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppColors.brandBlue.withOpacity(0.06),
-                                borderRadius: BorderRadius.circular(12),
+                                color: const Color(0xFFF9FAFB),
+                                borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: AppColors.brandBlue.withOpacity(0.18),
+                                  color: const Color(0xFFE4E7EC),
                                 ),
                               ),
                               child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(
-                                    Icons.link,
-                                    color: AppColors.brandBlue,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 10),
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Drop-off Link',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w900,
-                                                color: const Color(0xFF101828),
-                                              ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        SelectableText(
-                                          dropoffUrl,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                                color: const Color(0xFF475467),
-                                                height: 1.25,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        SizedBox(
-                                          height: 40,
-                                          child: FilledButton.icon(
-                                            onPressed: () async {
-                                              await Clipboard.setData(
-                                                ClipboardData(text: dropoffUrl),
-                                              );
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                    'Drop-off link copied.',
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            icon: const Icon(
-                                              Icons.copy,
-                                              size: 18,
-                                            ),
-                                            label: const Text(
-                                              'Copy Link',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                              ),
-                                            ),
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor:
-                                                  AppColors.brandBlue,
-                                              foregroundColor: Colors.white,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
+                                    child: SelectableText(
+                                      dropoffUrl,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: const Color(0xFF475467),
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Tooltip(
+                                    message: 'Copy link',
+                                    child: IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      onPressed: () async {
+                                        await Clipboard.setData(
+                                          ClipboardData(text: dropoffUrl),
+                                        );
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Drop-off link copied.',
                                             ),
                                           ),
-                                        ),
-                                      ],
+                                        );
+                                      },
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 14),
-                          ] else ...[
-                            // Optional: show something for older requests created before url was stored
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.10),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.withOpacity(0.25),
-                                ),
-                              ),
-                              child: Text(
-                                'No stored link found for this request (older requests may not have a saved URL).',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.amber.shade900,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
+
+                            const SizedBox(height: 24),
                           ],
-                          // ✅ ENABLE / DISABLE LINK BUTTON
-                          SizedBox(
-                            height: 44,
-                            child: OutlinedButton.icon(
-                              icon: Icon(
-                                isOpen ? Icons.link_off : Icons.link,
-                                color: isOpen
-                                    ? Colors.red
-                                    : AppColors.brandBlue,
-                              ),
-                              label: Text(
-                                isOpen ? 'Disable Link' : 'Enable Link',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: isOpen
-                                    ? Colors.red
-                                    : AppColors.brandBlue,
-                                side: BorderSide(
-                                  color: isOpen
-                                      ? Colors.red
-                                      : AppColors.brandBlue,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onPressed: () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: Text(
-                                      isOpen
-                                          ? 'Disable Drop-off Link'
-                                          : 'Enable Drop-off Link',
-                                    ),
-                                    content: Text(
-                                      isOpen
-                                          ? 'Clients will no longer be able to upload using this link.'
-                                          : 'Clients will be able to upload again using this link.',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, true),
-                                        child: Text(
-                                          isOpen ? 'Disable' : 'Enable',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
 
-                                if (confirm != true) return;
-
-                                await onSetStatus(
-                                  requestId,
-                                  isOpen ? 'closed' : 'open',
-                                );
-                              },
+                          // =========================
+                          // Uploaded Files
+                          // =========================
+                          Text(
+                            'Uploaded Files',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF101828),
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          // ✅ DELETE BUTTON (Step B) — only when open
-                          if (canDelete) ...[
-                            SizedBox(
-                              height: 44,
-                              child: OutlinedButton.icon(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                label: const Text(
-                                  'Delete Drop-Off',
-                                  style: TextStyle(fontWeight: FontWeight.w900),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.red,
-                                  side: const BorderSide(color: Colors.red),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                onPressed: () async {
-                                  final confirm = await showDialog<bool>(
-                                    context: context,
-                                    builder: (ctx) => AlertDialog(
-                                      title: const Text(
-                                        'Delete Drop-Off Request',
-                                      ),
-                                      content: const Text(
-                                        'This will permanently delete the drop-off request and all uploaded files. This action cannot be undone.',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, false),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        FilledButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, true),
-                                          child: const Text('Delete'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-
-                                  if (confirm != true) return;
-
-                                  await onDelete(requestId);
-
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context); // back to list
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                          ] else ...[
-                            const SizedBox(height: 14),
-                          ],
+                          const SizedBox(height: 8),
 
                           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                             stream: db
@@ -1004,11 +876,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                                 );
                               }
                               if (!snap.hasData) {
-                                return const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: CircularProgressIndicator(),
-                                  ),
+                                return const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: CircularProgressIndicator(),
                                 );
                               }
 
@@ -1041,6 +911,76 @@ class _DropoffDetailScreen extends StatelessWidget {
                               );
                             },
                           ),
+
+                          const SizedBox(height: 24),
+
+                          // =========================
+                          // Danger Zone
+                          // =========================
+                          if (canDelete) ...[
+                            const Divider(height: 1),
+                            const SizedBox(height: 16),
+
+                            Text(
+                              'Danger Zone',
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            SizedBox(
+                              height: 44,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                label: const Text(
+                                  'Delete Drop‑Off',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                  side: const BorderSide(color: Colors.red),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text(
+                                        'Delete Drop‑Off Request',
+                                      ),
+                                      content: const Text(
+                                        'This will permanently delete the drop-off request and all uploaded files. This action cannot be undone.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Delete'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+
+                                  if (confirm != true) return;
+                                  await onDelete(requestId);
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            ),
+                          ],
                         ],
                       );
                     },
