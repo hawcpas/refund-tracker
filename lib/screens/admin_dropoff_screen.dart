@@ -235,7 +235,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
       if (!mounted) return;
 
-      // ✅ Safari-safe: second user gesture
+      // ✅ SINGLE launch, inside user gesture
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -256,11 +256,6 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
           ],
         ),
       );
-
-      final ok = await launchUrl(uri, webOnlyWindowName: '_blank');
-      if (!ok) {
-        throw Exception('Could not launch download URL.');
-      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(
