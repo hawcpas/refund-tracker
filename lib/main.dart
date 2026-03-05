@@ -14,6 +14,9 @@ import 'screens/account_settings_screen.dart';
 import 'screens/admin_users_screen.dart';
 import 'screens/resources_screen.dart';
 import 'screens/shared_files_screen.dart';
+import 'screens/dropoff/dropoff_client_screen.dart';
+import 'screens/dropoff/dropoff_success_screen.dart';
+import 'screens/admin_dropoff_screen.dart';
 
 import 'services/auth_service.dart';
 
@@ -23,7 +26,7 @@ void main() async {
   runApp(const MyApp());
 }
 
-/// ✅ Global "no animation" transitions (removes the slight zoom / slide)
+/// ✅ Global "no animation" transitions
 class NoTransitionsBuilder extends PageTransitionsBuilder {
   const NoTransitionsBuilder();
 
@@ -35,7 +38,7 @@ class NoTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    return child; // ✅ no animation
+    return child;
   }
 }
 
@@ -57,7 +60,6 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    // ✅ Global session guard (disabled users)
     _authService.startSessionGuard(
       onForcedLogout: () {
         _messengerKey.currentState?.showSnackBar(
@@ -100,7 +102,6 @@ class _MyAppState extends State<MyApp> {
         colorScheme: colorScheme,
         scaffoldBackgroundColor: AppColors.pageBackgroundLight,
 
-        // ✅ Removes "zoom" / page transition feel
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: NoTransitionsBuilder(),
@@ -118,61 +119,27 @@ class _MyAppState extends State<MyApp> {
           centerTitle: false,
           surfaceTintColor: Colors.transparent,
         ),
-
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(46),
-            textStyle: const TextStyle(fontWeight: FontWeight.w900),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFFF4F7FF),
-          labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: AppColors.brandBlue.withOpacity(0.16),
-              width: 1,
-            ),
-          ),
-          focusedBorder: const OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: AppColors.brandBlue, width: 1.6),
-          ),
-        ),
-
-        iconTheme: const IconThemeData(color: AppColors.brandBlue),
-
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(fontWeight: FontWeight.w900),
-          titleMedium: TextStyle(fontWeight: FontWeight.w900),
-        ),
       ),
 
-      // ❌ NO `home:` — critical for Flutter Web deep links
       onGenerateRoute: (settings) {
-        final user = FirebaseAuth.instance.currentUser;
         final route = settings.name ?? '/';
 
-        bool isPublic(String r) =>
-            r == '/' ||
-            r == '/login' ||
-            r == '/forgot-password' ||
-            r == '/verify-email';
+        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES
+        // Must come FIRST and must use startsWith
+        if (route.startsWith('/dropoff')) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => route == '/dropoff/success'
+                ? const DropoffSuccessScreen()
+                : const DropoffClientScreen(),
+          );
+        }
 
-        // -------------------------
-        // PUBLIC ROUTES
-        // -------------------------
-        if (isPublic(route)) {
+        // ✅ Public auth routes
+        if (route == '/' ||
+            route == '/login' ||
+            route == '/forgot-password' ||
+            route == '/verify-email') {
           return MaterialPageRoute(
             settings: settings,
             builder: (_) {
@@ -181,8 +148,6 @@ class _MyAppState extends State<MyApp> {
                   return const ForgotPasswordScreen();
                 case '/verify-email':
                   return const VerifyEmailScreen();
-                case '/shared-files':
-                  return const SharedFilesScreen();
                 case '/':
                 case '/login':
                 default:
@@ -192,23 +157,17 @@ class _MyAppState extends State<MyApp> {
           );
         }
 
-        // -------------------------
-        // NOT SIGNED IN → LOGIN
-        // -------------------------
+        // ✅ Everything below REQUIRES auth
+        final user = FirebaseAuth.instance.currentUser;
+
         if (user == null) {
           return MaterialPageRoute(builder: (_) => const LoginScreen());
         }
 
-        // -------------------------
-        // EMAIL NOT VERIFIED
-        // -------------------------
         if (!user.emailVerified) {
           return MaterialPageRoute(builder: (_) => const VerifyEmailScreen());
         }
 
-        // -------------------------
-        // PROTECTED ROUTES
-        // -------------------------
         return MaterialPageRoute(
           settings: settings,
           builder: (_) {
@@ -222,7 +181,7 @@ class _MyAppState extends State<MyApp> {
               case '/resources':
                 return const ResourcesScreen();
 
-              case '/shared-files': // ✅ ADD THIS BLOCK
+              case '/shared-files':
                 return const SharedFilesScreen();
 
               case '/admin-users':
@@ -237,25 +196,35 @@ class _MyAppState extends State<MyApp> {
                         body: Center(child: CircularProgressIndicator()),
                       );
                     }
-
                     final data = snap.data!.data() ?? {};
                     final role = (data['role'] ?? '')
                         .toString()
                         .toLowerCase()
                         .trim();
-                    final status = (data['status'] ?? '')
+                    if (role != 'admin') return const DashboardScreen();
+                    return const AdminUsersScreen();
+                  },
+                );
+
+              case '/admin-dropoffs':
+                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  future: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .get(const GetOptions(source: Source.server)),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final data = snap.data!.data() ?? {};
+                    final role = (data['role'] ?? '')
                         .toString()
                         .toLowerCase()
                         .trim();
-                    final disabled =
-                        data['disabled'] == true ||
-                        status == 'disabled' ||
-                        status == 'inactive';
-
-                    if (disabled) return const LoginScreen();
                     if (role != 'admin') return const DashboardScreen();
-
-                    return const AdminUsersScreen();
+                    return const AdminDropoffsScreen();
                   },
                 );
 

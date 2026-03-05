@@ -170,10 +170,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _loadProfile();
                         }
                       },
-                      onOpenSharedFiles: () => Navigator.pushNamed(
+                      onOpenSharedFiles: () =>
+                          Navigator.pushNamed(context, '/shared-files'),
+                      isAdmin: isAdmin, // ✅ NEW
+                      onOpenAdminDropoffs: () => Navigator.pushNamed(
                         context,
-                        '/shared-files',
-                      ), // ✅ add
+                        '/admin-dropoffs',
+                      ), // ✅ NEW
                     ),
                   );
 
@@ -533,9 +536,13 @@ class _QuickLinksCard extends StatelessWidget {
   const _QuickLinksCard({
     required this.onOpenResources,
     required this.onOpenSettings,
-    required this.onOpenSharedFiles, // ✅ add
+    required this.onOpenSharedFiles,
+    required this.isAdmin, // ✅ NEW
+    required this.onOpenAdminDropoffs, // ✅ NEW
   });
 
+  final bool isAdmin; // ✅ NEW
+  final VoidCallback onOpenAdminDropoffs; // ✅ NEW
   final VoidCallback onOpenResources;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSharedFiles;
@@ -544,20 +551,27 @@ class _QuickLinksCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final links = const <_DashLink>[
-      _DashLink(
+    final links = <_DashLink>[
+      if (isAdmin)
+        const _DashLink(
+          title: 'Drop‑Off Requests',
+          subtitle: 'Secure client uploads',
+          icon: Icons.inbox_outlined,
+          action: _DashAction.openAdminDropoffs,
+        ),
+      const _DashLink(
         title: 'Shared Files',
         subtitle: 'Files shared with everyone',
         icon: Icons.folder_shared_outlined,
         action: _DashAction.openSharedFiles,
       ),
-      _DashLink(
+      const _DashLink(
         title: 'Websites & Portals',
         subtitle: 'Portals, tools and useful websites',
         icon: Icons.link_outlined,
         action: _DashAction.openResources,
       ),
-      _DashLink(
+      const _DashLink(
         title: 'Settings',
         subtitle: 'Update your name, password, and profile',
         icon: Icons.person_outline,
@@ -567,6 +581,8 @@ class _QuickLinksCard extends StatelessWidget {
 
     VoidCallback resolveAction(_DashAction a) {
       switch (a) {
+        case _DashAction.openAdminDropoffs:
+          return onOpenAdminDropoffs;
         case _DashAction.openSharedFiles:
           return onOpenSharedFiles;
         case _DashAction.openResources:
@@ -624,7 +640,12 @@ class _QuickLinksCard extends StatelessWidget {
   }
 }
 
-enum _DashAction { openSharedFiles, openResources, openSettings }
+enum _DashAction {
+  openAdminDropoffs, // ✅ NEW
+  openSharedFiles,
+  openResources,
+  openSettings,
+}
 
 class _DashLink {
   final String title;
