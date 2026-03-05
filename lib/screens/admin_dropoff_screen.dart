@@ -113,11 +113,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
     setState(() => _busy = true);
     try {
-      final res = await _callable('createDropoffRequest').call({
-        'firstName': firstName,
-        'lastName': lastName,
-        'message': msg,
-      });
+      final res = await _callable(
+        'createDropoffRequest',
+      ).call({'firstName': firstName, 'lastName': lastName, 'message': msg});
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
@@ -143,8 +141,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Create failed: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -178,8 +177,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Status update failed: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Status update failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -191,16 +191,19 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       await _deleteDropoffCallable.call({'requestId': requestId});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Drop-off deleted.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Drop-off deleted.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message ?? 'Delete failed')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message ?? 'Delete failed')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -214,10 +217,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getAdminDownloadUrl')
-          .call({
-        'storagePath': storagePath,
-        'filename': filename,
-      });
+          .call({'storagePath': storagePath, 'filename': filename});
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
@@ -238,9 +238,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Downloading $filename…')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Downloading $filename…')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       final details = e.details == null ? '' : '\nDetails: ${e.details}';
@@ -249,8 +249,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Download failed: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -410,17 +411,25 @@ class _RequestsList extends StatelessWidget {
                         : 0;
 
                     final createdAt = data['createdAt'];
-                    final createdText =
-                        createdAt is Timestamp ? _formatDate(createdAt.toDate()) : '';
+                    final createdText = createdAt is Timestamp
+                        ? _formatDate(createdAt.toDate())
+                        : '';
 
-                    final title = name.isNotEmpty ? name : (email.isNotEmpty ? email : d.id);
-                    final subtitle = name.isNotEmpty ? email : (data['message'] ?? '').toString();
+                    final title = name.isNotEmpty
+                        ? name
+                        : (email.isNotEmpty ? email : d.id);
+                    final subtitle = name.isNotEmpty
+                        ? email
+                        : (data['message'] ?? '').toString();
 
                     final statusLower = status.toLowerCase().trim();
                     final isOpen = statusLower == 'open';
 
                     return Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 6,
+                      ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -445,7 +454,9 @@ class _RequestsList extends StatelessWidget {
                               onTap: busy ? null : () => onSelect(d.id),
                               borderRadius: BorderRadius.circular(10),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 2,
+                                ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -453,20 +464,22 @@ class _RequestsList extends StatelessWidget {
                                       title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.brandBlue,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.brandBlue,
+                                          ),
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
                                       subtitle,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: const Color(0xFF667085),
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF667085),
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                     ),
                                     const SizedBox(height: 6),
 
@@ -474,20 +487,27 @@ class _RequestsList extends StatelessWidget {
                                     Wrap(
                                       spacing: 12,
                                       runSpacing: 4,
-                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
                                       children: [
                                         Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(Icons.attach_file,
-                                                size: 14, color: Color(0xFF667085)),
+                                            const Icon(
+                                              Icons.attach_file,
+                                              size: 14,
+                                              color: Color(0xFF667085),
+                                            ),
                                             const SizedBox(width: 4),
                                             Text(
                                               '$fileCount item${fileCount == 1 ? '' : 's'}',
-                                              style: theme.textTheme.labelSmall?.copyWith(
-                                                color: const Color(0xFF667085),
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                              style: theme.textTheme.labelSmall
+                                                  ?.copyWith(
+                                                    color: const Color(
+                                                      0xFF667085,
+                                                    ),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                             ),
                                           ],
                                         ),
@@ -495,15 +515,24 @@ class _RequestsList extends StatelessWidget {
                                           Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              const Icon(Icons.calendar_today_outlined,
-                                                  size: 13, color: Color(0xFF667085)),
+                                              const Icon(
+                                                Icons.calendar_today_outlined,
+                                                size: 13,
+                                                color: Color(0xFF667085),
+                                              ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Created $createdText',
-                                                style: theme.textTheme.labelSmall?.copyWith(
-                                                  color: const Color(0xFF667085),
-                                                  fontWeight: FontWeight.w500,
-                                                ),
+                                                style: theme
+                                                    .textTheme
+                                                    .labelSmall
+                                                    ?.copyWith(
+                                                      color: const Color(
+                                                        0xFF667085,
+                                                      ),
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
                                               ),
                                             ],
                                           ),
@@ -527,17 +556,25 @@ class _RequestsList extends StatelessWidget {
                               child: IconButton(
                                 visualDensity: VisualDensity.compact,
                                 padding: EdgeInsets.zero,
-                                constraints:
-                                    const BoxConstraints.tightFor(width: 36, height: 36),
+                                constraints: const BoxConstraints.tightFor(
+                                  width: 36,
+                                  height: 36,
+                                ),
                                 icon: const Icon(Icons.copy, size: 18),
                                 onPressed: busy
                                     ? null
                                     : () async {
-                                        await Clipboard.setData(ClipboardData(text: url));
+                                        await Clipboard.setData(
+                                          ClipboardData(text: url),
+                                        );
                                         if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Drop-off link copied.'),
+                                              content: Text(
+                                                'Drop-off link copied.',
+                                              ),
                                             ),
                                           );
                                         }
@@ -589,7 +626,9 @@ class _RequestsList extends StatelessWidget {
                                         size: 18,
                                       ),
                                       SizedBox(width: 10),
-                                      Text(isOpen ? 'Disable link' : 'Enable link'),
+                                      Text(
+                                        isOpen ? 'Disable link' : 'Enable link',
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -601,8 +640,10 @@ class _RequestsList extends StatelessWidget {
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
-                            constraints:
-                                const BoxConstraints.tightFor(width: 36, height: 36),
+                            constraints: const BoxConstraints.tightFor(
+                              width: 36,
+                              height: 36,
+                            ),
                             tooltip: 'View details',
                             onPressed: busy ? null : () => onSelect(d.id),
                             icon: Icon(
@@ -653,75 +694,111 @@ class _DropoffDetailScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Drop-Off Details')),
+      appBar: AppBar(
+        title: const Text('Drop‑Off Details'),
+        elevation: 1,
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
           child: ListView(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             children: [
               _WhiteCard(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                  padding: const EdgeInsets.all(16),
                   child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: db.collection('dropoff_requests').doc(requestId).snapshots(),
                     builder: (context, reqSnap) {
+                      if (reqSnap.hasError) {
+                        return Text(
+                          'Unable to load request details.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                      }
+                      if (!reqSnap.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 22),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
                       final reqData = reqSnap.data?.data() ?? {};
                       final dropoffUrl = (reqData['url'] ?? '').toString().trim();
-                      final status = (reqData['status'] ?? 'open')
-                          .toString()
-                          .toLowerCase()
-                          .trim();
+                      final status = (reqData['status'] ?? 'open').toString().toLowerCase().trim();
                       final canDelete = status == 'open';
+
+                      // Optional metadata if available (won’t break if missing)
+                      final clientName = (reqData['clientName'] ?? '').toString().trim();
+                      final clientEmail = (reqData['clientEmail'] ?? '').toString().trim();
+                      final createdAt = reqData['createdAt'];
+                      final createdText = createdAt is Timestamp ? _formatDate(createdAt.toDate()) : '';
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Header
+                          // ===== Header (compact) =====
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Drop-Off Request',
+                                  'Drop‑Off Request',
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w800,
                                     color: const Color(0xFF101828),
+                                    height: 1.05,
+                                    letterSpacing: -0.2,
                                   ),
                                 ),
                               ),
                               _StatusPill(status: status),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Request ID: $requestId',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          const Divider(height: 1),
-                          const SizedBox(height: 16),
 
-                          // Drop-off link field
-                          if (dropoffUrl.isNotEmpty) ...[
-                            Text(
-                              'Drop‑off Link',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF344054),
+                          const SizedBox(height: 10),
+                          Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                          const SizedBox(height: 12),
+
+                          // ===== Overview (dense, enterprise) =====
+                          if (clientName.isNotEmpty || clientEmail.isNotEmpty || createdText.isNotEmpty)
+                            _WhiteInset(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (clientName.isNotEmpty)
+                                    _KeyValueRow(
+                                      label: 'Client',
+                                      value: clientName,
+                                    ),
+                                  if (clientEmail.isNotEmpty)
+                                    _KeyValueRow(
+                                      label: 'Email',
+                                      value: clientEmail,
+                                    ),
+                                  if (createdText.isNotEmpty)
+                                    _KeyValueRow(
+                                      label: 'Created',
+                                      value: createdText,
+                                    ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9FAFB),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: const Color(0xFFE4E7EC)),
-                              ),
+
+                          if (clientName.isNotEmpty || clientEmail.isNotEmpty || createdText.isNotEmpty)
+                            const SizedBox(height: 12),
+
+                          // ===== Drop-off link (compact, actionable) =====
+                          if (dropoffUrl.isNotEmpty) ...[
+                            _SectionHeader(
+                              title: 'Access link',
+                              subtitle: 'Share this link to allow uploads without sign‑in.',
+                            ),
+                            const SizedBox(height: 8),
+                            _WhiteInset(
                               child: Row(
                                 children: [
                                   Expanded(
@@ -730,22 +807,22 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       style: theme.textTheme.bodySmall?.copyWith(
                                         fontWeight: FontWeight.w600,
                                         color: const Color(0xFF475467),
+                                        height: 1.2,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 10),
                                   Tooltip(
                                     message: 'Copy link',
                                     child: IconButton(
                                       visualDensity: VisualDensity.compact,
+                                      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
                                       icon: const Icon(Icons.copy, size: 18),
                                       onPressed: () async {
-                                        await Clipboard.setData(
-                                          ClipboardData(text: dropoffUrl),
-                                        );
+                                        await Clipboard.setData(ClipboardData(text: dropoffUrl));
                                         if (!context.mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Drop-off link copied.')),
+                                          const SnackBar(content: Text('Link copied to clipboard.')),
                                         );
                                       },
                                     ),
@@ -753,16 +830,13 @@ class _DropoffDetailScreen extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 14),
                           ],
 
-                          // Uploaded files
-                          Text(
-                            'Uploaded Files',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF101828),
-                            ),
+                          // ===== Uploaded files =====
+                          _SectionHeader(
+                            title: 'Uploads',
+                            subtitle: 'Files submitted for this request.',
                           ),
                           const SizedBox(height: 8),
 
@@ -775,99 +849,122 @@ class _DropoffDetailScreen extends StatelessWidget {
                                 .snapshots(),
                             builder: (context, snap) {
                               if (snap.hasError) {
-                                return Text(
-                                  'Failed to load files: ${snap.error}',
-                                  style: const TextStyle(color: Colors.red),
+                                return _InlineMessage(
+                                  text: 'Unable to load uploads.',
+                                  tone: _InlineTone.error,
                                 );
                               }
                               if (!snap.hasData) {
                                 return const Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: CircularProgressIndicator(),
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(child: CircularProgressIndicator()),
                                 );
                               }
 
                               final docs = snap.data!.docs;
                               if (docs.isEmpty) {
-                                return const Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: Text('No uploads yet for this request.'),
+                                return _InlineMessage(
+                                  text: 'No uploads have been received.',
+                                  tone: _InlineTone.neutral,
                                 );
                               }
 
-                              return Column(
-                                children: [
-                                  for (int i = 0; i < docs.length; i++) ...[
-                                    _FileRow(
-                                      data: docs[i].data(),
-                                      onDownload: (path, name) => onDownload(
-                                        storagePath: path,
-                                        filename: name,
+                              return _WhiteInset(
+                                padding: EdgeInsets.zero,
+                                child: Column(
+                                  children: [
+                                    for (int i = 0; i < docs.length; i++) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                                        child: _FileRow(
+                                          data: docs[i].data(),
+                                          onDownload: (path, name) => onDownload(
+                                            storagePath: path,
+                                            filename: name,
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                    if (i != docs.length - 1)
-                                      Divider(color: Colors.black.withOpacity(0.06)),
+                                      if (i != docs.length - 1)
+                                        Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                                    ],
                                   ],
-                                ],
+                                ),
                               );
                             },
                           ),
 
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
 
-                          // Danger zone
+                          // ===== Delete action (compact width, enterprise copy) =====
                           if (canDelete) ...[
-                            const Divider(height: 1),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Danger Zone',
-                              style: theme.textTheme.labelLarge?.copyWith(
-                                color: Colors.red.shade700,
-                                fontWeight: FontWeight.w700,
-                              ),
+                            Divider(color: Colors.black.withOpacity(0.06), height: 1),
+                            const SizedBox(height: 12),
+
+                            _SectionHeader(
+                              title: 'Request administration',
+                              subtitle: 'Permanently remove this request and associated uploads.',
                             ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              height: 44,
-                              child: OutlinedButton.icon(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                label: const Text(
-                                  'Delete Drop‑Off',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.red,
-                                  side: const BorderSide(color: Colors.red),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                            const SizedBox(height: 10),
+
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: IntrinsicWidth(
+                                child: SizedBox(
+                                  height: 44,
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    label: const Text(
+                                      'Delete request',
+                                      style: TextStyle(fontWeight: FontWeight.w700),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      side: const BorderSide(color: Colors.red),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                                    ),
+                                    onPressed: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Delete request'),
+                                          content: const Text(
+                                            'Deleting this request will permanently remove all associated uploads. '
+                                            'This action is irreversible.',
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(ctx, false),
+                                              child: const Text('Cancel'),
+                                            ),
+                                            FilledButton(
+                                              onPressed: () => Navigator.pop(ctx, true),
+                                              child: const Text('Delete'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+
+                                      if (confirm != true) return;
+                                      await onDelete(requestId);
+                                      if (!context.mounted) return;
+                                      Navigator.pop(context);
+                                    },
                                   ),
                                 ),
-                                onPressed: () async {
-                                  final confirm = await showDialog<bool>(
-                                    context: context,
-                                    builder: (ctx) => AlertDialog(
-                                      title: const Text('Delete Drop‑Off Request'),
-                                      content: const Text(
-                                        'This will permanently delete the drop-off request and all uploaded files. This action cannot be undone.',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(ctx, false),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        FilledButton(
-                                          onPressed: () => Navigator.pop(ctx, true),
-                                          child: const Text('Delete'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
+                              ),
+                            ),
 
-                                  if (confirm != true) return;
-                                  await onDelete(requestId);
-                                  if (!context.mounted) return;
-                                  Navigator.pop(context);
-                                },
+                            const SizedBox(height: 10),
+
+                            Text(
+                              'Data retention: Deleted requests and their uploads are permanently removed and cannot be recovered.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
                               ),
                             ),
                           ],
@@ -881,6 +978,138 @@ class _DropoffDetailScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${dt.month.toString().padLeft(2, '0')}/'
+        '${dt.day.toString().padLeft(2, '0')}/'
+        '${dt.year}';
+  }
+}
+
+/// ======= Enterprise helpers (compact, reusable) =======
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  const _SectionHeader({required this.title, this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF101828),
+            height: 1.05,
+          ),
+        ),
+        if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF667085),
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _KeyValueRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _KeyValueRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 74,
+            child: Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF667085),
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF344054),
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _InlineTone { neutral, error }
+
+class _InlineMessage extends StatelessWidget {
+  final String text;
+  final _InlineTone tone;
+  const _InlineMessage({required this.text, required this.tone});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = tone == _InlineTone.error ? Colors.red.shade700 : const Color(0xFF667085);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w600,
+          height: 1.25,
+        ),
+      ),
+    );
+  }
+}
+
+class _WhiteInset extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  const _WhiteInset({
+    required this.child,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+      ),
+      child: child,
     );
   }
 }
@@ -903,8 +1132,9 @@ class _FileRowState extends State<_FileRow> {
     final theme = Theme.of(context);
     final name = (widget.data['originalName'] ?? 'Untitled').toString();
     final path = (widget.data['storagePath'] ?? '').toString();
-    final size =
-        (widget.data['sizeBytes'] is num) ? (widget.data['sizeBytes'] as num).toInt() : 0;
+    final size = (widget.data['sizeBytes'] is num)
+        ? (widget.data['sizeBytes'] as num).toInt()
+        : 0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -971,7 +1201,7 @@ class _HelpPanel extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
