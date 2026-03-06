@@ -7,7 +7,6 @@ const {
 } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
-const crypto = require("crypto");
 
 admin.initializeApp();
 
@@ -31,24 +30,11 @@ const SMTP_FROM = defineString("SMTP_FROM");
 // ============================
 // Helpers
 // ============================
-function safeFilename(name) {
-  return (name || "")
-    .toString()
-    .replace(/[/\\?%*:|"<>]/g, "_")
-    .replace(/[\r\n]+/g, " ")
-    .replace(/"/g, "'");
-}
-
 function normalizeEmail(email) {
   return (email || "").toLowerCase().trim();
 }
-
 function normalizeName(s) {
   return (s || "").toString().trim();
-}
-
-function sha256(s) {
-  return crypto.createHash("sha256").update(String(s)).digest("hex");
 }
 
 async function assertAdmin(callerUid) {
@@ -59,10 +45,8 @@ async function assertAdmin(callerUid) {
       "Admin profile missing in users/{uid}."
     );
   }
-  const role = (snap.data()?.role || "").toString().toLowerCase().trim();
-  if (role !== "admin") {
-    throw new HttpsError("permission-denied", "Admins only.");
-  }
+  const role = (snap.data()?.role || "").toLowerCase().trim();
+  if (role !== "admin") throw new HttpsError("permission-denied", "Admins only.");
 }
 
 function isValidHttpUrl(url) {
@@ -74,6 +58,13 @@ function isValidHttpUrl(url) {
 }
 
 function buildTransport() {
+  console.log("SMTP CONFIG:", {
+    host: SMTP_HOST.value(),
+    port: SMTP_PORT.value(),
+    secure: SMTP_SECURE.value(),
+    from: SMTP_FROM.value(),
+  });
+
   return nodemailer.createTransport({
     host: SMTP_HOST.value(),
     port: SMTP_PORT.value(),
@@ -92,6 +83,7 @@ async function sendAccountEmail({ to, subject, html }) {
     subject,
     html,
   });
+  console.log("✅ Email sent:", info.messageId);
   return info.messageId;
 }
 
@@ -102,20 +94,23 @@ async function getUserDocByUid(uid) {
 }
 
 // ============================
-// inviteUser (admin-only) ✅ RESTORED + Option A capability default
+// inviteUser (admin-only)
 // ============================
 exports.inviteUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const email = normalizeEmail(data?.email);
-      const requestedRole = (data?.role || "associate").toString().toLowerCase().trim();
-      const firstName = normalizeName(data?.firstName);
-      const lastName = normalizeName(data?.lastName);
+      const email = normalizeEmail(data.email);
+      const requestedRole = (data.role || "associate").toLowerCase().trim();
+      const firstName = normalizeName(data.firstName);
+      const lastName = normalizeName(data.lastName);
       const displayName = `${firstName} ${lastName}`.trim();
 
       if (!email || !email.includes("@")) {
@@ -124,10 +119,7 @@ exports.inviteUser = onCall(
       if (!firstName) throw new HttpsError("invalid-argument", "First name is required.");
       if (!lastName) throw new HttpsError("invalid-argument", "Last name is required.");
 
-      // ✅ Option A: allow dropoffs by default for non-admin staff
-      const dropoffsDefault = requestedRole !== "admin";
-
-      // ✅ Block self-invite
+      // ✅ BLOCK SELF-INVITE (prevents overwriting your own role/status)
       let callerEmail = normalizeEmail(auth.token?.email);
       if (!callerEmail) {
         const caller = await admin.auth().getUser(auth.uid);
@@ -151,8 +143,9 @@ exports.inviteUser = onCall(
         });
       }
 
-      // Validate APP_URL
+      // ✅ Validate APP_URL
       const rawAppUrl = APP_URL.value();
+      console.log("RAW APP_URL:", JSON.stringify(rawAppUrl));
       if (!isValidHttpUrl(rawAppUrl)) {
         throw new HttpsError("failed-precondition", `APP_URL is invalid: "${rawAppUrl}"`);
       }
@@ -165,24 +158,26 @@ exports.inviteUser = onCall(
       const resetLink = await admin
         .auth()
         .generatePasswordResetLink(email, actionCodeSettings);
-
       const verifyLink = await admin
         .auth()
         .generateEmailVerificationLink(email, actionCodeSettings);
 
-      // Fetch existing Firestore profile (if any)
+      // ✅ Fetch existing Firestore profile (if any)
       const userDocRef = admin.firestore().collection("users").doc(userRecord.uid);
       const existingSnap = await userDocRef.get();
       const existingData = existingSnap.exists ? (existingSnap.data() || {}) : {};
       const existingRole = (existingData.role || "").toString().toLowerCase().trim();
       const existingStatus = (existingData.status || "").toString().toLowerCase().trim();
 
-      // Prevent downgrading an existing admin via invite
+      // ✅ Prevent downgrading an existing admin via invite
       if (existingRole === "admin" && requestedRole !== "admin") {
-        throw new HttpsError("failed-precondition", "Admins cannot be downgraded via invites.");
+        throw new HttpsError(
+          "failed-precondition",
+          "Admins cannot be downgraded via invites."
+        );
       }
 
-      // Do not overwrite role/status for already-active users
+      // ✅ Do not overwrite role/status for already-active users
       const shouldWriteRoleStatus =
         !existingSnap.exists ||
         existingStatus === "" ||
@@ -199,11 +194,6 @@ exports.inviteUser = onCall(
         invitedAt: admin.firestore.FieldValue.serverTimestamp(),
         invitedBy: auth.uid,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-
-        // ✅ NEW: capability default (Option A)
-        capabilities: {
-          dropoffs: dropoffsDefault,
-        },
       };
 
       if (shouldWriteRoleStatus) {
@@ -231,10 +221,14 @@ exports.inviteUser = onCall(
       );
 
       // Send email
-      await sendAccountEmail({
-        to: email,
-        subject: `You're invited to ${APP_NAME.value()} — set your password`,
-        html: `
+      console.log("About to send invite email to:", email);
+      const transporter = buildTransport();
+      try {
+        const info = await transporter.sendMail({
+          from: SMTP_FROM.value(),
+          to: email,
+          subject: `You're invited to ${APP_NAME.value()} — set your password`,
+          html: `
 <div style="font-family:Arial,sans-serif;line-height:1.5">
   <p>Hi ${firstName},</p>
   <p>You’ve been invited to <b>${APP_NAME.value()}</b>.</p>
@@ -251,8 +245,17 @@ exports.inviteUser = onCall(
   <p><a href="${verifyLink}">Verify Email</a></p>
 </div>
 `,
-      });
+        });
 
+        console.log("✅ Email sent successfully:", info.messageId);
+      } catch (err) {
+        console.error("❌ Email send FAILED:", err);
+        throw new HttpsError("internal", "SMTP send failed.", {
+          message: err?.message ?? String(err),
+        });
+      }
+
+      console.log("inviteUser completed for:", email);
       return { ok: true, email, role: requestedRole, sent: true, existedInAuth };
     } catch (err) {
       console.error("inviteUser failed:", err);
@@ -268,22 +271,27 @@ exports.inviteUser = onCall(
 // deleteUser (admin-only)
 // ============================
 exports.deleteUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const targetUid = (data?.uid || "").toString().trim();
-      const email = normalizeEmail(data?.email);
+      const targetUid = (data.uid || "").toString().trim();
+      const email = normalizeEmail(data.email);
 
       if (!targetUid) throw new HttpsError("invalid-argument", "uid is required.");
 
+      // Never allow deleting yourself
       if (targetUid === auth.uid) {
         throw new HttpsError("failed-precondition", "You cannot delete yourself.");
       }
 
+      // ✅ Prevent deleting the last remaining admin
       const targetSnap = await admin.firestore().collection("users").doc(targetUid).get();
       const targetRole = (targetSnap.data()?.role || "").toString().toLowerCase().trim();
 
@@ -298,8 +306,12 @@ exports.deleteUser = onCall(
         }
       }
 
-      try { await admin.auth().deleteUser(targetUid); } catch (_) { }
+      // Delete Auth user (ignore if missing)
+      try {
+        await admin.auth().deleteUser(targetUid);
+      } catch (_) { }
 
+      // Delete Firestore docs (best-effort)
       const batch = admin.firestore().batch();
       batch.delete(admin.firestore().collection("users").doc(targetUid));
       if (email) batch.delete(admin.firestore().collection("invites").doc(email));
@@ -320,29 +332,41 @@ exports.deleteUser = onCall(
 // updateUser (admin-only)
 // ============================
 exports.updateUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const uid = (data?.uid || "").toString().trim();
+      const uid = (data.uid || "").toString().trim();
       if (!uid) throw new HttpsError("invalid-argument", "uid is required.");
 
+      // optional guard: don’t edit yourself through this endpoint
       if (uid === auth.uid) {
         throw new HttpsError("failed-precondition", "You cannot edit yourself here.");
       }
 
-      const email = normalizeEmail(data?.email);
-      const role = (data?.role || "").toString().toLowerCase().trim();
-      let status = (data?.status || "").toString().toLowerCase().trim();
-      const reason = (data?.reason || "").toString().trim();
-      const communicationsRaw = data?.communications ?? null;
+      const email = normalizeEmail(data.email);
+      const role = (data.role || "").toString().toLowerCase().trim();
+
+      // ✅ FIX: status must be mutable because you normalize legacy values
+      let status = (data.status || "").toString().toLowerCase().trim();
+
+      const reason = (data.reason || "").toString().trim();
+
+      // ✅ NEW: communications payload (optional)
+      const communicationsRaw = data.communications ?? null;
 
       const allowedRoles = new Set(["associate", "admin"]);
+
+      // ✅ normalize legacy values
       if (status === "inactive") status = "disabled";
       if (status === "pending") status = "invited";
+
       const allowedStatus = new Set(["active", "invited", "disabled"]);
 
       if (email && !email.includes("@")) {
@@ -355,12 +379,14 @@ exports.updateUser = onCall(
         throw new HttpsError("invalid-argument", "Invalid status.");
       }
 
+      // If changing email, update Auth first
       if (email) {
         await admin.auth().updateUser(uid, { email });
       }
 
       const { ref, data: existing } = await getUserDocByUid(uid);
 
+      // Prevent downgrading the last admin
       if ((existing.role || "").toString().toLowerCase() === "admin" && role === "associate") {
         const adminsSnap = await admin.firestore().collection("users").where("role", "==", "admin").get();
         if (adminsSnap.size <= 1) {
@@ -377,8 +403,10 @@ exports.updateUser = onCall(
       if (role) patch.role = role;
       if (status) patch.status = status;
 
+      // ✅ NEW: merge communications if provided
       if (communicationsRaw && typeof communicationsRaw === "object") {
         const clean = {};
+
         const wildixExtension = (communicationsRaw.wildixExtension ?? "").toString().trim();
         const clearflySmsNumber = (communicationsRaw.clearflySmsNumber ?? "").toString().trim();
         const clearflyEfaxNumber = (communicationsRaw.clearflyEfaxNumber ?? "").toString().trim();
@@ -387,6 +415,7 @@ exports.updateUser = onCall(
         if (clearflySmsNumber) clean.clearflySmsNumber = clearflySmsNumber;
         if (clearflyEfaxNumber) clean.clearflyEfaxNumber = clearflyEfaxNumber;
 
+        // Only write communications if at least one field is provided
         if (Object.keys(clean).length > 0) {
           patch.communications = clean;
         }
@@ -394,13 +423,14 @@ exports.updateUser = onCall(
 
       await ref.set(patch, { merge: true });
 
+      // Audit log (include communications keys if they were provided)
       const commsChange =
         patch.communications
           ? {
-            wildixExtension: patch.communications.wildixExtension || null,
-            clearflySmsNumber: patch.communications.clearflySmsNumber || null,
-            clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
-          }
+              wildixExtension: patch.communications.wildixExtension || null,
+              clearflySmsNumber: patch.communications.clearflySmsNumber || null,
+              clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
+            }
           : null;
 
       await admin.firestore().collection("auditLogs").add({
@@ -438,20 +468,24 @@ exports.updateUser = onCall(
 // setUserDisabled (admin-only)
 // ============================
 exports.setUserDisabled = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const uid = (data?.uid || "").toString().trim();
-      const disabled = !!data?.disabled;
-      const reason = (data?.reason || "").toString().trim();
+      const uid = (data.uid || "").toString().trim();
+      const disabled = !!data.disabled;
+      const reason = (data.reason || "").toString().trim();
 
       if (!uid) throw new HttpsError("invalid-argument", "uid is required.");
       if (uid === auth.uid) throw new HttpsError("failed-precondition", "You cannot disable yourself.");
 
+      // If disabling an admin, ensure at least one admin remains
       if (disabled) {
         const targetSnap = await admin.firestore().collection("users").doc(uid).get();
         const targetRole = (targetSnap.data()?.role || "").toString().toLowerCase().trim();
@@ -465,9 +499,11 @@ exports.setUserDisabled = onCall(
 
       await admin.auth().updateUser(uid, { disabled });
 
+      // Pull previous status so reactivating an invited user keeps them as invited
       const prevSnap = await admin.firestore().collection("users").doc(uid).get();
       const prevStatus = (prevSnap.data()?.status || "").toString().toLowerCase().trim();
 
+      // ✅ Only three statuses going forward: invited | active | disabled
       const nextStatus = disabled
         ? "disabled"
         : (prevStatus === "invited" ? "invited" : "active");
@@ -505,15 +541,18 @@ exports.setUserDisabled = onCall(
 // sendPasswordReset (admin-only)
 // ============================
 exports.sendPasswordReset = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const email = normalizeEmail(data?.email);
-      const uid = (data?.uid || "").toString().trim();
+      const email = normalizeEmail(data.email);
+      const uid = (data.uid || "").toString().trim();
 
       if (!email || !email.includes("@")) {
         throw new HttpsError("invalid-argument", "Valid email is required.");
@@ -522,6 +561,7 @@ exports.sendPasswordReset = onCall(
         throw new HttpsError("failed-precondition", `APP_URL is invalid: "${APP_URL.value()}"`);
       }
 
+      // Optional: verify uid matches email if provided
       if (uid) {
         const u = await admin.auth().getUser(uid);
         const authEmail = normalizeEmail(u.email);
@@ -572,14 +612,17 @@ exports.sendPasswordReset = onCall(
 // resendInvite (admin-only)
 // ============================
 exports.resendInvite = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  {
+    region: "us-central1",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
   async (request) => {
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "You must be signed in.");
       await assertAdmin(auth.uid);
 
-      const uid = (data?.uid || "").toString().trim();
+      const uid = (data.uid || "").toString().trim();
       if (!uid) throw new HttpsError("invalid-argument", "uid is required.");
 
       const userRecord = await admin.auth().getUser(uid);
@@ -611,6 +654,7 @@ exports.resendInvite = onCall(
 `,
       });
 
+      // Mark as invited again & refresh timestamps
       await admin.firestore().collection("users").doc(uid).set(
         {
           status: "invited",
@@ -621,6 +665,7 @@ exports.resendInvite = onCall(
         { merge: true }
       );
 
+      // Update invites ledger too (best-effort)
       await admin.firestore().collection("invites").doc(email).set(
         {
           email,
@@ -649,286 +694,5 @@ exports.resendInvite = onCall(
         message: err?.message ?? String(err),
       });
     }
-  }
-);
-
-// ============================
-// DROP-OFF MODULE (current code)
-// ============================
-
-// createDropoffRequest (admin-only)
-exports.createDropoffRequest = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    const { auth, data } = request;
-    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
-
-    const firstName = normalizeName(data.firstName);
-    const lastName = normalizeName(data.lastName);
-    const message = normalizeName(data.message);
-
-    if (!firstName || !lastName) {
-      throw new HttpsError("invalid-argument", "First and last name required.");
-    }
-
-    const token = crypto.randomBytes(32).toString("hex");
-    const tokenHash = sha256(token);
-
-    const ref = admin.firestore().collection("dropoff_requests").doc();
-
-    const baseUrl = APP_URL.value();
-    if (!isValidHttpUrl(baseUrl)) {
-      throw new HttpsError("failed-precondition", "APP_URL is invalid.");
-    }
-
-    const cleanBase = baseUrl.replace(/\/$/, "");
-    const url = `${cleanBase}/#/dropoff?rid=${ref.id}&t=${token}`;
-
-    await ref.set({
-      requestId: ref.id,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdByUid: auth.uid,
-      createdByEmail: normalizeEmail(auth.token?.email),
-      clientFirstName: firstName,
-      clientLastName: lastName,
-      clientName: `${firstName} ${lastName}`,
-      message: message || "",
-      status: "open",
-      tokenHash,
-      url,
-      lastViewedAt: null,
-      lastUploadedAt: null,
-      fileCount: 0,
-    });
-
-    return { ok: true, requestId: ref.id, url };
-  }
-);
-
-// validateDropoffLink (public)
-exports.validateDropoffLink = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    const { rid, token } = request.data || {};
-    if (!rid || !token) {
-      throw new HttpsError("invalid-argument", "rid and token required.");
-    }
-
-    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      throw new HttpsError("not-found", "Drop-off request not found.");
-    }
-
-    const doc = snap.data();
-
-    if ((doc.status || "open") !== "open") {
-      throw new HttpsError(
-        "failed-precondition",
-        "This drop-off link is no longer active."
-      );
-    }
-
-    if (sha256(token) !== doc.tokenHash) {
-      throw new HttpsError("permission-denied", "Invalid token.");
-    }
-
-    await ref.set(
-      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-
-    return {
-      ok: true,
-      requestId: rid,
-      clientName: doc.clientName || "",
-      message: doc.message || "",
-      status: doc.status || "open",
-    };
-  }
-);
-
-// getAdminDownloadUrl (admin-only)
-exports.getAdminDownloadUrl = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    try {
-      const { auth, data } = request;
-
-      if (!auth) {
-        throw new HttpsError("unauthenticated", "Sign-in required.");
-      }
-
-      await assertAdmin(auth.uid);
-
-      const storagePath = (data?.storagePath || "").toString().trim();
-      const rawFilename = (data?.filename || "").toString().trim();
-      const contentType = (data?.contentType || "").toString().trim();
-
-      if (!storagePath || !rawFilename) {
-        throw new HttpsError(
-          "invalid-argument",
-          "storagePath and filename required."
-        );
-      }
-
-      const safeName = safeFilename(rawFilename);
-
-      const bucket = admin.storage().bucket();
-      const file = bucket.file(storagePath);
-
-      const options = {
-        version: "v4",
-        action: "read",
-        expires: Date.now() + 5 * 60 * 1000,
-        responseDisposition:
-          `attachment; filename="${safeName}"; ` +
-          `filename*=UTF-8''${encodeURIComponent(safeName)}`,
-      };
-
-      if (contentType) {
-        options.responseType = contentType;
-      }
-
-      const [url] = await file.getSignedUrl(options);
-      return { ok: true, url };
-    } catch (err) {
-      console.error("getAdminDownloadUrl failed:", err);
-      if (err instanceof HttpsError) throw err;
-      throw new HttpsError("internal", "Could not generate download URL.", {
-        message: err?.message ?? String(err),
-      });
-    }
-  }
-);
-
-// setDropoffStatus (admin-only)
-exports.setDropoffStatus = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    const { auth, data } = request;
-
-    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
-
-    const requestId = (data?.requestId || "").toString().trim();
-    const status = (data?.status || "").toString().toLowerCase().trim();
-
-    if (!requestId) {
-      throw new HttpsError("invalid-argument", "requestId required.");
-    }
-
-    if (!["open", "closed"].includes(status)) {
-      throw new HttpsError(
-        "invalid-argument",
-        "status must be 'open' or 'closed'"
-      );
-    }
-
-    const ref = admin.firestore().collection("dropoff_requests").doc(requestId);
-    const snap = await ref.get();
-
-    if (!snap.exists) {
-      throw new HttpsError("not-found", "Drop-off request not found.");
-    }
-
-    await ref.set(
-      {
-        status,
-        statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        statusUpdatedBy: auth.uid,
-      },
-      { merge: true }
-    );
-
-    return { ok: true, requestId, status };
-  }
-);
-
-// deleteDropoffRequest (admin-only)
-exports.deleteDropoffRequest = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    const { auth, data } = request;
-    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
-
-    const requestId = (data.requestId || "").trim();
-    if (!requestId) {
-      throw new HttpsError("invalid-argument", "requestId required.");
-    }
-
-    const db = admin.firestore();
-    const bucket = admin.storage().bucket();
-    const ref = db.collection("dropoff_requests").doc(requestId);
-
-    const filesSnap = await ref.collection("files").get();
-    for (const doc of filesSnap.docs) {
-      const path = doc.data().storagePath;
-      if (path) {
-        await bucket.file(path).delete().catch(() => { });
-      }
-    }
-
-    const batch = db.batch();
-    filesSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(ref);
-    await batch.commit();
-
-    return { ok: true };
-  }
-);
-
-// ============================
-// markUserActive (self-callable, post-login)
-// ============================
-exports.markUserActive = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    console.log("markUserActive called");
-
-    const { auth } = request;
-    if (!auth) {
-      console.log("NO AUTH CONTEXT");
-      throw new HttpsError("unauthenticated", "Sign-in required.");
-    }
-
-    console.log("AUTH UID:", auth.uid);
-
-    const ref = admin.firestore().collection("users").doc(auth.uid);
-    const snap = await ref.get();
-
-    if (!snap.exists) {
-      console.log("USER DOC DOES NOT EXIST");
-      return { ok: true };
-    }
-
-    const status = (snap.data().status || "").toLowerCase();
-    console.log("CURRENT STATUS:", status);
-
-    if (status === "invited") {
-      console.log("UPDATING STATUS TO ACTIVE");
-      await ref.set(
-        {
-          status: "active",
-          activatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          lastSignInAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    } else {
-      console.log("STATUS NOT INVITED — JUST UPDATING LAST SIGN-IN");
-      await ref.set(
-        {
-          lastSignInAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
-
-    return { ok: true };
   }
 );

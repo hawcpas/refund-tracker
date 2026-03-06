@@ -211,30 +211,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final name = nameController.text.trim();
-    final email = emailController.text.trim().toLowerCase();
+    // Only allow phone edits
     final phone = phoneController.text.trim();
-
-    if (name.isEmpty) {
-      _setBanner(error: 'Name is required.', success: null);
-      return;
-    }
-    if (!email.contains('@')) {
-      _setBanner(error: 'Enter a valid email address.', success: null);
-      return;
-    }
-
-    final parts = name
-        .split(RegExp(r'\s+'))
-        .where((p) => p.isNotEmpty)
-        .toList();
-    if (parts.length < 2) {
-      _setBanner(error: 'Please enter first and last name.', success: null);
-      return;
-    }
-    final firstName = parts.first;
-    final lastName = parts.sublist(1).join(' ');
-    final displayName = '$firstName $lastName'.trim();
 
     setState(() {
       _savingPersonal = true;
@@ -243,75 +221,28 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     });
 
     try {
+      // ✅ Only update phone (and timestamps)
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'firstName': firstName,
-        'lastName': lastName,
-        'displayName': displayName,
         'phone': phone,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await user.updateDisplayName(displayName);
-
-      final currentAuthEmail = (user.email ?? '').trim().toLowerCase();
-      if (email != currentAuthEmail) {
-        try {
-          await user.verifyBeforeUpdateEmail(email);
-
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .set({
-                'pendingEmail': email,
-                'pendingEmailRequestedAt': FieldValue.serverTimestamp(),
-                'updatedAt': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
-
-          if (!mounted) return;
-          setState(() {
-            _savingPersonal = false;
-            _success =
-                'We sent a verification link to $email. Your email will update after you verify it.';
-            _profileChanged = true;
-          });
-          return;
-        } on FirebaseAuthException catch (e) {
-          if (!mounted) return;
-          setState(() => _savingPersonal = false);
-
-          if (e.code == 'requires-recent-login') {
-            _setBanner(
-              error:
-                  'For security reasons, please log in again to change your email.',
-              success: null,
-            );
-            await _auth.logout();
-            if (!mounted) return;
-            Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
-            return;
-          }
-
-          _setBanner(
-            error: 'Email update failed (${e.code}). ${e.message ?? ''}',
-            success: null,
-          );
-          return;
-        }
-      }
-
       if (!mounted) return;
       setState(() {
         _savingPersonal = false;
-        _success = 'Personal information updated.';
+        _success = 'Phone number updated.';
         _profileChanged = true;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _savingPersonal = false);
-      _setBanner(
-        error: 'Could not save changes. Please try again.',
-        success: null,
-      );
+
+      // Optional: surface Firestore permission errors more clearly
+      final msg = e.toString().contains('permission-denied')
+          ? 'You do not have permission to update your profile. Please contact an admin.'
+          : 'Could not save changes. Please try again.';
+
+      _setBanner(error: msg, success: null);
     }
   }
 
@@ -423,33 +354,30 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
   // ✅ Segmented control UI (NO animation)
   Widget _tabsBar(ThemeData theme) {
-  return Align(
-    alignment: Alignment.centerLeft,
-    child: TabBar(
-      controller: _tabController,
-      isScrollable: true,
-      labelColor: AppColors.brandBlue,
-      unselectedLabelColor: const Color(0xFF475467),
-      labelStyle: const TextStyle(fontWeight: FontWeight.w900),
-      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
-      indicatorColor: AppColors.brandBlue,
-      indicatorWeight: 3,
-      indicatorSize: TabBarIndicatorSize.label,
-      overlayColor: WidgetStateProperty.all(Colors.transparent),
-      dividerColor: Colors.black.withOpacity(0.10),
-      tabs: const [
-        Tab(
-          icon: Icon(Icons.person_outline, size: 18),
-          text: 'Personal Information',
-        ),
-        Tab(
-          icon: Icon(Icons.lock_outline, size: 18),
-          text: 'Password',
-        ),
-      ],
-    ),
-  );
-}
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TabBar(
+        controller: _tabController,
+        isScrollable: true,
+        labelColor: AppColors.brandBlue,
+        unselectedLabelColor: const Color(0xFF475467),
+        labelStyle: const TextStyle(fontWeight: FontWeight.w900),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
+        indicatorColor: AppColors.brandBlue,
+        indicatorWeight: 3,
+        indicatorSize: TabBarIndicatorSize.label,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+        dividerColor: Colors.black.withOpacity(0.10),
+        tabs: const [
+          Tab(
+            icon: Icon(Icons.person_outline, size: 18),
+            text: 'Personal Information',
+          ),
+          Tab(icon: Icon(Icons.lock_outline, size: 18), text: 'Password'),
+        ],
+      ),
+    );
+  }
 
   Widget _fieldColumn({required List<Widget> children}) {
     return Align(
@@ -478,17 +406,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         const SizedBox(height: 12),
         TextField(
           controller: nameController,
+          enabled: false,
           decoration: const InputDecoration(
-            labelText: 'Name',
+            labelText: 'Name (managed by admin)',
             prefixIcon: Icon(Icons.badge_outlined),
           ),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: emailController,
+          enabled: false,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
-            labelText: 'Email',
+            labelText: 'Email (managed by admin)',
             prefixIcon: Icon(Icons.mail_outline),
           ),
         ),
