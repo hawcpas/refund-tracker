@@ -298,7 +298,7 @@ exports.deleteUser = onCall(
         }
       }
 
-      try { await admin.auth().deleteUser(targetUid); } catch (_) {}
+      try { await admin.auth().deleteUser(targetUid); } catch (_) { }
 
       const batch = admin.firestore().batch();
       batch.delete(admin.firestore().collection("users").doc(targetUid));
@@ -397,10 +397,10 @@ exports.updateUser = onCall(
       const commsChange =
         patch.communications
           ? {
-              wildixExtension: patch.communications.wildixExtension || null,
-              clearflySmsNumber: patch.communications.clearflySmsNumber || null,
-              clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
-            }
+            wildixExtension: patch.communications.wildixExtension || null,
+            clearflySmsNumber: patch.communications.clearflySmsNumber || null,
+            clearflyEfaxNumber: patch.communications.clearflyEfaxNumber || null,
+          }
           : null;
 
       await admin.firestore().collection("auditLogs").add({
@@ -867,7 +867,7 @@ exports.deleteDropoffRequest = onCall(
     for (const doc of filesSnap.docs) {
       const path = doc.data().storagePath;
       if (path) {
-        await bucket.file(path).delete().catch(() => {});
+        await bucket.file(path).delete().catch(() => { });
       }
     }
 
@@ -875,6 +875,59 @@ exports.deleteDropoffRequest = onCall(
     filesSnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(ref);
     await batch.commit();
+
+    return { ok: true };
+  }
+);
+
+// ============================
+// markUserActive (self-callable, post-login)
+// ============================
+exports.markUserActive = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    console.log("markUserActive called");
+
+    const { auth } = request;
+    if (!auth) {
+      console.log("NO AUTH CONTEXT");
+      throw new HttpsError("unauthenticated", "Sign-in required.");
+    }
+
+    console.log("AUTH UID:", auth.uid);
+
+    const ref = admin.firestore().collection("users").doc(auth.uid);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      console.log("USER DOC DOES NOT EXIST");
+      return { ok: true };
+    }
+
+    const status = (snap.data().status || "").toLowerCase();
+    console.log("CURRENT STATUS:", status);
+
+    if (status === "invited") {
+      console.log("UPDATING STATUS TO ACTIVE");
+      await ref.set(
+        {
+          status: "active",
+          activatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastSignInAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } else {
+      console.log("STATUS NOT INVITED — JUST UPDATING LAST SIGN-IN");
+      await ref.set(
+        {
+          lastSignInAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
 
     return { ok: true };
   }

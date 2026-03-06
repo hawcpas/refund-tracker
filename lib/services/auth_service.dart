@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart'; // ✅ needed for VoidCallback
 import '../models/user_profile.dart';
 import 'dart:async';
@@ -97,6 +98,33 @@ class AuthService {
   // =========================
   // Helpers
   // =========================
+
+  Future<void> markUserActiveIfInvited() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    final snap = await ref.get();
+    if (!snap.exists) return;
+
+    final status = (snap.data()?['status'] ?? '').toString().toLowerCase();
+
+    if (status == 'invited') {
+      await ref.set({
+        'status': 'active',
+        'activatedAt': FieldValue.serverTimestamp(),
+        'lastSignInAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      // Optional: always update last sign-in
+      await ref.set({
+        'lastSignInAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
 
   /// ✅ Record last successful sign-in time for admin visibility.
   /// This is non-blocking and safe to call on every login.
@@ -283,10 +311,14 @@ class AuthService {
 
       // Firestore updates should NEVER block login
       try {
-        await _upsertUserProfile(refreshedUser);
-        await _recordLastSignIn(refreshedUser);
-        await _markActiveIfInvited(refreshedUser);
+        await FirebaseFunctions.instanceFor(
+          region: 'us-central1',
+        ).httpsCallable('markUserActive').call();
         await _markActiveIfEmailVerified(refreshedUser);
+
+        await FirebaseFunctions.instanceFor(
+          region: 'us-central1',
+        ).httpsCallable('markUserActive').call();
       } catch (e) {
         // ignore: avoid_print
         print("Post-login Firestore update failed (non-blocking): $e");
