@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
@@ -358,7 +359,7 @@ class _RequestsList extends StatelessWidget {
 
   const _RequestsList({
     required this.db,
-    required this.busy,
+    required this.busy, // ✅ NEW
     required this.onSelect,
     required this.onSetStatus,
   });
@@ -368,6 +369,14 @@ class _RequestsList extends StatelessWidget {
     final theme = Theme.of(context);
     final isMobile = MediaQuery.of(context).size.width < 600;
 
+    // ✅ Build the query BEFORE the StreamBuilder
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    final query = db
+        .collection('dropoff_requests')
+        .where('createdByUid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .limit(100);
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       child: Column(
@@ -391,13 +400,10 @@ class _RequestsList extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
+
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: db
-                  .collection('dropoff_requests')
-                  .orderBy('createdAt', descending: true)
-                  .limit(100)
-                  .snapshots(),
+              stream: query.snapshots(),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Text(
