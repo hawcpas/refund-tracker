@@ -201,6 +201,12 @@ class _MyAppState extends State<MyApp> {
                         .toString()
                         .toLowerCase()
                         .trim();
+
+                    final canManageDropoffs =
+                        role == 'admin' ||
+                        (data['capabilities']?['dropoffs'] == true);
+
+                    // ❌ Only admins can access admin USERS screen
                     if (role != 'admin') return const DashboardScreen();
                     return const AdminUsersScreen();
                   },
@@ -218,12 +224,23 @@ class _MyAppState extends State<MyApp> {
                         body: Center(child: CircularProgressIndicator()),
                       );
                     }
+
                     final data = snap.data!.data() ?? {};
                     final role = (data['role'] ?? '')
                         .toString()
                         .toLowerCase()
                         .trim();
-                    if (role != 'admin') return const DashboardScreen();
+
+                    final hasDropoffAccess =
+                        role == 'admin' ||
+                        (data['capabilities']?['dropoffs'] == true);
+
+                    // ❌ No access → back to dashboard
+                    if (!hasDropoffAccess) {
+                      return const DashboardScreen();
+                    }
+
+                    // ✅ Admins + Associates both land here
                     return const AdminDropoffsScreen();
                   },
                 );
