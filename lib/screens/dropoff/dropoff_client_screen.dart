@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_file_selector/flutter_web_file_selector.dart';
+import 'dart:io';
 
 import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
@@ -146,44 +146,24 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         final contentType = _guessContentType(f.name);
 
-        final fileId = FirebaseFirestore.instance.collection('_tmp').doc().id;
+        final fileId = '${DateTime.now().microsecondsSinceEpoch}_${uploadedCount}';
         final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-        final storagePath = 'dropoffs/${_rid!}/$fileId\_$safeName';
+        final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
 
         final ref = FirebaseStorage.instance.ref(storagePath);
         await ref.putData(bytes, SettableMetadata(contentType: contentType));
 
-        final batch = FirebaseFirestore.instance.batch();
-
-        final fileRef = FirebaseFirestore.instance
-            .collection('dropoff_requests')
-            .doc(_rid)
-            .collection('files')
-            .doc(fileId);
-
-        batch.set(fileRef, {
-          'createdAt': FieldValue.serverTimestamp(),
-          'originalName': f.name,
-          'storagePath': storagePath,
-          'sizeBytes': f.size,
-          'contentType': contentType,
-          'uploadedBy': {
-            'type': 'client',
-            'email': (_info?['clientEmail'] ?? '').toString(),
-            'name': (_info?['clientName'] ?? '').toString(),
+        await _functions.httpsCallable('finalizeDropoffUpload').call({
+          'rid': _rid,
+          'token': _token,
+          'file': {
+            'originalName': f.name,
+            'storagePath': storagePath,
+            'sizeBytes': f.size,
+            'contentType': contentType,
           },
         });
 
-        batch.set(
-          FirebaseFirestore.instance.collection('dropoff_requests').doc(_rid),
-          {
-            'lastUploadedAt': FieldValue.serverTimestamp(),
-            'fileCount': FieldValue.increment(1),
-          },
-          SetOptions(merge: true),
-        );
-
-        await batch.commit();
         uploadedCount++;
       }
 
@@ -261,59 +241,43 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       int uploadedCount = 0;
 
       for (final f in result.files) {
-        final fileId = FirebaseFirestore.instance.collection('_tmp').doc().id;
+        final fileId = '${DateTime.now().microsecondsSinceEpoch}_${uploadedCount}';
         final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-        final storagePath = 'dropoffs/${_rid!}/$fileId\_$safeName';
+        final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
         final ref = FirebaseStorage.instance.ref(storagePath);
 
         final contentType = _guessContentType(f.name);
         final meta = SettableMetadata(contentType: contentType);
 
         // ---- Upload (Web vs Native) ----
+        // ---- Upload (Web vs Native) ----
         if (kIsWeb) {
-          // Web: bytes should be present when withData:true
           final bytes = f.bytes;
           if (bytes == null) {
-            // Safari edge case: surface the issue instead of silently skipping
             throw Exception(
-              'Selected file data was unavailable. Please retry and select the file again.',
+              'Selected file data was unavailable. Please retry.',
             );
           }
           await ref.putData(bytes, meta);
+        } else {
+          final path = f.path;
+          if (path == null || path.isEmpty) {
+            throw Exception('File path unavailable. Please reselect the file.');
+          }
+          await ref.putFile(File(path), meta); // add: import 'dart:io';
         }
 
-        // ---- Firestore metadata update ----
-        final batch = FirebaseFirestore.instance.batch();
-
-        final fileRef = FirebaseFirestore.instance
-            .collection('dropoff_requests')
-            .doc(_rid)
-            .collection('files')
-            .doc(fileId);
-
-        batch.set(fileRef, {
-          'createdAt': FieldValue.serverTimestamp(),
-          'originalName': f.name,
-          'storagePath': storagePath,
-          'sizeBytes': f.size,
-          'contentType': contentType,
-          'uploadedBy': {
-            'type': 'client',
-            'email': (_info?['clientEmail'] ?? '').toString(),
-            'name': (_info?['clientName'] ?? '').toString(),
+        // ---- Finalize (server writes metadata + counters) ----
+        await _functions.httpsCallable('finalizeDropoffUpload').call({
+          'rid': _rid,
+          'token': _token,
+          'file': {
+            'originalName': f.name,
+            'storagePath': storagePath,
+            'sizeBytes': f.size,
+            'contentType': contentType,
           },
         });
-
-        batch.set(
-          FirebaseFirestore.instance.collection('dropoff_requests').doc(_rid),
-          {
-            'lastUploadedAt': FieldValue.serverTimestamp(),
-            'fileCount': FieldValue.increment(1),
-          },
-          SetOptions(merge: true),
-        );
-
-        await batch.commit();
         uploadedCount++;
       }
 

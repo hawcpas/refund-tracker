@@ -18,6 +18,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _auth = AuthService();
 
   bool _loadingProfile = true;
+
+  // ✅ NEW: permission flag (admin OR capability)
+  bool _hasDropoffAccess = false;
+
   String _fullName = '';
   String _role = '';
 
@@ -41,6 +45,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _loadingProfile = false;
         _fullName = '';
         _role = '';
+        _hasDropoffAccess = false; // ✅ reset
         _wildixExt = '';
         _clearflyNumber = '';
       });
@@ -61,6 +66,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final computedName = ('$firstName $lastName').trim();
       final bestName = computedName.isNotEmpty ? computedName : displayName;
 
+      // ✅ Normalize role (lowercase + trimmed)
+      final role = (data['role'] ?? '').toString().toLowerCase().trim();
+
+      // ✅ Staff permission: admin OR capabilities.dropoffs == true
+      final hasDropoffAccess =
+          role == 'admin' || (data['capabilities']?['dropoffs'] == true);
+
       // ✅ Pull communications from Firestore (same number for Clearfly/eFax)
       final comms = Map<String, dynamic>.from(data['communications'] ?? {});
       final wildixExt = (comms['wildixExtension'] ?? '').toString().trim();
@@ -72,7 +84,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() {
         _fullName = bestName;
-        _role = (data['role'] ?? '').toString();
+        _role = role;
+        _hasDropoffAccess = hasDropoffAccess; // ✅ NEW
         _wildixExt = wildixExt;
         _clearflyNumber = clearflyNum;
         _loadingProfile = false;
@@ -142,6 +155,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final isAdmin =
                       !_loadingProfile && _role.toLowerCase().trim() == 'admin';
 
+                  final hasDropoffAccess = !_loadingProfile && _hasDropoffAccess;
+
                   final welcomeCard = _WhiteSection(
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
                     child: _WelcomeCardContent(
@@ -172,11 +187,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       },
                       onOpenSharedFiles: () =>
                           Navigator.pushNamed(context, '/shared-files'),
-                      isAdmin: isAdmin, // ✅ NEW
-                      onOpenAdminDropoffs: () => Navigator.pushNamed(
-                        context,
-                        '/admin-dropoffs',
-                      ), // ✅ NEW
+
+                      // ✅ CHANGED: use capability gate, not admin-only
+                      hasDropoffAccess: !_loadingProfile && _hasDropoffAccess,
+                      onOpenDropoffs: () =>
+                          Navigator.pushNamed(context, '/admin-dropoffs'),
                     ),
                   );
 
@@ -211,7 +226,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 22),
-
             CenteredForm(
               child: Column(
                 children: [
@@ -344,9 +358,6 @@ class _WelcomeCardContent extends StatelessWidget {
                         height: 1.30,
                       ),
                     ),
-
-                    // ✅ Compact, left-aligned comms under welcome text
-                    // ✅ Professional comms block under welcome text
                     if (showNumbers) ...[
                       const SizedBox(height: 10),
                       _CommsInlineBar(
@@ -454,7 +465,7 @@ class _CommsInlineBar extends StatelessWidget {
         border: Border.all(color: Colors.black.withOpacity(0.06)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.start, // ✅ left aligned
+        mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (hasWildix) ...[
@@ -481,20 +492,17 @@ class _CommsInlineBar extends StatelessWidget {
               ),
             ),
           ],
-
-          // ✅ light separator
           if (hasWildix && hasClearfly) ...[
             const SizedBox(width: 10),
             Text(
               '|',
               style: theme.textTheme.labelMedium?.copyWith(
-                color: const Color(0xFF98A2B3), // light grey
+                color: const Color(0xFF98A2B3),
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(width: 10),
           ],
-
           if (hasClearfly) ...[
             Icon(
               Icons.sms_outlined,
@@ -537,12 +545,14 @@ class _QuickLinksCard extends StatelessWidget {
     required this.onOpenResources,
     required this.onOpenSettings,
     required this.onOpenSharedFiles,
-    required this.isAdmin, // ✅ NEW
-    required this.onOpenAdminDropoffs, // ✅ NEW
+
+    // ✅ CHANGED: use capability gate instead of admin-only
+    required this.hasDropoffAccess,
+    required this.onOpenDropoffs,
   });
 
-  final bool isAdmin; // ✅ NEW
-  final VoidCallback onOpenAdminDropoffs; // ✅ NEW
+  final bool hasDropoffAccess; // ✅ NEW
+  final VoidCallback onOpenDropoffs; // ✅ NEW
   final VoidCallback onOpenResources;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSharedFiles;
@@ -552,12 +562,12 @@ class _QuickLinksCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     final links = <_DashLink>[
-      if (isAdmin)
+      if (hasDropoffAccess)
         const _DashLink(
           title: 'Drop‑Off Requests',
           subtitle: 'Secure client uploads',
           icon: Icons.inbox_outlined,
-          action: _DashAction.openAdminDropoffs,
+          action: _DashAction.openDropoffs,
         ),
       const _DashLink(
         title: 'Shared Files',
@@ -581,8 +591,8 @@ class _QuickLinksCard extends StatelessWidget {
 
     VoidCallback resolveAction(_DashAction a) {
       switch (a) {
-        case _DashAction.openAdminDropoffs:
-          return onOpenAdminDropoffs;
+        case _DashAction.openDropoffs:
+          return onOpenDropoffs;
         case _DashAction.openSharedFiles:
           return onOpenSharedFiles;
         case _DashAction.openResources:
@@ -641,7 +651,7 @@ class _QuickLinksCard extends StatelessWidget {
 }
 
 enum _DashAction {
-  openAdminDropoffs, // ✅ NEW
+  openDropoffs, // ✅ renamed from openAdminDropoffs
   openSharedFiles,
   openResources,
   openSettings,

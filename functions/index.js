@@ -65,6 +65,25 @@ async function assertAdmin(callerUid) {
   }
 }
 
+async function assertDropoffAccess(callerUid) {
+  const snap = await admin.firestore().collection("users").doc(callerUid).get();
+  if (!snap.exists) {
+    throw new HttpsError(
+      "permission-denied",
+      "User profile missing in users/{uid}."
+    );
+  }
+
+  const data = snap.data() || {};
+  const role = (data.role || "").toString().toLowerCase().trim();
+  const can = role === "admin" || (data.capabilities && data.capabilities.dropoffs === true);
+
+  if (!can) {
+    throw new HttpsError("permission-denied", "Drop-off access required.");
+  }
+}
+
+
 function isValidHttpUrl(url) {
   return (
     typeof url === "string" &&
@@ -261,6 +280,61 @@ exports.inviteUser = onCall(
         message: err?.message ?? String(err),
       });
     }
+  }
+);
+
+exports.finalizeDropoffUpload = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { rid, token, file } = request.data || {};
+
+    if (!rid || !token || !file) {
+      throw new HttpsError("invalid-argument", "rid, token, and file are required.");
+    }
+
+    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Drop-off request not found.");
+    }
+
+    const doc = snap.data() || {};
+
+    if ((doc.status || "open") !== "open") {
+      throw new HttpsError("failed-precondition", "Drop-off is closed.");
+    }
+
+    if (sha256(token) !== doc.tokenHash) {
+      throw new HttpsError("permission-denied", "Invalid token.");
+    }
+
+    // generate a server-side fileId
+    const fileId = admin.firestore().collection("_tmp").doc().id;
+
+    // write file metadata (server-side)
+    await ref.collection("files").doc(fileId).set({
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      originalName: file.originalName || "",
+      storagePath: file.storagePath || "",
+      sizeBytes: file.sizeBytes || 0,
+      contentType: file.contentType || "",
+      uploadedBy: {
+        type: "client",
+        name: doc.clientName || "",
+      },
+    });
+
+    // bump counters
+    await ref.set(
+      {
+        lastUploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+        fileCount: admin.firestore.FieldValue.increment(1),
+      },
+      { merge: true }
+    );
+
+    return { ok: true, fileId };
   }
 );
 
@@ -662,7 +736,7 @@ exports.createDropoffRequest = onCall(
   async (request) => {
     const { auth, data } = request;
     if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
+    await assertDropoffAccess(auth.uid);
 
     const firstName = normalizeName(data.firstName);
     const lastName = normalizeName(data.lastName);
