@@ -29,6 +29,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   bool _loading = true;
   bool _savingPersonal = false;
   bool _savingPassword = false;
+  bool _isAdmin = false;
 
   String? _error;
   String? _success;
@@ -91,6 +92,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           .get(const GetOptions(source: Source.server));
 
       final data = doc.data() ?? {};
+
+      final role = (data['role'] ?? '').toString().toLowerCase().trim();
+      _isAdmin = role == 'admin';
       final firstName = (data['firstName'] ?? '').toString().trim();
       final lastName = (data['lastName'] ?? '').toString().trim();
       final displayName = (data['displayName'] ?? '').toString().trim();
@@ -211,8 +215,34 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Only allow phone edits
-    final phone = phoneController.text.trim();
+    final updates = <String, dynamic>{
+      'phone': phoneController.text.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (_isAdmin) {
+      final newEmail = emailController.text.trim();
+
+      if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
+        // ✅ Modern Firebase approach: verification-required update
+        await user.verifyBeforeUpdateEmail(newEmail);
+
+        // IMPORTANT: do NOT immediately overwrite Firestore email
+        // because Auth email won't change until the link is clicked.
+        // Instead, store pendingEmail and show message.
+        updates['pendingEmail'] = newEmail;
+      }
+
+      final newName = nameController.text.trim();
+      if (newName.isNotEmpty) {
+        final parts = newName.split(' ');
+        updates['firstName'] = parts.first;
+        updates['lastName'] = parts.length > 1
+            ? parts.sublist(1).join(' ')
+            : '';
+        updates['displayName'] = newName;
+      }
+    }
 
     setState(() {
       _savingPersonal = true;
@@ -221,25 +251,29 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     });
 
     try {
-      // ✅ Only update phone (and timestamps)
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'phone': phone,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .set(updates, SetOptions(merge: true));
 
       if (!mounted) return;
       setState(() {
         _savingPersonal = false;
-        _success = 'Phone number updated.';
+
+        final pending = updates['pendingEmail'];
+        _success = pending != null
+            ? 'Name/phone updated. Verification email sent to $pending. '
+                  'Your login email will update after verification.'
+            : 'Profile updated successfully.';
+
         _profileChanged = true;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _savingPersonal = false);
 
-      // Optional: surface Firestore permission errors more clearly
       final msg = e.toString().contains('permission-denied')
-          ? 'You do not have permission to update your profile. Please contact an admin.'
+          ? 'You do not have permission to update this profile.'
           : 'Could not save changes. Please try again.';
 
       _setBanner(error: msg, success: null);
@@ -406,19 +440,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         const SizedBox(height: 12),
         TextField(
           controller: nameController,
-          enabled: false,
-          decoration: const InputDecoration(
-            labelText: 'Name (managed by admin)',
+          enabled: _isAdmin,
+          decoration: InputDecoration(
+            labelText: _isAdmin ? 'Name' : 'Name (admin only)',
             prefixIcon: Icon(Icons.badge_outlined),
           ),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: emailController,
-          enabled: false,
+          enabled: _isAdmin,
           keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email (managed by admin)',
+          decoration: InputDecoration(
+            labelText: _isAdmin ? 'Email' : 'Name (admin only)',
             prefixIcon: Icon(Icons.mail_outline),
           ),
         ),
