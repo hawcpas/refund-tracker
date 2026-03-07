@@ -17,7 +17,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   final AuthService _auth = AuthService();
 
   // Personal Info
-  final nameController = TextEditingController();
+  final firstNameController = TextEditingController();
+  final lastNameController = TextEditingController();
   final emailController = TextEditingController();
   final phoneController = TextEditingController();
 
@@ -70,7 +71,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   void dispose() {
     _tabController.dispose();
 
-    nameController.dispose();
+    firstNameController.dispose();
+    lastNameController.dispose();
     emailController.dispose();
     phoneController.dispose();
 
@@ -99,11 +101,17 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       final lastName = (data['lastName'] ?? '').toString().trim();
       final displayName = (data['displayName'] ?? '').toString().trim();
 
-      final bestName = ('$firstName $lastName').trim().isNotEmpty
-          ? ('$firstName $lastName').trim()
-          : displayName;
-
-      nameController.text = bestName;
+      // ✅ Prefer stored first/last; fall back to displayName split if needed
+      if (firstName.isEmpty && lastName.isEmpty && displayName.isNotEmpty) {
+        final parts = displayName.split(RegExp(r'\s+'));
+        firstNameController.text = parts.isNotEmpty ? parts.first : '';
+        lastNameController.text = parts.length > 1
+            ? parts.sublist(1).join(' ')
+            : '';
+      } else {
+        firstNameController.text = firstName;
+        lastNameController.text = lastName;
+      }
       emailController.text = ((data['email'] ?? user.email) ?? '')
           .toString()
           .trim();
@@ -233,14 +241,13 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         updates['pendingEmail'] = newEmail;
       }
 
-      final newName = nameController.text.trim();
-      if (newName.isNotEmpty) {
-        final parts = newName.split(' ');
-        updates['firstName'] = parts.first;
-        updates['lastName'] = parts.length > 1
-            ? parts.sublist(1).join(' ')
-            : '';
-        updates['displayName'] = newName;
+      final first = firstNameController.text.trim();
+      final last = lastNameController.text.trim();
+
+      if (first.isNotEmpty || last.isNotEmpty) {
+        updates['firstName'] = first;
+        updates['lastName'] = last;
+        updates['displayName'] = ('$first $last').trim();
       }
     }
 
@@ -439,11 +446,20 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         ),
         const SizedBox(height: 12),
         TextField(
-          controller: nameController,
+          controller: firstNameController,
           enabled: _isAdmin,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Name' : 'Name (admin only)',
-            prefixIcon: Icon(Icons.badge_outlined),
+            labelText: _isAdmin ? 'First name' : 'First name (request an admin to change)',
+            prefixIcon: const Icon(Icons.badge_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: lastNameController,
+          enabled: _isAdmin,
+          decoration: InputDecoration(
+            labelText: _isAdmin ? 'Last name' : 'Last name (request an admin to change)',
+            prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
         const SizedBox(height: 12),
@@ -452,7 +468,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           enabled: _isAdmin,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Email' : 'Name (admin only)',
+            labelText: _isAdmin ? 'Email' : 'Email (request an admin to change)',
             prefixIcon: Icon(Icons.mail_outline),
           ),
         ),
