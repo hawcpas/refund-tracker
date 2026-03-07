@@ -256,32 +256,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get(const GetOptions(source: Source.server));
-
-    final data = doc.data() ?? {};
-
-    await user.reload(); // refresh auth state
-
-    final authEmail = user.email;
-    final pendingEmail = (data['pendingEmail'] ?? '').toString().trim();
-    emailController.text = pendingEmail.isNotEmpty
-        ? pendingEmail
-        : ((data['email'] ?? FirebaseAuth.instance.currentUser?.email) ?? '')
-              .toString()
-              .trim();
-
-    if (pendingEmail.isNotEmpty && authEmail == pendingEmail) {
-      // ✅ Email verification completed — sync Firestore
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'email': authEmail,
-        'pendingEmail': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
-
     final updates = <String, dynamic>{
       'phone': phoneController.text.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -291,12 +265,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       final newEmail = emailController.text.trim();
 
       if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
-        // ✅ Modern Firebase approach: verification-required update
+        // ✅ send verification email
         await user.verifyBeforeUpdateEmail(newEmail);
 
-        // IMPORTANT: do NOT immediately overwrite Firestore email
-        // because Auth email won't change until the link is clicked.
-        // Instead, store pendingEmail and show message.
+        // ✅ store pending email (do NOT overwrite email yet)
         updates['pendingEmail'] = newEmail;
       }
 
