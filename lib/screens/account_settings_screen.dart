@@ -64,7 +64,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       }
     });
 
-    _loadProfile();
+    // ✅ always reload when screen is entered
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProfile();
+    });
   }
 
   @override
@@ -88,20 +91,45 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     if (user == null) return;
 
     try {
+      // 1) Get Firestore profile first (server source)
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get(const GetOptions(source: Source.server));
 
-      final data = doc.data() ?? {};
+      final data = Map<String, dynamic>.from(doc.data() ?? {});
 
+      // 2) Determine admin (kept as-is)
       final role = (data['role'] ?? '').toString().toLowerCase().trim();
       _isAdmin = role == 'admin';
+
+      // 3) Reload Auth user so email reflects verification changes
+      await user.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser;
+      final authEmail = (refreshedUser?.email ?? '').trim();
+
+      // 4) If we have a pending email AND Auth now equals it, sync Firestore
+      final pendingEmail = (data['pendingEmail'] ?? '').toString().trim();
+
+      if (pendingEmail.isNotEmpty &&
+          authEmail.isNotEmpty &&
+          authEmail == pendingEmail) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'email': authEmail,
+          'pendingEmail': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // Update our local copy so the UI reflects the sync immediately
+        data['email'] = authEmail;
+        data.remove('pendingEmail');
+      }
+
+      // 5) Load name fields (your current logic)
       final firstName = (data['firstName'] ?? '').toString().trim();
       final lastName = (data['lastName'] ?? '').toString().trim();
       final displayName = (data['displayName'] ?? '').toString().trim();
 
-      // ✅ Prefer stored first/last; fall back to displayName split if needed
       if (firstName.isEmpty && lastName.isEmpty && displayName.isNotEmpty) {
         final parts = displayName.split(RegExp(r'\s+'));
         firstNameController.text = parts.isNotEmpty ? parts.first : '';
@@ -112,9 +140,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         firstNameController.text = firstName;
         lastNameController.text = lastName;
       }
-      emailController.text = ((data['email'] ?? user.email) ?? '')
-          .toString()
-          .trim();
+
+      // 6) Email field: prefer pending if still pending, else Firestore email, else Auth email
+      final pendingAfter = (data['pendingEmail'] ?? '').toString().trim();
+      emailController.text = pendingAfter.isNotEmpty
+          ? pendingAfter
+          : ((data['email'] ?? authEmail) ?? '').toString().trim();
+
+      // 7) Phone
       phoneController.text = (data['phone'] ?? '').toString().trim();
     } finally {
       if (!mounted) return;
@@ -222,6 +255,32 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   Future<void> _savePersonalInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get(const GetOptions(source: Source.server));
+
+    final data = doc.data() ?? {};
+
+    await user.reload(); // refresh auth state
+
+    final authEmail = user.email;
+    final pendingEmail = (data['pendingEmail'] ?? '').toString().trim();
+    emailController.text = pendingEmail.isNotEmpty
+        ? pendingEmail
+        : ((data['email'] ?? FirebaseAuth.instance.currentUser?.email) ?? '')
+              .toString()
+              .trim();
+
+    if (pendingEmail.isNotEmpty && authEmail == pendingEmail) {
+      // ✅ Email verification completed — sync Firestore
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'email': authEmail,
+        'pendingEmail': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
 
     final updates = <String, dynamic>{
       'phone': phoneController.text.trim(),
@@ -449,7 +508,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           controller: firstNameController,
           enabled: _isAdmin,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'First name' : 'First name (request an admin to change)',
+            labelText: _isAdmin
+                ? 'First name'
+                : 'First name (request an admin to change)',
             prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
@@ -458,7 +519,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           controller: lastNameController,
           enabled: _isAdmin,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Last name' : 'Last name (request an admin to change)',
+            labelText: _isAdmin
+                ? 'Last name'
+                : 'Last name (request an admin to change)',
             prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
@@ -468,7 +531,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           enabled: _isAdmin,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Email' : 'Email (request an admin to change)',
+            labelText: _isAdmin
+                ? 'Email'
+                : 'Email (request an admin to change)',
             prefixIcon: Icon(Icons.mail_outline),
           ),
         ),
