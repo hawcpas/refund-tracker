@@ -17,7 +17,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   final AuthService _auth = AuthService();
 
   // Personal Info
-  final nameController = TextEditingController();
+  final firstNameController = TextEditingController();
+  final lastNameController = TextEditingController();
   final emailController = TextEditingController();
   final phoneController = TextEditingController();
 
@@ -29,6 +30,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   bool _loading = true;
   bool _savingPersonal = false;
   bool _savingPassword = false;
+  bool _isAdmin = false;
 
   String? _error;
   String? _success;
@@ -62,14 +64,18 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       }
     });
 
-    _loadProfile();
+    // ✅ always reload when screen is entered
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProfile();
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
 
-    nameController.dispose();
+    firstNameController.dispose();
+    lastNameController.dispose();
     emailController.dispose();
     phoneController.dispose();
 
@@ -85,24 +91,63 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     if (user == null) return;
 
     try {
+      // 1) Get Firestore profile first (server source)
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get(const GetOptions(source: Source.server));
 
-      final data = doc.data() ?? {};
+      final data = Map<String, dynamic>.from(doc.data() ?? {});
+
+      // 2) Determine admin (kept as-is)
+      final role = (data['role'] ?? '').toString().toLowerCase().trim();
+      _isAdmin = role == 'admin';
+
+      // 3) Reload Auth user so email reflects verification changes
+      await user.reload();
+      final refreshedUser = FirebaseAuth.instance.currentUser;
+      final authEmail = (refreshedUser?.email ?? '').trim();
+
+      // 4) If we have a pending email AND Auth now equals it, sync Firestore
+      final pendingEmail = (data['pendingEmail'] ?? '').toString().trim();
+
+      if (pendingEmail.isNotEmpty &&
+          authEmail.isNotEmpty &&
+          authEmail == pendingEmail) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'email': authEmail,
+          'pendingEmail': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // Update our local copy so the UI reflects the sync immediately
+        data['email'] = authEmail;
+        data.remove('pendingEmail');
+      }
+
+      // 5) Load name fields (your current logic)
       final firstName = (data['firstName'] ?? '').toString().trim();
       final lastName = (data['lastName'] ?? '').toString().trim();
       final displayName = (data['displayName'] ?? '').toString().trim();
 
-      final bestName = ('$firstName $lastName').trim().isNotEmpty
-          ? ('$firstName $lastName').trim()
-          : displayName;
+      if (firstName.isEmpty && lastName.isEmpty && displayName.isNotEmpty) {
+        final parts = displayName.split(RegExp(r'\s+'));
+        firstNameController.text = parts.isNotEmpty ? parts.first : '';
+        lastNameController.text = parts.length > 1
+            ? parts.sublist(1).join(' ')
+            : '';
+      } else {
+        firstNameController.text = firstName;
+        lastNameController.text = lastName;
+      }
 
-      nameController.text = bestName;
-      emailController.text = ((data['email'] ?? user.email) ?? '')
-          .toString()
-          .trim();
+      // 6) Email field: prefer pending if still pending, else Firestore email, else Auth email
+      final pendingAfter = (data['pendingEmail'] ?? '').toString().trim();
+      emailController.text = pendingAfter.isNotEmpty
+          ? pendingAfter
+          : ((data['email'] ?? authEmail) ?? '').toString().trim();
+
+      // 7) Phone
       phoneController.text = (data['phone'] ?? '').toString().trim();
     } finally {
       if (!mounted) return;
@@ -211,8 +256,31 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // Only allow phone edits
-    final phone = phoneController.text.trim();
+    final updates = <String, dynamic>{
+      'phone': phoneController.text.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (_isAdmin) {
+      final newEmail = emailController.text.trim();
+
+      if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
+        // ✅ send verification email
+        await user.verifyBeforeUpdateEmail(newEmail);
+
+        // ✅ store pending email (do NOT overwrite email yet)
+        updates['pendingEmail'] = newEmail;
+      }
+
+      final first = firstNameController.text.trim();
+      final last = lastNameController.text.trim();
+
+      if (first.isNotEmpty || last.isNotEmpty) {
+        updates['firstName'] = first;
+        updates['lastName'] = last;
+        updates['displayName'] = ('$first $last').trim();
+      }
+    }
 
     setState(() {
       _savingPersonal = true;
@@ -221,25 +289,29 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     });
 
     try {
-      // ✅ Only update phone (and timestamps)
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'phone': phone,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .set(updates, SetOptions(merge: true));
 
       if (!mounted) return;
       setState(() {
         _savingPersonal = false;
-        _success = 'Phone number updated.';
+
+        final pending = updates['pendingEmail'];
+        _success = pending != null
+            ? 'Name/phone updated. Verification email sent to $pending. '
+                  'Your login email will update after verification.'
+            : 'Profile updated successfully.';
+
         _profileChanged = true;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _savingPersonal = false);
 
-      // Optional: surface Firestore permission errors more clearly
       final msg = e.toString().contains('permission-denied')
-          ? 'You do not have permission to update your profile. Please contact an admin.'
+          ? 'You do not have permission to update this profile.'
           : 'Could not save changes. Please try again.';
 
       _setBanner(error: msg, success: null);
@@ -405,20 +477,35 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         ),
         const SizedBox(height: 12),
         TextField(
-          controller: nameController,
-          enabled: false,
-          decoration: const InputDecoration(
-            labelText: 'Name (managed by admin)',
-            prefixIcon: Icon(Icons.badge_outlined),
+          controller: firstNameController,
+          enabled: _isAdmin,
+          decoration: InputDecoration(
+            labelText: _isAdmin
+                ? 'First name'
+                : 'First name (request an admin to change)',
+            prefixIcon: const Icon(Icons.badge_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: lastNameController,
+          enabled: _isAdmin,
+          decoration: InputDecoration(
+            labelText: _isAdmin
+                ? 'Last name'
+                : 'Last name (request an admin to change)',
+            prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: emailController,
-          enabled: false,
+          enabled: _isAdmin,
           keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email (managed by admin)',
+          decoration: InputDecoration(
+            labelText: _isAdmin
+                ? 'Email'
+                : 'Email (request an admin to change)',
             prefixIcon: Icon(Icons.mail_outline),
           ),
         ),
