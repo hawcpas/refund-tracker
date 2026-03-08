@@ -27,6 +27,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   String? _error;
   Map<String, dynamic>? _info;
 
+  String? _success;
+  final List<String> _recentUploads = [];
+
   String? _rid;
   String? _token;
 
@@ -78,6 +81,14 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     _init();
   }
 
+  void _addRecentUploads(Iterable<String> names) {
+    _recentUploads.insertAll(0, names);
+    // Keep it tidy: last 10 filenames
+    if (_recentUploads.length > 10) {
+      _recentUploads.removeRange(10, _recentUploads.length);
+    }
+  }
+
   Future<void> _init() async {
     try {
       final params = _extractDropoffParams();
@@ -121,8 +132,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
         _loading = false;
+        _uploading = false;
+        _error = e.toString();
+        _success = null;
       });
     }
   }
@@ -131,6 +144,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     setState(() {
       _uploading = true;
       _error = null;
+      _success = null; // clear previous success when starting new upload
     });
 
     try {
@@ -146,7 +160,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         final contentType = _guessContentType(f.name);
 
-        final fileId = '${DateTime.now().microsecondsSinceEpoch}_${uploadedCount}';
+        final fileId =
+            '${DateTime.now().microsecondsSinceEpoch}_${uploadedCount}';
         final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
 
@@ -168,13 +183,16 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       if (!mounted) return;
-
       if (uploadedCount == 0) {
         setState(() => _error = 'No uploads were processed. Please try again.');
         return;
       }
 
-      Navigator.pushReplacementNamed(context, '/dropoff/success');
+      setState(() {
+        _success =
+            'Upload complete — $uploadedCount file(s) uploaded. You can upload more.';
+        _addRecentUploads(result.files.map((f) => f.name));
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Upload failed. Please try again.\n$e');
@@ -207,17 +225,16 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     setState(() {
       _uploading = true;
       _error = null;
+      _success = null; // ✅ clear prior success
     });
 
     try {
       // iOS Safari (web) can behave oddly; keep selection simple on web if needed.
       final result = await FilePicker.platform
           .pickFiles(
-            allowMultiple: !kIsWeb
-                ? true
-                : true, // set to false if Safari still hangs
+            allowMultiple: !kIsWeb ? true : true, // keep your current behavior
             withData: kIsWeb, // web: get bytes
-            withReadStream: !kIsWeb, // mobile: stream/path
+            withReadStream: !kIsWeb, // mobile/desktop: stream/path
           )
           .timeout(
             const Duration(seconds: 60),
@@ -239,9 +256,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       int uploadedCount = 0;
+      final uploadedNames = <String>[];
 
       for (final f in result.files) {
-        final fileId = '${DateTime.now().microsecondsSinceEpoch}_${uploadedCount}';
+        final fileId =
+            '${DateTime.now().microsecondsSinceEpoch}_$uploadedCount';
         final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
         final ref = FirebaseStorage.instance.ref(storagePath);
@@ -249,7 +268,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         final contentType = _guessContentType(f.name);
         final meta = SettableMetadata(contentType: contentType);
 
-        // ---- Upload (Web vs Native) ----
         // ---- Upload (Web vs Native) ----
         if (kIsWeb) {
           final bytes = f.bytes;
@@ -264,7 +282,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           if (path == null || path.isEmpty) {
             throw Exception('File path unavailable. Please reselect the file.');
           }
-          await ref.putFile(File(path), meta); // add: import 'dart:io';
+          await ref.putFile(File(path), meta);
         }
 
         // ---- Finalize (server writes metadata + counters) ----
@@ -278,7 +296,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
             'contentType': contentType,
           },
         });
+
         uploadedCount++;
+        uploadedNames.add(f.name);
       }
 
       if (!mounted) return;
@@ -290,7 +310,15 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         return;
       }
 
-      Navigator.pushReplacementNamed(context, '/dropoff/success');
+      // ✅ Enterprise-feel: stay on the page and show confirmation.
+      setState(() {
+        _success =
+            'Upload complete — $uploadedCount file(s) uploaded. You can upload more.';
+        _addRecentUploads(uploadedNames);
+      });
+
+      // ❌ Remove this, because it forces them away (and causes the “refresh to upload again” feeling)
+      // Navigator.pushReplacementNamed(context, '/dropoff/success');
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Upload failed. Please try again.\n$e');
@@ -352,6 +380,24 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                       // ✅ SHOW ERROR WITHOUT HIDING UI
                       if (_error != null) ...[
                         _ErrorBanner(message: _error!),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_success != null) ...[
+                        _SuccessBanner(message: _success!),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_recentUploads.isNotEmpty) ...[
+                        _RecentUploadsCard(
+                          fileNames: _recentUploads,
+                          onClear: () {
+                            setState(() {
+                              _recentUploads.clear();
+                              _success = null;
+                            });
+                          },
+                        ),
                         const SizedBox(height: 12),
                       ],
 
@@ -534,6 +580,130 @@ class _ErrorBanner extends StatelessWidget {
                 color: const Color(0xFFB42318),
                 fontWeight: FontWeight.w700,
                 height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SuccessBanner extends StatelessWidget {
+  final String message;
+  const _SuccessBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.withOpacity(0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.check_circle_outline,
+            color: Color(0xFF067647),
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF067647),
+                fontWeight: FontWeight.w800,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentUploadsCard extends StatelessWidget {
+  final List<String> fileNames;
+  final VoidCallback onClear;
+
+  const _RecentUploadsCard({required this.fileNames, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.black.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row: "Recent uploads" + Clear link
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Recent uploads',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF101828),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onClear,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(0, 0),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  'Clear',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF475467),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          ...fileNames.map(
+            (n) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.insert_drive_file_outlined,
+                    size: 16,
+                    color: Color(0xFF475467),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      n,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF475467),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
