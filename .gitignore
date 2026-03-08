@@ -10,6 +10,25 @@ build/
 coverage/
 
 # =========================
+# Flutter platform-generated (DO NOT COMMIT)
+# =========================
+**/GeneratedPluginRegistrant.*
+**/android/**/GeneratedPluginRegistrant.java
+**/flutter_export_environment.sh
+**/Flutter-Generated.xcconfig
+
+# Android
+android/local.properties
+
+# iOS
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+
+# macOS
+macos/Flutter/ephemeral/
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# =========================
 # Node / Firebase Functions
 # =========================
 node_modules/
