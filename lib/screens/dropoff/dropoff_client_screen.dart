@@ -410,152 +410,158 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final isCompact = _isCompact(context);
     final useWebSelector = kIsWeb;
 
-    return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Secure Drop-Off')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-            children: [
-              _WhiteSection(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Upload Documents',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
-                        letterSpacing: -0.2,
+    return WillPopScope(
+      onWillPop: () async => false, // ✅ disables system back & iOS swipe-back
+      child: Scaffold(
+        backgroundColor: AppColors.pageBackgroundLight,
+        appBar: AppBar(
+          title: const Text('Secure Drop-Off'),
+          automaticallyImplyLeading: false, // ✅ removes back button
+        ),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+              children: [
+                _WhiteSection(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Upload Documents',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: const Color(0xFF101828),
+                          letterSpacing: -0.2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Use this secure page to upload files to the firm.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                        height: 1.25,
-                        fontWeight: FontWeight.w500,
+                      const SizedBox(height: 6),
+                      Text(
+                        'Use this secure page to upload files to the firm.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF475467),
+                          height: 1.25,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // ✅ Always show validation status (but do NOT hide the button)
-                    if (_loading) ...[
-                      Row(
-                        children: [
-                          const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                      // ✅ Always show validation status (but do NOT hide the button)
+                      if (_loading) ...[
+                        Row(
+                          children: [
+                            const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Validating link…',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ✅ SHOW ERROR WITHOUT HIDING UI
+                      if (_error != null) ...[
+                        _ErrorBanner(message: _error!),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_success != null) ...[
+                        _SuccessBanner(message: _success!),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_recentUploads.isNotEmpty) ...[
+                        _RecentUploadsCard(
+                          fileNames: _recentUploads,
+                          onClear: () {
+                            setState(() {
+                              _recentUploads.clear();
+                              _success = null;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if ((_info?['message'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandBlue.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppColors.brandBlue.withOpacity(0.18),
+                            ),
                           ),
-                          const SizedBox(width: 10),
-                          Text(
-                            'Validating link…',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
+                          child: Text(
+                            (_info?['message'] ?? '').toString(),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF475467),
+                              height: 1.35,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
 
-                    // ✅ SHOW ERROR WITHOUT HIDING UI
-                    if (_error != null) ...[
-                      _ErrorBanner(message: _error!),
-                      const SizedBox(height: 12),
-                    ],
-
-                    if (_success != null) ...[
-                      _SuccessBanner(message: _success!),
-                      const SizedBox(height: 12),
-                    ],
-
-                    if (_recentUploads.isNotEmpty) ...[
-                      _RecentUploadsCard(
-                        fileNames: _recentUploads,
-                        onClear: () {
-                          setState(() {
-                            _recentUploads.clear();
-                            _success = null;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    if ((_info?['message'] ?? '')
-                        .toString()
-                        .trim()
-                        .isNotEmpty) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.brandBlue.withOpacity(0.07),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.brandBlue.withOpacity(0.18),
+                      // Only allow uploads after validation is done AND status is open
+                      if (!_loading && !canUploadNow) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            'This drop-off request is no longer accepting uploads.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        child: Text(
-                          (_info?['message'] ?? '').toString(),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            height: 1.35,
-                            fontWeight: FontWeight.w600,
+                      ],
+
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: isCompact
+                                ? double.infinity
+                                : 360, // ✅ enterprise width
+                          ),
+                          child: SizedBox(
+                            height: 46,
+                            width: double.infinity,
+                            child: _buildUploadButton(canUploadNow),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                    ],
 
-                    // Only allow uploads after validation is done AND status is open
-                    if (!_loading && !canUploadNow) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          'This drop-off request is no longer accepting uploads.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.red.shade700,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Files are uploaded securely. You may upload additional files or close this page when finished.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF667085),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
-
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: isCompact
-                              ? double.infinity
-                              : 360, // ✅ enterprise width
-                        ),
-                        child: SizedBox(
-                          height: 46,
-                          width: double.infinity,
-                          child: _buildUploadButton(canUploadNow),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-                    Text(
-                      'Files are uploaded securely. You may upload additional files or close this page when finished.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
