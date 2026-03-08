@@ -23,6 +23,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
   bool _loading = true;
   bool _uploading = false;
+  bool _isCompact(BuildContext context) {
+    final w = MediaQuery.of(context).size.width;
+    return w < 600; // phones & small tablets
+  }
 
   String? _error;
   Map<String, dynamic>? _info;
@@ -110,7 +114,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       if (kIsWeb) {
         user =
             FirebaseAuth.instance.currentUser ??
-            (await FirebaseAuth.instance.signInAnonymously()).user;
+            (await FirebaseAuth.instance.signInAnonymously().timeout(
+              const Duration(seconds: 15),
+            )).user;
       } else {
         user = await _auth.signInAnonymouslyIfNeeded();
       }
@@ -119,11 +125,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         throw Exception('Could not start secure upload session.');
       }
 
-      // ✅ Validate link via Cloud Function
-      final res = await _functions.httpsCallable('validateDropoffLink').call({
-        'rid': _rid,
-        'token': _token,
-      });
+      final res = await _functions
+          .httpsCallable('validateDropoffLink')
+          .call({'rid': _rid, 'token': _token})
+          .timeout(const Duration(seconds: 15));
 
       _info = Map<String, dynamic>.from(res.data as Map);
 
@@ -327,11 +332,83 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     }
   }
 
+  Widget _buildUploadButton(bool canUploadNow) {
+    final disabled = !canUploadNow || _uploading;
+
+    return FilledButton.icon(
+      onPressed: disabled
+          ? null
+          : () async {
+              // ✅ Safari requires the picker to be launched directly from the tap handler.
+              // (Not via a wrapper widget’s onData, and not deferred to later.) [1](https://stackoverflow.com/questions/77714785/flutter-web-file-picker-not-working-on-safari)
+
+              try {
+                // Set UI state immediately (still inside user gesture)
+                if (!mounted) return;
+                setState(() {
+                  _uploading = true;
+                  _error = null;
+                  _success = null;
+                });
+
+                final result = await FilePicker.platform.pickFiles(
+                  allowMultiple: true,
+                  withData: true, // ensures bytes are present on web
+                );
+
+                if (!mounted) return;
+
+                if (result == null || result.files.isEmpty) {
+                  setState(() {
+                    _uploading = false;
+                    _error = 'No file was selected.';
+                  });
+                  return;
+                }
+
+                // Reuse your existing upload pipeline
+                await _uploadPickedFiles(result);
+              } catch (e) {
+                if (!mounted) return;
+                setState(() {
+                  _error = 'Upload failed. Please try again.\n$e';
+                  _uploading = false;
+                });
+              } finally {
+                if (mounted) setState(() => _uploading = false);
+              }
+            },
+      icon: _uploading
+          ? const SizedBox(
+              height: 18,
+              width: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.upload_file),
+      label: Text(
+        _uploading ? 'Uploading…' : 'Choose files to upload',
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+      style: FilledButton.styleFrom(
+        backgroundColor: disabled ? Colors.grey.shade400 : AppColors.brandBlue,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = (_info?['status'] ?? 'open').toString();
+    // ✅ SINGLE SOURCE OF TRUTH
+    final canUploadNow = !_loading && status == 'open';
     final canUpload = status == 'open';
+    final isCompact = _isCompact(context);
+    final useWebSelector = kIsWeb;
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
@@ -366,160 +443,115 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                     ),
                     const SizedBox(height: 14),
 
+                    // ✅ Always show validation status (but do NOT hide the button)
                     if (_loading) ...[
-                      const Center(child: CircularProgressIndicator()),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Validating link…',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ] else ...[
-                      // ✅ SHOW ERROR WITHOUT HIDING UI
-                      if (_error != null) ...[
-                        _ErrorBanner(message: _error!),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (_success != null) ...[
-                        _SuccessBanner(message: _success!),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (_recentUploads.isNotEmpty) ...[
-                        _RecentUploadsCard(
-                          fileNames: _recentUploads,
-                          onClear: () {
-                            setState(() {
-                              _recentUploads.clear();
-                              _success = null;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if ((_info?['message'] ?? '')
-                          .toString()
-                          .trim()
-                          .isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandBlue.withOpacity(0.07),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.brandBlue.withOpacity(0.18),
-                            ),
+                      Row(
+                        children: [
+                          const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          child: Text(
-                            (_info?['message'] ?? '').toString(),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF475467),
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-
-                      const SizedBox(height: 16),
-
-                      if (!canUpload)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Text(
-                            'This drop-off request is no longer accepting uploads.',
+                          const SizedBox(width: 10),
+                          Text(
+                            'Validating link…',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.red.shade700,
+                              color: const Color(0xFF667085),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ),
-
-                      // ✅ UPLOAD BUTTON ALWAYS STAYS
-                      SizedBox(
-                        height: 46,
-                        width: double.infinity,
-                        child: WebFileSelector.isIOSWeb
-                            ? WebFileSelector(
-                                multiple: true,
-                                accept:
-                                    '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.csv,.txt',
-                                onData: _handleIOSWebFiles,
-                                child: FilledButton.icon(
-                                  onPressed: (!canUpload || _uploading)
-                                      ? null
-                                      : () {},
-                                  icon: _uploading
-                                      ? const SizedBox(
-                                          height: 18,
-                                          width: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Icon(Icons.upload_file),
-                                  label: Text(
-                                    _uploading
-                                        ? 'Uploading…'
-                                        : 'Choose files to upload',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppColors.brandBlue,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                ),
-                              )
-                            : FilledButton.icon(
-                                onPressed: (!canUpload || _uploading)
-                                    ? null
-                                    : _pickAndUpload,
-                                icon: _uploading
-                                    ? const SizedBox(
-                                        height: 18,
-                                        width: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.upload_file),
-                                label: Text(
-                                  _uploading
-                                      ? 'Uploading…'
-                                      : 'Choose files to upload',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.brandBlue,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
+                        ],
                       ),
+                      const SizedBox(height: 12),
+                    ],
 
-                      const SizedBox(height: 10),
-                      Text(
-                        'Files upload securely. You may close this page after upload completes.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
+                    // ✅ SHOW ERROR WITHOUT HIDING UI
+                    if (_error != null) ...[
+                      _ErrorBanner(message: _error!),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (_success != null) ...[
+                      _SuccessBanner(message: _success!),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (_recentUploads.isNotEmpty) ...[
+                      _RecentUploadsCard(
+                        fileNames: _recentUploads,
+                        onClear: () {
+                          setState(() {
+                            _recentUploads.clear();
+                            _success = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if ((_info?['message'] ?? '')
+                        .toString()
+                        .trim()
+                        .isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.brandBlue.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.brandBlue.withOpacity(0.18),
+                          ),
+                        ),
+                        child: Text(
+                          (_info?['message'] ?? '').toString(),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF475467),
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Only allow uploads after validation is done AND status is open
+                    if (!_loading && !canUploadNow) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'This drop-off request is no longer accepting uploads.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
+
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: isCompact
+                              ? double.infinity
+                              : 360, // ✅ enterprise width
+                        ),
+                        child: SizedBox(
+                          height: 46,
+                          width: double.infinity,
+                          child: _buildUploadButton(canUploadNow),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+                    Text(
+                      'Files are uploaded securely. You may upload additional files or close this page when finished.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
