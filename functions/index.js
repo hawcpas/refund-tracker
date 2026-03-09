@@ -877,34 +877,36 @@ exports.getAdminDownloadUrl = onCall(
   }
 );
 
-// setDropoffStatus (admin-only)
 exports.setDropoffStatus = onCall(
   { region: "us-central1" },
   async (request) => {
     const { auth, data } = request;
-
     if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
+
+    // ✅ allow associates with dropoff access
+    await assertDropoffAccess(auth.uid);
 
     const requestId = (data?.requestId || "").toString().trim();
     const status = (data?.status || "").toString().toLowerCase().trim();
-
-    if (!requestId) {
-      throw new HttpsError("invalid-argument", "requestId required.");
-    }
-
+    if (!requestId) throw new HttpsError("invalid-argument", "requestId required.");
     if (!["open", "closed"].includes(status)) {
-      throw new HttpsError(
-        "invalid-argument",
-        "status must be 'open' or 'closed'"
-      );
+      throw new HttpsError("invalid-argument", "status must be 'open' or 'closed'");
     }
 
     const ref = admin.firestore().collection("dropoff_requests").doc(requestId);
     const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
 
-    if (!snap.exists) {
-      throw new HttpsError("not-found", "Drop-off request not found.");
+    const doc = snap.data() || {};
+
+    // ✅ ownership OR admin
+    const caller = await admin.firestore().collection("users").doc(auth.uid).get();
+    const role = (caller.data()?.role || "").toString().toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isOwner = doc.createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to update this request.");
     }
 
     await ref.set(
