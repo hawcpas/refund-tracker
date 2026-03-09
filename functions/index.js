@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const {
   defineSecret,
   defineString,
@@ -119,6 +120,104 @@ async function getUserDocByUid(uid) {
   const snap = await ref.get();
   return { ref, snap, data: snap.exists ? (snap.data() || {}) : {} };
 }
+
+// ============================
+// notifyDropoffBatchUpload (public via token)
+// Sends ONE email for a bulk upload action
+// ============================
+exports.notifyDropoffBatchUpload = onCall(
+  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request) => {
+    try {
+      const { rid, token, files } = request.data || {};
+
+      if (!rid || !token) {
+        throw new HttpsError("invalid-argument", "rid and token are required.");
+      }
+
+      if (!Array.isArray(files) || files.length === 0) {
+        throw new HttpsError("invalid-argument", "files must be a non-empty array.");
+      }
+
+      // basic sanitization + limit
+      const names = files
+        .map((x) => String(x || "").trim())
+        .filter((x) => x.length > 0)
+        .slice(0, 25);
+
+      if (names.length === 0) {
+        throw new HttpsError("invalid-argument", "No valid filenames provided.");
+      }
+
+      const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+      const snap = await ref.get();
+
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Drop-off request not found.");
+      }
+
+      const doc = snap.data() || {};
+
+      if ((doc.status || "open") !== "open") {
+        throw new HttpsError("failed-precondition", "Drop-off is closed.");
+      }
+
+      if (sha256(token) !== doc.tokenHash) {
+        throw new HttpsError("permission-denied", "Invalid token.");
+      }
+
+      const createdByUid = (doc.createdByUid || "").toString().trim();
+      const createdByEmail = (doc.createdByEmail || "").toString().trim();
+      const clientName = (doc.clientName || "a client").toString().trim();
+
+      // Determine recipient email
+      let to = createdByEmail;
+      if (!to && createdByUid) {
+        const u = await admin.auth().getUser(createdByUid);
+        to = (u.email || "").toString().trim();
+      }
+      if (!to) {
+        // can't notify anyone
+        return { ok: true, emailed: false };
+      }
+
+      const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
+      const portalUrl = baseUrl ? `${baseUrl}/#/admin-dropoffs` : "";
+
+      const listHtml = names
+        .map((n) => `<li><b>${safeFilename(n)}</b></li>`)
+        .join("");
+
+      const subject = `New upload received — ${APP_NAME.value()}`;
+      const html = `
+<div style="font-family:Arial,sans-serif;line-height:1.5;color:#101828">
+  <p>Hi,</p>
+  <p><b>${names.length} file(s) uploaded</b> for your drop-off request for <b>${clientName}</b>.</p>
+  <p>Files:</p>
+  <ul>${listHtml}</ul>
+  <p>Open the portal to review the upload(s).</p>
+  ${portalUrl ? `<p><a href="${portalUrl}" style="color:#0B62D6">Open Drop-Off Requests</a></p>` : ""}
+  <p style="margin-top:18px;color:#667085;font-size:12px">${APP_NAME.value()}</p>
+</div>`;
+
+      await sendAccountEmail({ to, subject, html });
+
+      // optional audit stamps
+      await ref.set(
+        { lastUploadNotifiedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      return { ok: true, emailed: true, count: names.length };
+    } catch (err) {
+      console.error("notifyDropoffBatchUpload failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Notification failed on server.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
 
 // ============================
 // inviteUser (admin-only) ✅ RESTORED + Option A capability default
@@ -338,6 +437,107 @@ exports.finalizeDropoffUpload = onCall(
   }
 );
 
+// ============================
+// DROP-OFF upload notification (email)
+// Fires when a new file metadata doc is created
+// ============================
+/*
+exports.notifyDropoffUpload = onDocumentCreated(
+  {
+    region: "us-central1",
+    document: "dropoff_requests/{requestId}/files/{fileId}",
+    secrets: [SMTP_USER, SMTP_PASS],
+  },
+  async (event) => {
+    try {
+      const snap = event.data;
+      if (!snap) return;
+
+      const { requestId } = event.params || {};
+      if (!requestId) return;
+
+      const fileData = snap.data() || {};
+      const originalName = (fileData.originalName || "").toString().trim();
+
+      // Parent dropoff request
+      const reqRef = admin.firestore().collection("dropoff_requests").doc(requestId);
+
+      // Use a transaction to debounce notifications (avoid 10 emails for 10 files)
+      await admin.firestore().runTransaction(async (tx) => {
+        const reqSnap = await tx.get(reqRef);
+        if (!reqSnap.exists) return;
+
+        const req = reqSnap.data() || {};
+        const createdByUid = (req.createdByUid || "").toString().trim();
+        const createdByEmail = (req.createdByEmail || "").toString().trim();
+        const clientName = (req.clientName || "a client").toString().trim();
+
+        if (!createdByUid && !createdByEmail) return;
+
+        // Debounce window (2 minutes). Adjust if you want.
+        const lastNotified = req.lastUploadNotifiedAt;
+        const lastMs =
+          lastNotified && typeof lastNotified.toMillis === "function"
+            ? lastNotified.toMillis()
+            : 0;
+
+        const nowMs = Date.now();
+        const debounceMs = 2 * 60 * 1000;
+
+        if (nowMs - lastMs < debounceMs) {
+          // Too soon since last notification -> skip
+          return;
+        }
+
+        // Stamp notification time
+        tx.set(
+          reqRef,
+          { lastUploadNotifiedAt: admin.firestore.FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+
+        // Build a safe portal link (use your APP_URL param)
+        const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
+        const portalUrl = baseUrl ? `${baseUrl}/#/admin-dropoffs` : "";
+
+        // Determine recipient email:
+        // Prefer createdByEmail from doc (most reliable), otherwise fall back to Auth lookup
+        let to = createdByEmail;
+        if (!to) {
+          const u = await admin.auth().getUser(createdByUid);
+          to = (u.email || "").toString().trim();
+        }
+        if (!to) return;
+
+        const subject = `New upload received — ${APP_NAME.value()}`;
+        const fileLine = originalName ? `<li><b>${safeFilename(originalName)}</b></li>` : "";
+
+        const html = `
+<div style="font-family:Arial,sans-serif;line-height:1.5;color:#101828">
+  <p>Hi,</p>
+  <p><b>New file upload received</b> for your drop-off request for <b>${clientName}</b>.</p>
+  ${fileLine ? `<p>Uploaded file:</p><ul>${fileLine}</ul>` : ""}
+  <p>Open the portal to review the upload.</p>
+  ${portalUrl
+            ? `<p><a href="${portalUrl}" style="color:#0B62D6">Open Drop-Off Requests</a></p>`
+            : ""
+          }
+  <p style="margin-top:18px;color:#667085;font-size:12px">
+    ${APP_NAME.value()}
+  </p>
+</div>`;
+
+        await sendAccountEmail({ to, subject, html });
+      });
+
+      return;
+    } catch (err) {
+      console.error("notifyDropoffUpload failed:", err);
+      return;
+    }
+  }
+);
+*/
 // ============================
 // deleteUser (admin-only)
 // ============================
