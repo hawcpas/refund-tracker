@@ -351,7 +351,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   }
 }
 
-class _RequestsList extends StatelessWidget {
+class _RequestsList extends StatefulWidget {
   final FirebaseFirestore db;
   final bool busy;
   final void Function(String requestId) onSelect;
@@ -359,24 +359,39 @@ class _RequestsList extends StatelessWidget {
 
   const _RequestsList({
     required this.db,
-    required this.busy, // ✅ NEW
+    required this.busy,
     required this.onSelect,
     required this.onSetStatus,
   });
+
+  @override
+  State<_RequestsList> createState() => _RequestsListState();
+}
+
+class _RequestsListState extends State<_RequestsList> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isMobile = MediaQuery.of(context).size.width < 600;
 
-    // ✅ Build the query BEFORE the StreamBuilder
+    // ✅ Build the query BEFORE the StreamBuilder (same as your current code)
     final uid = FirebaseAuth.instance.currentUser!.uid;
 
-    final query = db
+    final query = widget.db
         .collection('dropoff_requests')
         .where('createdByUid', isEqualTo: uid)
         .orderBy('createdAt', descending: true)
         .limit(100);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       child: Column(
@@ -399,7 +414,41 @@ class _RequestsList extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+
+          // ✅ NEW: Search bar (enterprise style)
+          TextField(
+            controller: _searchCtrl,
+            onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+            decoration: InputDecoration(
+              hintText: 'Search by client name, email, or ID',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _q.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear',
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _q = '');
+                      },
+                    ),
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFFF9FAFB),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+          ),
+
+          const SizedBox(height: 12),
 
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -415,15 +464,38 @@ class _RequestsList extends StatelessWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snap.data!.docs;
+                final allDocs = snap.data!.docs;
+
+                // ✅ NEW: Local filtering (no Firestore index required)
+                final docs = _q.isEmpty
+                    ? allDocs
+                    : allDocs.where((doc) {
+                        final data = doc.data();
+                        final name =
+                            (data['clientName'] ?? '').toString().toLowerCase();
+                        final email = (data['clientEmail'] ?? '')
+                            .toString()
+                            .toLowerCase();
+                        final id = doc.id.toLowerCase();
+                        return name.contains(_q) ||
+                            email.contains(_q) ||
+                            id.contains(_q);
+                      }).toList();
+
                 if (docs.isEmpty) {
-                  return const Center(child: Text('No drop-off requests yet.'));
+                  return Center(
+                    child: Text(
+                      _q.isEmpty
+                          ? 'No drop-off requests yet.'
+                          : 'No results found.',
+                      style: const TextStyle(color: Color(0xFF667085)),
+                    ),
+                  );
                 }
 
-                return ListView.separated(
+                return ListView.builder(
+                  padding: const EdgeInsets.all(0),
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(color: Colors.black.withOpacity(0.06)),
                   itemBuilder: (context, i) {
                     final d = docs[i];
                     final data = d.data();
@@ -452,338 +524,368 @@ class _RequestsList extends StatelessWidget {
                     final statusLower = status.toLowerCase().trim();
                     final isOpen = statusLower == 'open';
 
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 10,
-                        horizontal: 6,
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // clickable icon -> view details
-                          InkWell(
-                            onTap: busy ? null : () => onSelect(d.id),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Padding(
-                              padding: const EdgeInsets.all(6),
-                              child: Icon(
-                                Icons.inbox_outlined,
-                                color: AppColors.brandBlue.withOpacity(0.85),
-                              ),
-                            ),
-                          ),
+                    final accent = _statusAccent(statusLower);
 
-                          const SizedBox(width: 8),
-
-                          // clickable name/meta -> view details
-                          Expanded(
-                            child: InkWell(
-                              onTap: busy ? null : () => onSelect(d.id),
-                              borderRadius: BorderRadius.circular(10),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 2,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.brandBlue,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      subtitle,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: const Color(0xFF667085),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 6),
-
-                                    // metadata: file count + created date
-                                    Wrap(
-                                      spacing: 12,
-                                      runSpacing: 4,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      children: [
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.attach_file,
-                                              size: 14,
-                                              color: Color(0xFF667085),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              '$fileCount item${fileCount == 1 ? '' : 's'}',
-                                              style: theme.textTheme.labelSmall
-                                                  ?.copyWith(
-                                                    color: const Color(
-                                                      0xFF667085,
-                                                    ),
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                            ),
-                                          ],
-                                        ),
-                                        if (createdText.isNotEmpty)
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(
-                                                Icons.calendar_today_outlined,
-                                                size: 13,
-                                                color: Color(0xFF667085),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'Created $createdText',
-                                                style: theme
-                                                    .textTheme
-                                                    .labelSmall
-                                                    ?.copyWith(
-                                                      color: const Color(
-                                                        0xFF667085,
-                                                      ),
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          if (isMobile) ...[
-                            // ✅ Mobile: stack actions vertically so the name column has room
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                _StatusPill(status: status),
-                                const SizedBox(height: 6),
-
-                                // On mobile, keep actions under a single menu to save width
-                                PopupMenuButton<String>(
-                                  enabled: !busy,
-                                  tooltip: busy ? 'Working…' : 'Actions',
-                                  position: PopupMenuPosition.under,
-                                  icon: Icon(
-                                    Icons.more_vert,
-                                    color: AppColors.brandBlue.withOpacity(
-                                      0.85,
-                                    ),
-                                  ),
-                                  onSelected: (value) async {
-                                    if (busy) return;
-
-                                    if (value == 'view') {
-                                      onSelect(d.id);
-                                      return;
-                                    }
-                                    if (value == 'copy' && url.isNotEmpty) {
-                                      await Clipboard.setData(
-                                        ClipboardData(text: url),
-                                      );
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Drop-off link copied.',
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                      return;
-                                    }
-                                    if (value == 'toggle') {
-                                      final nextStatus = isOpen
-                                          ? 'closed'
-                                          : 'open';
-                                      await onSetStatus(d.id, nextStatus);
-                                    }
-                                  },
-                                  itemBuilder: (ctx) => [
-                                    const PopupMenuItem<String>(
-                                      value: 'view',
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.open_in_new, size: 18),
-                                          SizedBox(width: 10),
-                                          Text('View details'),
-                                        ],
-                                      ),
-                                    ),
-                                    if (url.isNotEmpty) ...[
-                                      const PopupMenuItem<String>(
-                                        value: 'copy',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.copy, size: 18),
-                                            SizedBox(width: 10),
-                                            Text('Copy link'),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                    const PopupMenuDivider(),
-                                    PopupMenuItem<String>(
-                                      value: 'toggle',
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            isOpen
-                                                ? Icons.link_off
-                                                : Icons.link,
-                                            size: 18,
-                                          ),
-                                          SizedBox(width: 10),
-                                          Text(
-                                            isOpen
-                                                ? 'Disable link'
-                                                : 'Enable link',
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                    return Padding(
+                      padding: const EdgeInsets.all(0),
+                      child: Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          onTap: widget.busy ? null : () => widget.onSelect(d.id),
+                          borderRadius: BorderRadius.circular(12),
+                          hoverColor: Colors.black.withOpacity(0.03),
+                          splashColor: Colors.black.withOpacity(0.02),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFFE4E7EC),
+                              ), // enterprise stroke
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.015),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
                                 ),
                               ],
                             ),
-                          ] else ...[
-                            // ✅ Desktop/tablet: keep your original horizontal actions
-                            _StatusPill(status: status),
-                            const SizedBox(width: 6),
-
-                            // quick copy
-                            if (url.isNotEmpty)
-                              Tooltip(
-                                message: busy ? 'Working…' : 'Copy link',
-                                child: IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints.tightFor(
-                                    width: 36,
-                                    height: 36,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // ✅ Status accent rail
+                                Container(
+                                  width: 5,
+                                  height: 60, // your current behavior kept
+                                  decoration: BoxDecoration(
+                                    color: accent.withOpacity(0.90),
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(12),
+                                      bottomLeft: Radius.circular(12),
+                                    ),
                                   ),
-                                  icon: const Icon(Icons.copy, size: 18),
-                                  onPressed: busy
-                                      ? null
-                                      : () async {
-                                          await Clipboard.setData(
-                                            ClipboardData(text: url),
-                                          );
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Drop-off link copied.',
-                                                ),
+                                ),
+
+                                // Main content padding
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      10,
+                                      8,
+                                      8,
+                                      8,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // clickable icon -> view details
+                                        InkWell(
+                                          onTap: widget.busy
+                                              ? null
+                                              : () => widget.onSelect(d.id),
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(
+                                              Icons.inbox_outlined,
+                                              color: AppColors.brandBlue.withOpacity(0.85),
+                                            ),
+                                          ),
+                                        ),
+
+                                        const SizedBox(width: 10),
+
+                                        // clickable name/meta -> view details
+                                        Expanded(
+                                          child: InkWell(
+                                            onTap: widget.busy
+                                                ? null
+                                                : () => widget.onSelect(d.id),
+                                            borderRadius: BorderRadius.circular(10),
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 2),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          title,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: theme.textTheme.bodyMedium?.copyWith(
+                                                            fontWeight: FontWeight.w800,
+                                                            color: const Color(0xFF101828),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 10),
+                                                      Text(
+                                                        'ID: ${d.id.substring(0, d.id.length > 6 ? 6 : d.id.length)}',
+                                                        style: theme.textTheme.labelSmall?.copyWith(
+                                                          color: const Color(0xFF98A2B3),
+                                                          fontWeight: FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+
+                                                  const SizedBox(height: 2),
+
+                                                  Text(
+                                                    subtitle,
+                                                    maxLines: 2,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: theme.textTheme.bodySmall?.copyWith(
+                                                      color: const Color(0xFF667085),
+                                                      fontWeight: FontWeight.w600,
+                                                      height: 1.2,
+                                                    ),
+                                                  ),
+
+                                                  const SizedBox(height: 6),
+
+                                                  // metadata: file count + created date
+                                                  Wrap(
+                                                    spacing: 10,
+                                                    runSpacing: 4,
+                                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                                    children: [
+                                                      Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          const Icon(
+                                                            Icons.attach_file,
+                                                            size: 14,
+                                                            color: Color(0xFF667085),
+                                                          ),
+                                                          const SizedBox(width: 4),
+                                                          Text(
+                                                            '$fileCount item${fileCount == 1 ? '' : 's'}',
+                                                            style: theme.textTheme.labelSmall?.copyWith(
+                                                              color: const Color(0xFF667085),
+                                                              fontWeight: FontWeight.w700,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      if (createdText.isNotEmpty)
+                                                        Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(
+                                                              Icons.calendar_today_outlined,
+                                                              size: 13,
+                                                              color: Color(0xFF667085),
+                                                            ),
+                                                            const SizedBox(width: 4),
+                                                            Text(
+                                                              'Created $createdText',
+                                                              style: theme.textTheme.labelSmall?.copyWith(
+                                                                color: const Color(0xFF667085),
+                                                                fontWeight: FontWeight.w600,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ],
                                               ),
-                                            );
-                                          }
-                                        },
-                                ),
-                              ),
+                                            ),
+                                          ),
+                                        ),
 
-                            // more actions: view + toggle
-                            Tooltip(
-                              message: busy ? 'Working…' : 'More actions',
-                              child: PopupMenuButton<String>(
-                                enabled: !busy,
-                                tooltip: 'More actions',
-                                position: PopupMenuPosition.under,
-                                icon: Icon(
-                                  Icons.more_horiz,
-                                  color: AppColors.brandBlue.withOpacity(0.85),
-                                ),
-                                onSelected: (value) async {
-                                  if (busy) return;
+                                        const SizedBox(width: 10),
 
-                                  if (value == 'view') {
-                                    onSelect(d.id);
-                                    return;
-                                  }
-                                  if (value == 'toggle') {
-                                    final nextStatus = isOpen
-                                        ? 'closed'
-                                        : 'open';
-                                    await onSetStatus(d.id, nextStatus);
-                                  }
-                                },
-                                itemBuilder: (ctx) => [
-                                  const PopupMenuItem<String>(
-                                    value: 'view',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.open_in_new, size: 18),
-                                        SizedBox(width: 10),
-                                        Text('View details'),
+                                        // Actions area (your existing logic preserved)
+                                        if (isMobile) ...[
+                                          Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            children: [
+                                              _StatusPill(status: status),
+                                              const SizedBox(height: 6),
+                                              PopupMenuButton<String>(
+                                                enabled: !widget.busy,
+                                                tooltip: widget.busy ? 'Working…' : 'Actions',
+                                                position: PopupMenuPosition.under,
+                                                icon: Icon(
+                                                  Icons.more_vert,
+                                                  color: AppColors.brandBlue.withOpacity(0.85),
+                                                ),
+                                                onSelected: (value) async {
+                                                  if (widget.busy) return;
+
+                                                  if (value == 'view') {
+                                                    widget.onSelect(d.id);
+                                                    return;
+                                                  }
+                                                  if (value == 'copy' && url.isNotEmpty) {
+                                                    await Clipboard.setData(
+                                                      ClipboardData(text: url),
+                                                    );
+                                                    if (context.mounted) {
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text('Drop-off link copied.'),
+                                                        ),
+                                                      );
+                                                    }
+                                                    return;
+                                                  }
+                                                  if (value == 'toggle') {
+                                                    final nextStatus = isOpen ? 'closed' : 'open';
+                                                    await widget.onSetStatus(d.id, nextStatus);
+                                                  }
+                                                },
+                                                itemBuilder: (ctx) => [
+                                                  const PopupMenuItem<String>(
+                                                    value: 'view',
+                                                    child: Row(
+                                                      children: [
+                                                        Icon(Icons.open_in_new, size: 18),
+                                                        SizedBox(width: 10),
+                                                        Text('View details'),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  if (url.isNotEmpty)
+                                                    const PopupMenuItem<String>(
+                                                      value: 'copy',
+                                                      child: Row(
+                                                        children: [
+                                                          Icon(Icons.copy, size: 18),
+                                                          SizedBox(width: 10),
+                                                          Text('Copy link'),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  const PopupMenuDivider(),
+                                                  PopupMenuItem<String>(
+                                                    value: 'toggle',
+                                                    child: Row(
+                                                      children: [
+                                                        Icon(
+                                                          isOpen ? Icons.link_off : Icons.link,
+                                                          size: 18,
+                                                        ),
+                                                        SizedBox(width: 10),
+                                                        Text(isOpen ? 'Disable link' : 'Enable link'),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ] else ...[
+                                          _StatusPill(status: status),
+                                          const SizedBox(width: 6),
+
+                                          if (url.isNotEmpty)
+                                            Tooltip(
+                                              message: widget.busy ? 'Working…' : 'Copy link',
+                                              child: IconButton(
+                                                visualDensity: VisualDensity.compact,
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints.tightFor(
+                                                  width: 36,
+                                                  height: 36,
+                                                ),
+                                                icon: const Icon(Icons.copy, size: 18),
+                                                onPressed: widget.busy
+                                                    ? null
+                                                    : () async {
+                                                        await Clipboard.setData(
+                                                          ClipboardData(text: url),
+                                                        );
+                                                        if (context.mounted) {
+                                                          ScaffoldMessenger.of(context).showSnackBar(
+                                                            const SnackBar(
+                                                              content: Text('Drop-off link copied.'),
+                                                            ),
+                                                          );
+                                                        }
+                                                      },
+                                              ),
+                                            ),
+
+                                          Tooltip(
+                                            message: widget.busy ? 'Working…' : 'More actions',
+                                            child: PopupMenuButton<String>(
+                                              enabled: !widget.busy,
+                                              tooltip: 'More actions',
+                                              position: PopupMenuPosition.under,
+                                              icon: Icon(
+                                                Icons.more_horiz,
+                                                color: AppColors.brandBlue.withOpacity(0.85),
+                                              ),
+                                              onSelected: (value) async {
+                                                if (widget.busy) return;
+
+                                                if (value == 'view') {
+                                                  widget.onSelect(d.id);
+                                                  return;
+                                                }
+                                                if (value == 'toggle') {
+                                                  final nextStatus = isOpen ? 'closed' : 'open';
+                                                  await widget.onSetStatus(d.id, nextStatus);
+                                                }
+                                              },
+                                              itemBuilder: (ctx) => [
+                                                const PopupMenuItem<String>(
+                                                  value: 'view',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(Icons.open_in_new, size: 18),
+                                                      SizedBox(width: 10),
+                                                      Text('View details'),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuDivider(),
+                                                PopupMenuItem<String>(
+                                                  value: 'toggle',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        isOpen ? Icons.link_off : Icons.link,
+                                                        size: 18,
+                                                      ),
+                                                      SizedBox(width: 10),
+                                                      Text(isOpen ? 'Disable link' : 'Enable link'),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+
+                                          IconButton(
+                                            visualDensity: VisualDensity.compact,
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints.tightFor(
+                                              width: 36,
+                                              height: 36,
+                                            ),
+                                            tooltip: 'View details',
+                                            onPressed: widget.busy ? null : () => widget.onSelect(d.id),
+                                            icon: Icon(
+                                              Icons.chevron_right,
+                                              color: AppColors.brandBlue.withOpacity(0.55),
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
-                                  const PopupMenuDivider(),
-                                  PopupMenuItem<String>(
-                                    value: 'toggle',
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          isOpen ? Icons.link_off : Icons.link,
-                                          size: 18,
-                                        ),
-                                        SizedBox(width: 10),
-                                        Text(
-                                          isOpen
-                                              ? 'Disable link'
-                                              : 'Enable link',
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-
-                            // chevron -> view details
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 36,
-                                height: 36,
-                              ),
-                              tooltip: 'View details',
-                              onPressed: busy ? null : () => onSelect(d.id),
-                              icon: Icon(
-                                Icons.chevron_right,
-                                color: AppColors.brandBlue.withOpacity(0.55),
-                              ),
-                            ),
-                          ],
-                        ],
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -1495,6 +1597,19 @@ class _StatusPill extends StatelessWidget {
         style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 12),
       ),
     );
+  }
+}
+
+Color _statusAccent(String statusLower) {
+  switch (statusLower) {
+    case 'open':
+      return Colors.green.shade700;
+    case 'closed':
+      return Colors.red.shade700;
+    case 'expired':
+      return Colors.red.shade900;
+    default:
+      return Colors.amber.shade800;
   }
 }
 
