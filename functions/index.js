@@ -244,21 +244,29 @@ function buildTransport() {
 async function sendAccountEmail({ to, subject, html }) {
   const transporter = buildTransport();
 
-  // ✅ Keep SMTP_FROM as JUST the email address (e.g. no-reply@axumecpas.com)
-  const fromEmail = (SMTP_FROM.value() || "").toString().trim();
+  // ✅ Strong fallback so FROM is never empty
+  const fromEmail = (SMTP_FROM.value() || SMTP_USER.value() || "")
+    .toString()
+    .trim();
+
+  if (!fromEmail) {
+    console.error(
+      "SMTP_FROM (and SMTP_USER fallback) are empty — cannot send email."
+    );
+    throw new Error("SMTP_FROM not configured");
+  }
+
+  console.log("Sending email:", { to, subject, fromEmail });
 
   const info = await transporter.sendMail({
-    // ✅ Enterprise display name + from email
     from: `Axume & Associates CPAs <${fromEmail}>`,
-
-    // ✅ Optional but recommended (so users can reach IT if they reply)
     replyTo: "guillermo@axumecpas.com",
-
     to,
     subject,
     html,
   });
 
+  console.log("Email sent messageId:", info.messageId);
   return info.messageId;
 }
 
@@ -268,114 +276,31 @@ async function getUserDocByUid(uid) {
   return { ref, snap, data: snap.exists ? (snap.data() || {}) : {} };
 }
 
-// ============================
-// notifyDropoffBatchUpload (public via token)
-// Sends ONE email for a bulk upload action
-// ============================
 exports.notifyDropoffBatchUpload = onCall(
   { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
   async (request) => {
-    try {
-      const { rid, token, files } = request.data || {};
-
-      if (!rid || !token) {
-        throw new HttpsError("invalid-argument", "rid and token are required.");
-      }
-
-      if (!Array.isArray(files) || files.length === 0) {
-        throw new HttpsError("invalid-argument", "files must be a non-empty array.");
-      }
-
-      // basic sanitization + limit
-      const names = files
-        .map((x) => String(x || "").trim())
-        .filter((x) => x.length > 0)
-        .slice(0, 25);
-
-      if (names.length === 0) {
-        throw new HttpsError("invalid-argument", "No valid filenames provided.");
-      }
-
-      const ref = admin.firestore().collection("dropoff_requests").doc(rid);
-      const snap = await ref.get();
-
-      if (!snap.exists) {
-        throw new HttpsError("not-found", "Drop-off request not found.");
-      }
-
-      const doc = snap.data() || {};
-
-      if (sha256(token) !== doc.tokenHash) {
-        throw new HttpsError("permission-denied", "Invalid token.");
-      }
-
-      await ref.set(
-        { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-
-      return {
-        ok: true,
-        requestId: rid,
-        clientName: doc.clientName || "",
-        message: doc.message || "",
-        status: doc.status || "open", // ✅ ALWAYS RETURN STATUS
-      };
-
-      if (sha256(token) !== doc.tokenHash) {
-        throw new HttpsError("permission-denied", "Invalid token.");
-      }
-
-      const createdByUid = (doc.createdByUid || "").toString().trim();
-      const createdByEmail = (doc.createdByEmail || "").toString().trim();
-      const clientName = (doc.clientName || "a client").toString().trim();
-
-      // Determine recipient email
-      let to = createdByEmail;
-      if (!to && createdByUid) {
-        const u = await admin.auth().getUser(createdByUid);
-        to = (u.email || "").toString().trim();
-      }
-      if (!to) {
-        // can't notify anyone
-        return { ok: true, emailed: false };
-      }
-
-      const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
-      const portalUrl = baseUrl ? `${baseUrl}/#/admin-dropoffs` : "";
-
-      const listHtml = names
-        .map((n) => `<li><b>${safeFilename(n)}</b></li>`)
-        .join("");
-
-      const subject = `New upload received — ${APP_NAME.value()}`;
-      const html = `
-<div style="font-family:Arial,sans-serif;line-height:1.5;color:#101828">
-  <p>Hi,</p>
-  <p><b>${names.length} file(s) uploaded</b> for your drop-off request for <b>${clientName}</b>.</p>
-  <p>Files:</p>
-  <ul>${listHtml}</ul>
-  <p>Open the portal to review the upload(s).</p>
-  ${portalUrl ? `<p><a href="${portalUrl}" style="color:#0B62D6">Open Drop-Off Requests</a></p>` : ""}
-  <p style="margin-top:18px;color:#667085;font-size:12px">${APP_NAME.value()}</p>
-</div>`;
-
-      await sendAccountEmail({ to, subject, html });
-
-      // optional audit stamps
-      await ref.set(
-        { lastUploadNotifiedAt: admin.firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-
-      return { ok: true, emailed: true, count: names.length };
-    } catch (err) {
-      console.error("notifyDropoffBatchUpload failed:", err);
-      if (err instanceof HttpsError) throw err;
-      throw new HttpsError("internal", "Notification failed on server.", {
-        message: err?.message ?? String(err),
-      });
+    const { rid, token } = request.data || {};
+    if (!rid || !token) {
+      throw new HttpsError("invalid-argument", "rid and token are required.");
     }
+
+    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+    const doc = snap.data() || {};
+    if (sha256(token) !== doc.tokenHash) {
+      throw new HttpsError("permission-denied", "Invalid token.");
+    }
+
+    // optional stamp
+    await ref.set(
+      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    // ✅ UI-only (email is handled by Firestore trigger)
+    return { ok: true };
   }
 );
 
@@ -591,7 +516,7 @@ exports.finalizeDropoffUpload = onCall(
 // DROP-OFF upload notification (email)
 // Fires when a new file metadata doc is created
 // ============================
-/*
+
 exports.notifyDropoffUpload = onDocumentCreated(
   {
     region: "us-central1",
@@ -632,7 +557,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
             : 0;
 
         const nowMs = Date.now();
-        const debounceMs = 2 * 60 * 1000;
+        const debounceMs = 10 * 1000; // 10 seconds for testing
 
         if (nowMs - lastMs < debounceMs) {
           // Too soon since last notification -> skip
@@ -687,7 +612,8 @@ exports.notifyDropoffUpload = onDocumentCreated(
     }
   }
 );
-*/
+
+
 // ============================
 // deleteUser (admin-only)
 // ============================
@@ -1253,7 +1179,6 @@ exports.createDropoffRequest = onCall(
   }
 );
 
-// validateDropoffLink (public)
 exports.validateDropoffLink = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -1268,24 +1193,20 @@ exports.validateDropoffLink = onCall(
       throw new HttpsError("not-found", "Drop-off request not found.");
     }
 
-    const doc = snap.data();
+    const doc = snap.data() || {};
 
-    if ((doc.status || "open") !== "open") {
-      throw new HttpsError(
-        "failed-precondition",
-        "This drop-off link is no longer active."
-      );
-    }
-
+    // ✅ Validate token first (still an error if wrong)
     if (sha256(token) !== doc.tokenHash) {
       throw new HttpsError("permission-denied", "Invalid token.");
     }
 
+    // ✅ Always stamp view time
     await ref.set(
       { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
       { merge: true }
     );
 
+    // ✅ Always return status (open OR closed)
     return {
       ok: true,
       requestId: rid,

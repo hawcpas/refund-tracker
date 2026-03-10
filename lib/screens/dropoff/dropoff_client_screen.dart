@@ -402,7 +402,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       if (!mounted) return;
+
       // ✅ Send ONE summary email (server-side), after all uploads complete
+      /*
       Map<String, dynamic>? notifyResult;
       try {
         final res = await _functions
@@ -433,7 +435,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       // Optional: if server says it didn't email anyone, show that clearly
-      if (notifyResult != null && notifyResult['emailed'] != true && mounted) {
+      if (notifyResult != null &&
+          notifyResult.containsKey('emailed') &&
+          notifyResult['emailed'] == false &&
+          mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -442,6 +447,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           ),
         );
       }
+      */
       setState(() {
         _success =
             'Upload complete — $uploaded file(s) uploaded. You can upload more.';
