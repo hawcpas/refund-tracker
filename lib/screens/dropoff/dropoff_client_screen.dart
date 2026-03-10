@@ -29,6 +29,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
   bool _loading = true;
   bool _uploading = false;
+  bool get _isClosed => ((_info?['status'] ?? 'closed').toString() != 'open');
 
   String? _error;
   String? _success;
@@ -39,9 +40,34 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   String? _rid;
   String? _token;
 
+  static const String _closedMsg =
+      'This secure upload request has been closed. If you need to submit files, please request a new link.';
+
   bool _isCompact(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
     return w < 600;
+  }
+
+  String _friendlyFunctionsError(Object e) {
+    if (e is FirebaseFunctionsException) {
+      switch (e.code) {
+        case 'failed-precondition':
+          return 'This secure upload request has been closed. If you need to submit files, please request a new link.';
+        case 'permission-denied':
+          return 'You do not have permission to upload to this link.';
+        case 'unauthenticated':
+          return 'Your upload session has expired. Please refresh the page.';
+        case 'not-found':
+          return 'This upload link could not be found.';
+        case 'deadline-exceeded':
+          return 'The request took too long. Please try again.';
+        default:
+          return 'We couldn’t complete your request. Please try again.';
+      }
+    }
+
+    // Fallback for non-Firebase errors
+    return 'An unexpected error occurred. Please try again.';
   }
 
   // -----------------------------
@@ -105,6 +131,42 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     _init();
   }
 
+  Future<bool> _refreshAndCheckCanUpload({bool showMessage = true}) async {
+    if (_rid == null || _token == null) return false;
+
+    try {
+      final res = await _functions
+          .httpsCallable('validateDropoffLink')
+          .call({'rid': _rid, 'token': _token})
+          .timeout(const Duration(seconds: 15));
+
+      final data = Map<String, dynamic>.from(res.data as Map);
+      _info = data;
+
+      final status = (_info?['status'] ?? 'closed').toString();
+      final canUploadNow = !_loading && status == 'open';
+
+      if (!canUploadNow && showMessage && mounted) {
+        setState(() {
+          _error = _closedMsg;
+          _success = null;
+        });
+      }
+
+      if (mounted) setState(() {}); // refresh UI status + buttons
+      return canUploadNow;
+    } catch (e) {
+      // If validation fails, treat as not allowed and show friendly error
+      if (mounted && showMessage) {
+        setState(() {
+          _error = _friendlyFunctionsError(e);
+          _success = null;
+        });
+      }
+      return false;
+    }
+  }
+
   Future<void> _init() async {
     try {
       final params = _extractDropoffParams();
@@ -142,10 +204,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         _loading = false;
         _uploading = false;
-        _error = e.toString();
+        _error = _friendlyFunctionsError(e);
         _success = null;
       });
     }
@@ -160,14 +223,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     setState(() => _queuedFiles.removeAt(index));
   }
 
-  // Called by WebFileSelector (iOS Safari Web)
   Future<void> _queueFromXFiles(List<XFile> files) async {
     if (!mounted) return;
 
-    if (files.isEmpty) {
-      setState(() => _error = 'No file was selected.');
-      return;
-    }
+    // ✅ If user cancels, do nothing (no error UI)
+    if (files.isEmpty) return;
 
     setState(() {
       _error = null;
@@ -207,10 +267,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
       if (!mounted) return;
 
-      if (result == null || result.files.isEmpty) {
-        setState(() => _error = 'No file was selected.');
-        return;
-      }
+      // ✅ If user cancels, do nothing (no error UI)
+      if (result == null || result.files.isEmpty) return;
 
       final existing = _queuedFiles.map(_fileKey).toSet();
       for (final f in result.files) {
@@ -233,6 +291,17 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   // -----------------------------
 
   Future<void> _uploadQueuedFiles() async {
+    // ✅ Recompute upload eligibility locally (do NOT rely on build())
+    final status = (_info?['status'] ?? 'open').toString();
+    final canUploadNow = !_loading && status == 'open';
+
+    if (!canUploadNow) {
+      setState(() {
+        _error = _closedMsg;
+      });
+      return;
+    }
+
     if (_uploading) return;
     if (_queuedFiles.isEmpty) {
       setState(() => _error = 'Select at least one file to upload.');
@@ -290,25 +359,25 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         late final StreamSubscription<TaskSnapshot> sub;
 
-try {
-  sub = task.snapshotEvents.listen((snapshot) {
-    final total = snapshot.totalBytes;
-    if (total > 0) {
-      final progressValue = snapshot.bytesTransferred / total;
-      if (mounted) {
-        setState(() {
-          _uploadProgress[fileKey] = progressValue;
-        });
-      }
-    }
-  });
+        try {
+          sub = task.snapshotEvents.listen((snapshot) {
+            final total = snapshot.totalBytes;
+            if (total > 0) {
+              final progressValue = snapshot.bytesTransferred / total;
+              if (mounted) {
+                setState(() {
+                  _uploadProgress[fileKey] = progressValue;
+                });
+              }
+            }
+          });
 
-  // ✅ wait for upload to finish
-  await task;
-} finally {
-  // ✅ stop listening even if upload throws
-  await sub.cancel();
-}
+          // ✅ wait for upload to finish
+          await task;
+        } finally {
+          // ✅ stop listening even if upload throws
+          await sub.cancel();
+        }
 
         await _functions.httpsCallable('finalizeDropoffUpload').call({
           'rid': _rid,
@@ -333,7 +402,6 @@ try {
       }
 
       if (!mounted) return;
-      // ✅ Send ONE summary email (server-side), after all uploads complete
       // ✅ Send ONE summary email (server-side), after all uploads complete
       Map<String, dynamic>? notifyResult;
       try {
@@ -381,9 +449,15 @@ try {
       });
     } catch (e) {
       if (!mounted) return;
+
+      final message = _friendlyFunctionsError(e);
+
+      if (e is FirebaseFunctionsException && e.code == 'failed-precondition') {
+        _info = {...?_info, 'status': 'closed'};
+      }
+
       setState(() {
-        _error =
-            'Upload failed. $uploaded file(s) uploaded before the error.\n$e';
+        _error = message;
       });
     } finally {
       if (mounted) setState(() => _uploading = false);
@@ -397,19 +471,36 @@ try {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final status = (_info?['status'] ?? 'open').toString();
+    final status = (_info?['status'] ?? 'closed').toString();
     final canUploadNow = !_loading && status == 'open';
     final isCompact = _isCompact(context);
 
-    // ✅ "Add files" button: wrapped for iOS Safari web using WebFileSelector
-    // This matches the package’s documented usage (wrap a button, use onData). [1](https://pub.dev/documentation/flutter_web_file_selector/latest/)[2](https://github.com/koichia/flutter_web_file_selector)[4](https://pub.dev/packages/flutter_web_file_selector/example)
+    final brand = AppColors.brandBlue;
+
     Widget addFilesBtn = OutlinedButton.icon(
-      onPressed: canUploadNow && !_uploading
-          ? () {
-              // non-iOS-web path
+      onPressed: (canUploadNow && !_uploading)
+          ? () async {
+              setState(() {
+                _error = null;
+                _success = null;
+              });
+
+              // ✅ Re-check server status right before letting user pick
+              final ok = await _refreshAndCheckCanUpload(showMessage: true);
+              if (!ok) {
+                setState(() {
+                  _queuedFiles.clear();
+                  _uploadProgress.clear();
+                  _currentlyUploadingKey = null;
+                });
+                return;
+              }
+
+              // Non‑iOS web/native: open normal picker
               if (!WebFileSelector.isIOSWeb) {
                 _pickFilesToQueue();
               }
+              // iOS web: WebFileSelector wrapper handles the file prompt
             }
           : null,
       icon: const Icon(Icons.add),
@@ -417,13 +508,42 @@ try {
         'Add files',
         style: TextStyle(fontWeight: FontWeight.w900),
       ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor:
+            brand, // bright text color [2](https://github.com/koichia/flutter_web_file_selector)
+        iconColor: brand, // force icon to match (no theme surprise)
+        side: BorderSide(
+          color: brand,
+          width: 1.6,
+        ), // stronger stroke = more “pop”
+        backgroundColor: brand.withOpacity(
+          0.08,
+        ), // subtle tint to make it punchy
+        overlayColor: brand.withOpacity(0.12), // press ripple tint
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        disabledForegroundColor: brand.withOpacity(
+          0.55,
+        ), // disabled, but still branded [1](https://stackoverflow.com/questions/77714785/flutter-web-file-picker-not-working-on-safari)
+        disabledBackgroundColor: Colors.transparent,
+      ),
     );
 
-    if (WebFileSelector.isIOSWeb) {
+    if (WebFileSelector.isIOSWeb && canUploadNow && !_uploading) {
       addFilesBtn = WebFileSelector(
         multiple: true,
-        // accept: '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.csv,.txt',
         onData: (files) async {
+          final ok = await _refreshAndCheckCanUpload(showMessage: true);
+          if (!ok) {
+            setState(() {
+              _queuedFiles.clear();
+              _uploadProgress.clear();
+              _currentlyUploadingKey = null;
+            });
+
+            return;
+          }
+
           await _queueFromXFiles(files);
         },
         child: addFilesBtn,
@@ -516,7 +636,7 @@ try {
                         const SizedBox(height: 12),
                       ],
 
-                      if (_error != null) ...[
+                      if (_error != null && !_isClosed) ...[
                         _ErrorBanner(message: _error!),
                         const SizedBox(height: 12),
                       ],
@@ -568,7 +688,7 @@ try {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Text(
-                            'This drop-off request is no longer accepting uploads.',
+                            _closedMsg,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: Colors.red.shade700,
                               fontWeight: FontWeight.w600,
@@ -588,21 +708,27 @@ try {
                         const SizedBox(height: 12),
                       ],
 
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: isCompact ? double.infinity : 520,
+                      Row(
+                        children: [
+                          Flexible(
+                            fit: FlexFit.loose,
+                            child: IgnorePointer(
+                              ignoring:
+                                  !canUploadNow, // ✅ HARD disable pointer interaction
+                              child: Opacity(
+                                opacity: canUploadNow
+                                    ? 1.0
+                                    : 0.55, // ✅ visual cue (enterprise subtle)
+                                child: SizedBox(height: 48, child: addFilesBtn),
+                              ),
+                            ),
                           ),
-                          child: Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              SizedBox(height: 46, child: addFilesBtn),
-                              SizedBox(height: 46, child: uploadBtn),
-                            ],
+                          const SizedBox(width: 6),
+                          Flexible(
+                            fit: FlexFit.loose,
+                            child: SizedBox(height: 48, child: uploadBtn),
                           ),
-                        ),
+                        ],
                       ),
 
                       const SizedBox(height: 10),
