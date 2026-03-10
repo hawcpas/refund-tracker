@@ -32,6 +32,143 @@ const SMTP_FROM = defineString("SMTP_FROM");
 // ============================
 // Helpers
 // ============================
+function renderActivationEmail({ appName, firstName, resetLink, verifyLink }) {
+  const safeFirstName = (firstName || "").toString().trim() || "there";
+
+  return `
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
+
+    <!-- Header / Logo -->
+    <tr>
+      <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
+        <table cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td>
+              <img
+                src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+                alt="Axume &amp; Associates CPAs"
+                width="360"
+                height="84"
+                style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
+              />
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+      <td style="padding:24px;">
+        <h2 style="margin:0 0 6px 0; font-size:20px; font-weight:700; color:#0B1F33;">
+          Activate your account
+        </h2>
+
+        <p style="margin:0 0 16px 0; font-size:14px; color:#475467;">
+          ${appName}
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          Hi ${safeFirstName},
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          You have been invited to access <b>${appName}</b>.
+          This secure portal is used for internal collaboration, document workflows,
+          and firm communications.
+        </p>
+
+        <p style="margin:0 0 20px 0;">
+          To get started, please complete the steps below.
+        </p>
+
+        <!-- Step 1 -->
+        <div style="margin:0 0 18px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px; background:#F9FAFB;">
+          <p style="margin:0 0 6px 0; font-weight:700; color:#0B1F33;">
+            Step 1 — Set your password
+          </p>
+          <p style="margin:0 0 12px 0; font-size:14px;">
+            Create a password to activate your account.
+          </p>
+
+          <a
+            href="${resetLink}"
+            style="display:inline-block; padding:10px 16px; background:#0B1F33; color:#ffffff;
+                   text-decoration:none; border-radius:6px; font-weight:600; font-size:14px;"
+          >
+            Set password
+          </a>
+        </div>
+
+        <!-- Step 2 -->
+        <div style="margin:0 0 22px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px;">
+          <p style="margin:0 0 6px 0; font-weight:700; color:#0B1F33;">
+            Step 2 — Verify your email (recommended)
+          </p>
+          <p style="margin:0 0 12px 0; font-size:14px;">
+            Confirming your email helps keep your account secure.
+          </p>
+
+          <a
+            href="${verifyLink}"
+            style="display:inline-block; padding:10px 16px; background:#ffffff; color:#0B1F33;
+                   text-decoration:none; border-radius:6px; border:1px solid #0B1F33;
+                   font-weight:600; font-size:14px;"
+          >
+            Verify email
+          </a>
+        </div>
+
+        <!-- Fallback links -->
+        <p style="margin:0 0 10px 0; font-size:13px; color:#667085;">
+          If the buttons above do not work, copy and paste the links below into your browser:
+        </p>
+
+        <p style="margin:0 0 8px 0; font-size:12px;">
+          <b>Set password:</b><br/>
+          <a href="${resetLink}" style="color:#0B62D6; word-break:break-all;">
+            ${resetLink}
+          </a>
+        </p>
+
+        <p style="margin:0 0 18px 0; font-size:12px;">
+          <b>Verify email:</b><br/>
+          <a href="${verifyLink}" style="color:#0B62D6; word-break:break-all;">
+            ${verifyLink}
+          </a>
+        </p>
+
+        <!-- Support -->
+        <p style="margin:0 0 8px 0;">
+          If you have questions or need assistance, please contact IT at
+          <a href="mailto:guillermo@axumecpas.com" style="color:#0B62D6;">
+            guillermo@axumecpas.com
+          </a>.
+        </p>
+
+        <p style="margin:20px 0 0 0;">
+          Regards,<br/>
+          <b>Axume &amp; Associates CPAs</b><br/>
+          <span style="font-size:13px; color:#667085;">AAC</span>
+        </p>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="padding:16px 24px; border-top:1px solid #E4E7EC;">
+        <p style="margin:0; font-size:12px; color:#667085;">
+          This message was sent automatically. Please do not reply.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</div>
+`;
+}
+
 function safeFilename(name) {
   return (name || "")
     .toString()
@@ -106,12 +243,22 @@ function buildTransport() {
 
 async function sendAccountEmail({ to, subject, html }) {
   const transporter = buildTransport();
+
+  // ✅ Keep SMTP_FROM as JUST the email address (e.g. no-reply@axumecpas.com)
+  const fromEmail = (SMTP_FROM.value() || "").toString().trim();
+
   const info = await transporter.sendMail({
-    from: SMTP_FROM.value(),
+    // ✅ Enterprise display name + from email
+    from: `Axume & Associates CPAs <${fromEmail}>`,
+
+    // ✅ Optional but recommended (so users can reach IT if they reply)
+    replyTo: "guillermo@axumecpas.com",
+
     to,
     subject,
     html,
   });
+
   return info.messageId;
 }
 
@@ -351,25 +498,15 @@ exports.inviteUser = onCall(
       // Send email
       await sendAccountEmail({
         to: email,
-        subject: `You're invited to ${APP_NAME.value()} — set your password`,
-        html: `
-<div style="font-family:Arial,sans-serif;line-height:1.5">
-  <p>Hi ${firstName},</p>
-  <p>You’ve been invited to <b>${APP_NAME.value()}</b>.</p>
-
-  <p><b>Step 1:</b> Set your password to activate your account:</p>
-  <p><a href="${resetLink}">Set Password</a></p>
-
-  <p>If the button doesn’t work, copy &amp; paste:</p>
-  <p><a href="${resetLink}">${resetLink}</a></p>
-
-  <hr style="margin:16px 0" />
-
-  <p><b>Step 2 (optional):</b> Verify your email:</p>
-  <p><a href="${verifyLink}">Verify Email</a></p>
-</div>
-`,
+        subject: `Action required: Activate your Axume & Associates CPAs account`,
+        html: renderActivationEmail({
+          appName: APP_NAME.value(),
+          firstName,
+          resetLink,
+          verifyLink,
+        }),
       });
+
 
       return { ok: true, email, role: requestedRole, sent: true, existedInAuth };
     } catch (err) {
@@ -870,17 +1007,140 @@ exports.resendInvite = onCall(
 
       await sendAccountEmail({
         to: email,
-        subject: `You're invited to ${APP_NAME.value()} — set your password`,
+        subject: `Action required: Activate your Axume & Associates CPAs account`,
         html: `
-<div style="font-family:Arial,sans-serif;line-height:1.5">
-  <p>Hi,</p>
-  <p>Here are your account links:</p>
-  <p><b>Set your password:</b> <a href="${resetLink}">Set Password</a></p>
-  <p><b>Verify email:</b> <a href="${verifyLink}">Verify Email</a></p>
-  <hr style="margin:16px 0" />
-  <p>If the buttons don’t work, copy &amp; paste:</p>
-  <p><a href="${resetLink}">${resetLink}</a></p>
-  <p><a href="${verifyLink}">${verifyLink}</a></p>
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
+    
+    <!-- Header / Logo -->
+    <tr>
+  <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
+    <table cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td>
+          <img
+            src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+            alt="Axume &amp; Associates CPAs"
+            width="360"
+            height="84"
+            style="
+              display:block;
+              border:0;
+              outline:none;
+              text-decoration:none;
+              max-width:360px;
+              height:auto;
+            "
+          />
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+
+    <!-- Body -->
+    <tr>
+      <td style="padding:24px;">
+        <h2 style="margin:0 0 6px 0; font-size:20px; font-weight:700; color:#0B1F33;">
+          Activate your account
+        </h2>
+
+        <p style="margin:0 0 16px 0; font-size:14px; color:#475467;">
+          Axume &amp; Associates CPAs App
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          You have been invited to access the <b>Axume &amp; Associates CPAs App</b>.
+          This secure portal is used for internal collaboration, document workflows,
+          and firm communications.
+        </p>
+
+        <p style="margin:0 0 20px 0;">
+          To get started, please complete the steps below.
+        </p>
+
+        <!-- Step 1 -->
+        <div style="margin:0 0 18px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px; background:#F9FAFB;">
+          <p style="margin:0 0 6px 0; font-weight:700; color:#0B1F33;">
+            Step 1 — Set your password
+          </p>
+          <p style="margin:0 0 12px 0; font-size:14px;">
+            Create a password to activate your account.
+          </p>
+
+          <a
+            href="${resetLink}"
+            style="display:inline-block; padding:10px 16px; background:#0B1F33; color:#ffffff;
+                   text-decoration:none; border-radius:6px; font-weight:600; font-size:14px;"
+          >
+            Set password
+          </a>
+        </div>
+
+        <!-- Step 2 -->
+        <div style="margin:0 0 22px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px;">
+          <p style="margin:0 0 6px 0; font-weight:700; color:#0B1F33;">
+            Step 2 — Verify your email (recommended)
+          </p>
+          <p style="margin:0 0 12px 0; font-size:14px;">
+            Confirming your email helps keep your account secure.
+          </p>
+
+          <a
+            href="${verifyLink}"
+            style="display:inline-block; padding:10px 16px; background:#ffffff; color:#0B1F33;
+                   text-decoration:none; border-radius:6px; border:1px solid #0B1F33;
+                   font-weight:600; font-size:14px;"
+          >
+            Verify email
+          </a>
+        </div>
+
+        <!-- Fallback links -->
+        <p style="margin:0 0 10px 0; font-size:13px; color:#667085;">
+          If the buttons above do not work, copy and paste the links below into your browser:
+        </p>
+
+        <p style="margin:0 0 8px 0; font-size:12px;">
+          <b>Set password:</b><br/>
+          <a href="${resetLink}" style="color:#0B62D6; word-break:break-all;">
+            ${resetLink}
+          </a>
+        </p>
+
+        <p style="margin:0 0 18px 0; font-size:12px;">
+          <b>Verify email:</b><br/>
+          <a href="${verifyLink}" style="color:#0B62D6; word-break:break-all;">
+            ${verifyLink}
+          </a>
+        </p>
+
+        <!-- Support -->
+        <p style="margin:0 0 8px 0;">
+          If you have questions or need assistance, please contact IT at
+          <a href="mailto:guillermo@axumecpas.com" style="color:#0B62D6;">
+            guillermo@axumecpas.com
+          </a>.
+        </p>
+
+        <p style="margin:20px 0 0 0;">
+          Regards,<br/>
+          <b>Axume &amp; Associates CPAs</b><br/>
+          <span style="font-size:13px; color:#667085;">AAC</span>
+        </p>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="padding:16px 24px; border-top:1px solid #E4E7EC;">
+        <p style="margin:0; font-size:12px; color:#667085;">
+          This message was sent automatically. Please do not reply.
+        </p>
+      </td>
+    </tr>
+
+  </table>
 </div>
 `,
       });
