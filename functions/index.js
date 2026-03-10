@@ -305,9 +305,22 @@ exports.notifyDropoffBatchUpload = onCall(
 
       const doc = snap.data() || {};
 
-      if ((doc.status || "open") !== "open") {
-        throw new HttpsError("failed-precondition", "Drop-off is closed.");
+      if (sha256(token) !== doc.tokenHash) {
+        throw new HttpsError("permission-denied", "Invalid token.");
       }
+
+      await ref.set(
+        { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      return {
+        ok: true,
+        requestId: rid,
+        clientName: doc.clientName || "",
+        message: doc.message || "",
+        status: doc.status || "open", // ✅ ALWAYS RETURN STATUS
+      };
 
       if (sha256(token) !== doc.tokenHash) {
         throw new HttpsError("permission-denied", "Invalid token.");
