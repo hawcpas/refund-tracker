@@ -290,25 +290,25 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         late final StreamSubscription<TaskSnapshot> sub;
 
-try {
-  sub = task.snapshotEvents.listen((snapshot) {
-    final total = snapshot.totalBytes;
-    if (total > 0) {
-      final progressValue = snapshot.bytesTransferred / total;
-      if (mounted) {
-        setState(() {
-          _uploadProgress[fileKey] = progressValue;
-        });
-      }
-    }
-  });
+        try {
+          sub = task.snapshotEvents.listen((snapshot) {
+            final total = snapshot.totalBytes;
+            if (total > 0) {
+              final progressValue = snapshot.bytesTransferred / total;
+              if (mounted) {
+                setState(() {
+                  _uploadProgress[fileKey] = progressValue;
+                });
+              }
+            }
+          });
 
-  // ✅ wait for upload to finish
-  await task;
-} finally {
-  // ✅ stop listening even if upload throws
-  await sub.cancel();
-}
+          // ✅ wait for upload to finish
+          await task;
+        } finally {
+          // ✅ stop listening even if upload throws
+          await sub.cancel();
+        }
 
         await _functions.httpsCallable('finalizeDropoffUpload').call({
           'rid': _rid,
@@ -333,7 +333,6 @@ try {
       }
 
       if (!mounted) return;
-      // ✅ Send ONE summary email (server-side), after all uploads complete
       // ✅ Send ONE summary email (server-side), after all uploads complete
       Map<String, dynamic>? notifyResult;
       try {
@@ -404,13 +403,8 @@ try {
     // ✅ "Add files" button: wrapped for iOS Safari web using WebFileSelector
     // This matches the package’s documented usage (wrap a button, use onData). [1](https://pub.dev/documentation/flutter_web_file_selector/latest/)[2](https://github.com/koichia/flutter_web_file_selector)[4](https://pub.dev/packages/flutter_web_file_selector/example)
     Widget addFilesBtn = OutlinedButton.icon(
-      onPressed: canUploadNow && !_uploading
-          ? () {
-              // non-iOS-web path
-              if (!WebFileSelector.isIOSWeb) {
-                _pickFilesToQueue();
-              }
-            }
+      onPressed: canUploadNow && !_uploading && !WebFileSelector.isIOSWeb
+          ? _pickFilesToQueue
           : null,
       icon: const Icon(Icons.add),
       label: const Text(
@@ -588,21 +582,13 @@ try {
                         const SizedBox(height: 12),
                       ],
 
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: isCompact ? double.infinity : 520,
-                          ),
-                          child: Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              SizedBox(height: 46, child: addFilesBtn),
-                              SizedBox(height: 46, child: uploadBtn),
-                            ],
-                          ),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(height: 48, child: addFilesBtn),
+                          const SizedBox(height: 10),
+                          SizedBox(height: 48, child: uploadBtn),
+                        ],
                       ),
 
                       const SizedBox(height: 10),
