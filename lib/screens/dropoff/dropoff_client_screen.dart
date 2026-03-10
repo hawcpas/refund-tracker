@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_file_selector/flutter_web_file_selector.dart';
 import 'dart:io';
+import 'dart:async';
 
 import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
@@ -23,6 +24,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
   // ✅ staged queue
   final List<PlatformFile> _queuedFiles = [];
+  final Map<String, double> _uploadProgress = {};
+  String? _currentlyUploadingKey;
 
   bool _loading = true;
   bool _uploading = false;
@@ -254,6 +257,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         final ref = FirebaseStorage.instance.ref(storagePath);
 
+        // ✅ START: UploadTask + progress (goes right here, replacing putData/putFile)
+        UploadTask task;
+
         if (kIsWeb) {
           final bytes = f.bytes;
           if (bytes == null) {
@@ -261,7 +267,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
               'Missing file bytes for ${f.name}. Please reselect.',
             );
           }
-          await ref.putData(bytes, SettableMetadata(contentType: contentType));
+
+          task = ref.putData(bytes, SettableMetadata(contentType: contentType));
         } else {
           final path = f.path;
           if (path == null || path.isEmpty) {
@@ -269,11 +276,39 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
               'Missing file path for ${f.name}. Please reselect.',
             );
           }
-          await ref.putFile(
+
+          task = ref.putFile(
             File(path),
             SettableMetadata(contentType: contentType),
           );
         }
+
+        final fileKey = _fileKey(f);
+
+        _uploadProgress[fileKey] = 0.0;
+        _currentlyUploadingKey = fileKey;
+
+        late final StreamSubscription<TaskSnapshot> sub;
+
+try {
+  sub = task.snapshotEvents.listen((snapshot) {
+    final total = snapshot.totalBytes;
+    if (total > 0) {
+      final progressValue = snapshot.bytesTransferred / total;
+      if (mounted) {
+        setState(() {
+          _uploadProgress[fileKey] = progressValue;
+        });
+      }
+    }
+  });
+
+  // ✅ wait for upload to finish
+  await task;
+} finally {
+  // ✅ stop listening even if upload throws
+  await sub.cancel();
+}
 
         await _functions.httpsCallable('finalizeDropoffUpload').call({
           'rid': _rid,
@@ -289,47 +324,56 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         uploaded++;
         uploadedNames.add(f.name);
         _queuedFiles.removeWhere((x) => _fileKey(x) == _fileKey(f));
+
+        // ✅ cleanup progress state
+        _uploadProgress.remove(fileKey);
+        if (_currentlyUploadingKey == fileKey) _currentlyUploadingKey = null;
+
         if (mounted) setState(() {});
       }
 
       if (!mounted) return;
       // ✅ Send ONE summary email (server-side), after all uploads complete
       // ✅ Send ONE summary email (server-side), after all uploads complete
-Map<String, dynamic>? notifyResult;
-try {
-  final res = await _functions
-      .httpsCallable('notifyDropoffBatchUpload')
-      .call({
-        'rid': _rid,
-        'token': _token,
-        'files': uploadedNames,
-      })
-      .timeout(const Duration(seconds: 20));
+      Map<String, dynamic>? notifyResult;
+      try {
+        final res = await _functions
+            .httpsCallable('notifyDropoffBatchUpload')
+            .call({'rid': _rid, 'token': _token, 'files': uploadedNames})
+            .timeout(const Duration(seconds: 20));
 
-  notifyResult = Map<String, dynamic>.from(res.data as Map);
-  if (kDebugMode) {
-    // ignore: avoid_print
-    print('notifyDropoffBatchUpload result: $notifyResult');
-  }
-} catch (e) {
-  if (kDebugMode) {
-    // ignore: avoid_print
-    print('Batch email notify failed: $e');
-  }
-  // ✅ show non-fatal warning to user (uploads still succeeded)
-  if (mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Upload completed, but email notification failed: $e')),
-    );
-  }
-}
+        notifyResult = Map<String, dynamic>.from(res.data as Map);
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('notifyDropoffBatchUpload result: $notifyResult');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('Batch email notify failed: $e');
+        }
+        // ✅ show non-fatal warning to user (uploads still succeeded)
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload completed, but email notification failed: $e',
+              ),
+            ),
+          );
+        }
+      }
 
-// Optional: if server says it didn't email anyone, show that clearly
-if (notifyResult != null && notifyResult['emailed'] != true && mounted) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Upload completed. Email notification was not sent (no recipient found).')),
-  );
-}
+      // Optional: if server says it didn't email anyone, show that clearly
+      if (notifyResult != null && notifyResult['emailed'] != true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Upload completed. Email notification was not sent (no recipient found).',
+            ),
+          ),
+        );
+      }
       setState(() {
         _success =
             'Upload complete — $uploaded file(s) uploaded. You can upload more.';
@@ -538,6 +582,8 @@ if (notifyResult != null && notifyResult['emailed'] != true && mounted) {
                           files: _queuedFiles,
                           onRemove: _removeQueuedAt,
                           disabled: _uploading,
+                          progress: _uploadProgress,
+                          activeKey: _currentlyUploadingKey,
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -588,10 +634,15 @@ class _QueuedFilesCard extends StatelessWidget {
   final void Function(int index) onRemove;
   final bool disabled;
 
+  final Map<String, double> progress;
+  final String? activeKey;
+
   const _QueuedFilesCard({
     required this.files,
     required this.onRemove,
     required this.disabled,
+    required this.progress,
+    required this.activeKey,
   });
 
   @override
@@ -619,31 +670,63 @@ class _QueuedFilesCard extends StatelessWidget {
           ...files.asMap().entries.map((e) {
             final i = e.key;
             final f = e.value;
+
+            final key =
+                '${f.name}|${f.size}|${f.path ?? ''}|${f.identifier ?? ''}';
+            final p = progress[key];
+
             return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(
-                    Icons.insert_drive_file_outlined,
-                    size: 16,
-                    color: Color(0xFF475467),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.insert_drive_file_outlined,
+                        size: 16,
+                        color: Color(0xFF475467),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          f.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF475467),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close, color: Colors.red.shade700),
+                        tooltip: disabled ? 'Uploading…' : 'Remove',
+                        onPressed: disabled ? null : () => onRemove(i),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      f.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF475467),
-                        fontWeight: FontWeight.w600,
+
+                  if (p != null) ...[
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value:
+                            p, // 0.0 → 1.0 determinate progress [1](https://api.flutter.dev/flutter/material/LinearProgressIndicator-class.html)
+                        minHeight: 6,
+                        backgroundColor: Colors.black.withOpacity(0.06),
+                        color: AppColors.brandBlue,
                       ),
                     ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, color: Colors.red.shade700),
-                    tooltip: disabled ? 'Uploading…' : 'Remove',
-                    onPressed: disabled ? null : () => onRemove(i),
-                  ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             );
