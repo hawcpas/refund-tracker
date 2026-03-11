@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:refund_tracker/widgets/centered_form.dart';
-import 'package:refund_tracker/widgets/centered_section.dart';
 import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
+import '../widgets/centered_section.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -18,14 +17,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _auth = AuthService();
 
   bool _loadingProfile = true;
-
-  // ✅ NEW: permission flag (admin OR capability)
   bool _hasDropoffAccess = false;
 
   String _fullName = '';
   String _role = '';
-
-  // ✅ communications fields
   String _wildixExt = '';
   String _clearflyNumber = '';
 
@@ -39,141 +34,139 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loadingProfile = true);
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      if (!mounted) return;
-      setState(() {
-        _loadingProfile = false;
-        _fullName = '';
-        _role = '';
-        _hasDropoffAccess = false; // ✅ reset
-        _wildixExt = '';
-        _clearflyNumber = '';
-      });
-      return;
-    }
+    if (user == null) return;
 
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get(const GetOptions(source: Source.server));
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get(const GetOptions(source: Source.server));
 
-      final data = doc.data() ?? {};
-      final firstName = (data['firstName'] ?? '').toString().trim();
-      final lastName = (data['lastName'] ?? '').toString().trim();
-      final displayName = (data['displayName'] ?? '').toString().trim();
+    final data = doc.data() ?? {};
+    final first = (data['firstName'] ?? '').toString().trim();
+    final last = (data['lastName'] ?? '').toString().trim();
+    final display = (data['displayName'] ?? '').toString().trim();
+    final name = ('$first $last').trim().isNotEmpty ? '$first $last' : display;
 
-      final computedName = ('$firstName $lastName').trim();
-      final bestName = computedName.isNotEmpty ? computedName : displayName;
+    final role = (data['role'] ?? '').toString().toLowerCase().trim();
+    final hasDropoffs =
+        role == 'admin' || (data['capabilities']?['dropoffs'] == true);
 
-      // ✅ Normalize role (lowercase + trimmed)
-      final role = (data['role'] ?? '').toString().toLowerCase().trim();
+    final comms = Map<String, dynamic>.from(data['communications'] ?? {});
+    final wildix = (comms['wildixExtension'] ?? '').toString().trim();
+    final clearfly = (comms['clearflySmsNumber'] ?? '').toString().trim();
 
-      // ✅ Staff permission: admin OR capabilities.dropoffs == true
-      final hasDropoffAccess =
-          role == 'admin' || (data['capabilities']?['dropoffs'] == true);
-
-      // ✅ Pull communications from Firestore (same number for Clearfly/eFax)
-      final comms = Map<String, dynamic>.from(data['communications'] ?? {});
-      final wildixExt = (comms['wildixExtension'] ?? '').toString().trim();
-      final clearflyRaw = (comms['clearflySmsNumber'] ?? '').toString().trim();
-      final clearflyNum = clearflyRaw.isEmpty
-          ? ''
-          : _formatUsPhone10(clearflyRaw);
-
-      if (!mounted) return;
-      setState(() {
-        _fullName = bestName;
-        _role = role;
-        _hasDropoffAccess = hasDropoffAccess; // ✅ NEW
-        _wildixExt = wildixExt;
-        _clearflyNumber = clearflyNum;
-        _loadingProfile = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _loadingProfile = false);
-    }
+    if (!mounted) return;
+    setState(() {
+      _fullName = name;
+      _role = role;
+      _hasDropoffAccess = hasDropoffs;
+      _wildixExt = wildix;
+      _clearflyNumber = _formatUsPhone10(clearfly);
+      _loadingProfile = false;
+    });
   }
 
-  // ✅ Immediate logout
   Future<void> _logout() async {
     await _auth.logout();
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
-  // ✅ Format any phone-like input into ###-###-#### (last 10 digits)
   String _formatUsPhone10(String input) {
     final digits = input.replaceAll(RegExp(r'\D'), '');
-    final ten = digits.length >= 10
-        ? digits.substring(digits.length - 10)
-        : digits;
-    if (ten.length != 10) return input.trim();
-    return '${ten.substring(0, 3)}-${ten.substring(3, 6)}-${ten.substring(6, 10)}';
+    if (digits.length < 10) return input.trim();
+    final t = digits.substring(digits.length - 10);
+    return '${t.substring(0, 3)}-${t.substring(3, 6)}-${t.substring(6)}';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final isAdmin = !_loadingProfile && _role == 'admin';
     final welcomeText = _fullName.isNotEmpty
-        ? "Welcome back, $_fullName"
-        : "Welcome back";
-
-    // Matches your ResourcesScreen geometry
-    const double maxPageWidth = 1100;
-    const double leftCardWidth = 740;
-    const double gap = 18;
+        ? 'Welcome back, $_fullName'
+        : 'Welcome back';
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
       appBar: AppBar(
-        title: const Text("Dashboard"),
+        title: const Text('Dashboard'),
         actions: [
           IconButton(
-            tooltip: "Logout",
+            tooltip: 'Logout',
             icon: const Icon(Icons.logout),
             onPressed: _logout,
           ),
         ],
       ),
-      body: ColoredBox(
-        color: AppColors.pageBackgroundLight,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-          children: [
-            CenteredSection(
-              maxWidth: maxPageWidth,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final w = constraints.maxWidth;
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+        children: [
+          CenteredSection(
+            // Slightly less wide than before to avoid “stretched” feel
+            maxWidth: 980,
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final w = c.maxWidth;
 
-                  final bool isWide = w >= (leftCardWidth + gap + 280);
-                  final bool isTight = w < 520;
+                final isMobile = w < 560;
+                final isWide = w >= 980;
 
-                  final isAdmin =
-                      !_loadingProfile && _role.toLowerCase().trim() == 'admin';
-
-                  final hasDropoffAccess = !_loadingProfile && _hasDropoffAccess;
-
-                  final welcomeCard = _WhiteSection(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                    child: _WelcomeCardContent(
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ContextHeader(
                       loading: _loadingProfile,
                       welcomeText: welcomeText,
                       isAdmin: isAdmin,
-                      isTight: isTight,
-                      wildixExtension: _wildixExt,
-                      clearflyNumber: _clearflyNumber,
+                      isMobile: isMobile,
+                      wildix: _wildixExt,
+                      clearfly: _clearflyNumber,
                       onAdminTap: () =>
                           Navigator.pushNamed(context, '/admin-users'),
                     ),
-                  );
 
-                  final linksCard = _WhiteSection(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                    child: _QuickLinksCard(
+                    const SizedBox(height: 18),
+
+                    // ✅ NEW: Enterprise section header for "Request files"
+                    if (_hasDropoffAccess) ...[
+                      _SectionLabel(
+                        title: 'Request files',
+                        subtitle:
+                            'Create secure upload links and track incoming documents.',
+                      ),
+                      const SizedBox(height: 12),
+
+                      _PrimaryFeatureCard(
+                        isMobile: isMobile,
+                        title: 'Client Upload Links',
+                        subtitle: 'Secure links for clients to submit documents.',
+                        icon: Icons.link_outlined,
+                        ctaLabel: 'Manage links',
+                        onOpen: () =>
+                            Navigator.pushNamed(context, '/admin-dropoffs'),
+                      ),
+
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      const SizedBox(height: 6),
+                    ],
+
+                    Text(
+                      'Quick access',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF101828),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ✅ Enterprise grid: 1 column mobile, 2 column medium, 3 column desktop
+                    _ToolGrid(
+                      columns: isMobile ? 1 : (isWide ? 3 : 2),
+                      onOpenSharedFiles: () =>
+                          Navigator.pushNamed(context, '/shared-files'),
                       onOpenResources: () =>
                           Navigator.pushNamed(context, '/resources'),
                       onOpenSettings: () async {
@@ -181,257 +174,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           context,
                           '/account-settings',
                         );
-                        if (changed == true) {
-                          _loadProfile();
-                        }
+                        if (changed == true) _loadProfile();
                       },
-                      onOpenSharedFiles: () =>
-                          Navigator.pushNamed(context, '/shared-files'),
-
-                      // ✅ CHANGED: use capability gate, not admin-only
-                      hasDropoffAccess: !_loadingProfile && _hasDropoffAccess,
-                      onOpenDropoffs: () =>
-                          Navigator.pushNamed(context, '/admin-dropoffs'),
                     ),
-                  );
 
-                  if (isWide) {
-                    final rightWidth = (w - leftCardWidth - gap).clamp(
-                      280,
-                      380,
-                    );
+                    const SizedBox(height: 22),
 
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(width: leftCardWidth, child: welcomeCard),
-                        const SizedBox(width: gap),
-                        SizedBox(
-                          width: rightWidth.toDouble(),
-                          child: linksCard,
-                        ),
-                      ],
-                    );
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      welcomeCard,
-                      const SizedBox(height: 18),
-                      linksCard,
-                    ],
-                  );
-                },
-              ),
+                    // ✅ Bottom logout (enterprise-style)
+                    _BottomLogoutPanel(onLogout: _logout),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 22),
-            CenteredForm(
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 46,
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout),
-                      label: const Text("Logout"),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.brandBlue,
-                        foregroundColor: AppColors.cardBackground,
-                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "You can update your name and password any time from Account settings.",
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.lightGrey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// ----------------------------
-/// Welcome Card Content (Left)
-/// ----------------------------
-class _WelcomeCardContent extends StatelessWidget {
-  const _WelcomeCardContent({
-    required this.loading,
-    required this.welcomeText,
-    required this.isAdmin,
-    required this.isTight,
-    required this.onAdminTap,
-    required this.wildixExtension,
-    required this.clearflyNumber,
-  });
+/// ============================
+/// NEW: Small enterprise section label
+/// ============================
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.title, this.subtitle});
 
-  final bool loading;
-  final String welcomeText;
-  final bool isAdmin;
-  final bool isTight;
-  final VoidCallback onAdminTap;
-
-  final String wildixExtension;
-  final String clearflyNumber;
+  final String title;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    final hasWildix = wildixExtension.trim().isNotEmpty;
-    final hasClearfly = clearflyNumber.trim().isNotEmpty;
-    final showNumbers = !loading && (hasWildix || hasClearfly);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 36,
-              width: 36,
-              decoration: BoxDecoration(
-                color: AppColors.brandBlue.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.dashboard_rounded,
-                color: AppColors.brandBlue,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (loading) ...[
-                    Container(
-                      height: 22,
-                      width: 260,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      height: 14,
-                      width: 320,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ),
-                  ] else ...[
-                    Text(
-                      welcomeText,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.15,
-                        color: const Color(0xFF101828),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Manage your account and security settings.",
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                        height: 1.30,
-                      ),
-                    ),
-                    if (showNumbers) ...[
-                      const SizedBox(height: 10),
-                      _CommsInlineBar(
-                        hasWildix: hasWildix,
-                        hasClearfly: hasClearfly,
-                        wildixExtension: wildixExtension,
-                        clearflyNumber: clearflyNumber,
-                      ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-
-            if (!isTight && isAdmin) ...[
-              const SizedBox(width: 12),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 200),
-                child: SizedBox(
-                  height: 40,
-                  child: FilledButton.icon(
-                    onPressed: onAdminTap,
-                    icon: const Icon(
-                      Icons.admin_panel_settings_rounded,
-                      size: 18,
-                    ),
-                    label: const Text(
-                      "Admin Console",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF0B1220),
-                      foregroundColor: Colors.white,
-                      elevation: 2,
-                      shadowColor: Colors.black.withOpacity(0.25),
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.2,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
+        Text(
+          title.toUpperCase(),
+          style: theme.textTheme.labelLarge?.copyWith(
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF667085),
+          ),
         ),
-
-        if (isTight && isAdmin) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: FilledButton.icon(
-              onPressed: onAdminTap,
-              icon: const Icon(Icons.admin_panel_settings_rounded, size: 20),
-              label: const Text("Admin Console"),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF0B1220),
-                foregroundColor: Colors.white,
-                elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.25),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.3,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
+        if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            subtitle!,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF475467),
+              height: 1.30,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -440,6 +232,491 @@ class _WelcomeCardContent extends StatelessWidget {
   }
 }
 
+/// ============================
+/// Enterprise Context Header
+/// - Compact CTA (not stretched)
+/// - Mobile stacks cleanly
+/// - Shows comms bar when available
+/// ============================
+class _ContextHeader extends StatelessWidget {
+  const _ContextHeader({
+    required this.loading,
+    required this.welcomeText,
+    required this.isAdmin,
+    required this.isMobile,
+    required this.wildix,
+    required this.clearfly,
+    required this.onAdminTap,
+  });
+
+  final bool loading;
+  final String welcomeText;
+  final bool isAdmin;
+  final bool isMobile;
+  final String wildix;
+  final String clearfly;
+  final VoidCallback onAdminTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final hasWildix = wildix.trim().isNotEmpty;
+    final hasClearfly = clearfly.trim().isNotEmpty;
+    final showComms = !loading && (hasWildix || hasClearfly);
+
+    final title = loading ? 'Loading…' : welcomeText;
+
+    return _SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Top row: icon + title + (admin button)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 40,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.dashboard_rounded,
+                  color: AppColors.brandBlue,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF101828),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Axume & Associates CPAs – Firm Portal',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF475467),
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (!isMobile && isAdmin) ...[
+                const SizedBox(width: 12),
+                _CompactButton(
+                  label: 'Admin Console',
+                  icon: Icons.admin_panel_settings_rounded,
+                  onPressed: onAdminTap,
+                  dark: true,
+                ),
+              ],
+            ],
+          ),
+
+          if (isMobile && isAdmin) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton.icon(
+                onPressed: onAdminTap,
+                icon: const Icon(Icons.admin_panel_settings_rounded, size: 18),
+                label: const Text('Admin Console'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0B1220),
+                  foregroundColor: Colors.white,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          if (showComms) ...[
+            const SizedBox(height: 14),
+            _CommsInlineBar(
+              hasWildix: hasWildix,
+              hasClearfly: hasClearfly,
+              wildixExtension: wildix,
+              clearflyNumber: clearfly,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Primary Feature Card
+/// ============================
+class _PrimaryFeatureCard extends StatelessWidget {
+  const _PrimaryFeatureCard({
+    required this.isMobile,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.ctaLabel,
+    required this.onOpen,
+  });
+
+  final bool isMobile;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String ctaLabel;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                height: 44,
+                width: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: AppColors.brandBlue, size: 22),
+              ),
+              const SizedBox(width: 14),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF101828),
+                        letterSpacing: -0.15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF475467),
+                        height: 1.30,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (!isMobile) ...[
+                const SizedBox(width: 12),
+                _CompactButton(
+                  label: ctaLabel,
+                  icon: Icons.open_in_new_rounded,
+                  onPressed: onOpen,
+                ),
+              ],
+            ],
+          ),
+
+          if (isMobile) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton(
+                onPressed: onOpen,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.brandBlue,
+                  foregroundColor: Colors.white,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(ctaLabel),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Enterprise Tool Grid
+/// ============================
+class _ToolGrid extends StatelessWidget {
+  const _ToolGrid({
+    required this.columns,
+    required this.onOpenSharedFiles,
+    required this.onOpenResources,
+    required this.onOpenSettings,
+  });
+
+  final int columns;
+  final VoidCallback onOpenSharedFiles;
+  final VoidCallback onOpenResources;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = columns == 1;
+    final childAspectRatio = isMobile ? 3.3 : (columns == 2 ? 3.0 : 2.9);
+
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        crossAxisSpacing: 14,
+        mainAxisSpacing: 14,
+        childAspectRatio: childAspectRatio,
+      ),
+      children: [
+        _ToolCard(
+          icon: Icons.folder_shared_outlined,
+          title: 'Shared Files',
+          subtitle: 'Firm‑wide documents and shared resources.',
+          onTap: onOpenSharedFiles,
+        ),
+        _ToolCard(
+          icon: Icons.link_outlined,
+          title: 'Websites & Portals',
+          subtitle: 'External portals and firm tools.',
+          onTap: onOpenResources,
+        ),
+        _ToolCard(
+          icon: Icons.person_outline,
+          title: 'Account Settings',
+          subtitle: 'Update your name, password, and profile.',
+          onTap: onOpenSettings,
+        ),
+      ],
+    );
+  }
+}
+
+/// ============================
+/// Bottom Logout Panel
+/// ============================
+class _BottomLogoutPanel extends StatelessWidget {
+  const _BottomLogoutPanel({required this.onLogout});
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _SurfaceCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Session',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              color: const Color(0xFF101828),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Sign out of the firm portal on this device.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF475467),
+              height: 1.30,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: FilledButton.icon(
+              onPressed: onLogout,
+              icon: const Icon(Icons.logout),
+              label: const Text('Logout'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: Colors.white,
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Shared Card Surface (Enterprise)
+/// ============================
+class _SurfaceCard extends StatelessWidget {
+  const _SurfaceCard({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(0.05)),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// ============================
+/// Compact Button
+/// ============================
+class _CompactButton extends StatelessWidget {
+  const _CompactButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.dark = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        style: FilledButton.styleFrom(
+          backgroundColor: dark ? const Color(0xFF0B1220) : AppColors.brandBlue,
+          foregroundColor: Colors.white,
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.2,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Enterprise Tool Card
+/// ============================
+class _ToolCard extends StatelessWidget {
+  const _ToolCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withOpacity(0.05)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: AppColors.brandBlue.withOpacity(0.9)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF101828),
+                      height: 1.05,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      height: 1.15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: AppColors.brandBlue.withOpacity(0.55),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Comms Bar
+/// ============================
 class _CommsInlineBar extends StatelessWidget {
   const _CommsInlineBar({
     required this.hasWildix,
@@ -465,22 +742,16 @@ class _CommsInlineBar extends StatelessWidget {
         border: Border.all(color: Colors.black.withOpacity(0.06)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (hasWildix) ...[
-            Icon(
-              Icons.phone_in_talk_outlined,
-              size: 16,
-              color: AppColors.brandBlue.withOpacity(0.90),
-            ),
+            Icon(Icons.phone_in_talk_outlined,
+                size: 16, color: AppColors.brandBlue.withOpacity(0.90)),
             const SizedBox(width: 6),
             Text(
               'Wildix',
               style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.w800,
                 color: const Color(0xFF667085),
-                letterSpacing: 0.2,
               ),
             ),
             const SizedBox(width: 6),
@@ -494,32 +765,26 @@ class _CommsInlineBar extends StatelessWidget {
           ],
           if (hasWildix && hasClearfly) ...[
             const SizedBox(width: 10),
-            Text(
-              '|',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: const Color(0xFF98A2B3),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            Text('|',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: const Color(0xFF98A2B3),
+                  fontWeight: FontWeight.w700,
+                )),
             const SizedBox(width: 10),
           ],
           if (hasClearfly) ...[
-            Icon(
-              Icons.sms_outlined,
-              size: 16,
-              color: AppColors.brandBlue.withOpacity(0.90),
-            ),
+            Icon(Icons.sms_outlined,
+                size: 16, color: AppColors.brandBlue.withOpacity(0.90)),
             const SizedBox(width: 6),
             Text(
               'Clearfly/eFax',
               style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.w800,
                 color: const Color(0xFF667085),
-                letterSpacing: 0.2,
               ),
             ),
             const SizedBox(width: 6),
-            Flexible(
+            Expanded(
               child: Text(
                 clearflyNumber,
                 maxLines: 1,
@@ -533,248 +798,6 @@ class _CommsInlineBar extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
-}
-
-/// ----------------------------
-/// Quick Links Card (Right)
-/// ----------------------------
-class _QuickLinksCard extends StatelessWidget {
-  const _QuickLinksCard({
-    required this.onOpenResources,
-    required this.onOpenSettings,
-    required this.onOpenSharedFiles,
-
-    // ✅ CHANGED: use capability gate instead of admin-only
-    required this.hasDropoffAccess,
-    required this.onOpenDropoffs,
-  });
-
-  final bool hasDropoffAccess; // ✅ NEW
-  final VoidCallback onOpenDropoffs; // ✅ NEW
-  final VoidCallback onOpenResources;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenSharedFiles;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final links = <_DashLink>[
-      if (hasDropoffAccess)
-        const _DashLink(
-          title: 'Drop‑Off Requests',
-          subtitle: 'Secure client uploads',
-          icon: Icons.inbox_outlined,
-          action: _DashAction.openDropoffs,
-        ),
-      const _DashLink(
-        title: 'Shared Files',
-        subtitle: 'Files shared with everyone',
-        icon: Icons.folder_shared_outlined,
-        action: _DashAction.openSharedFiles,
-      ),
-      const _DashLink(
-        title: 'Websites & Portals',
-        subtitle: 'Portals, tools and useful websites',
-        icon: Icons.link_outlined,
-        action: _DashAction.openResources,
-      ),
-      const _DashLink(
-        title: 'Settings',
-        subtitle: 'Update your name, password, and profile',
-        icon: Icons.person_outline,
-        action: _DashAction.openSettings,
-      ),
-    ];
-
-    VoidCallback resolveAction(_DashAction a) {
-      switch (a) {
-        case _DashAction.openDropoffs:
-          return onOpenDropoffs;
-        case _DashAction.openSharedFiles:
-          return onOpenSharedFiles;
-        case _DashAction.openResources:
-          return onOpenResources;
-        case _DashAction.openSettings:
-          return onOpenSettings;
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Dashboard',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w900,
-            color: const Color(0xFF101828),
-            letterSpacing: -0.2,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Quick access to common tools and settings.',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: const Color(0xFF475467),
-            height: 1.25,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 14),
-        Column(
-          children: [
-            for (int i = 0; i < links.length; i++) ...[
-              _QuickLinkRow(
-                icon: links[i].icon,
-                title: links[i].title,
-                subtitle: links[i].subtitle,
-                onTap: resolveAction(links[i].action),
-              ),
-              if (i != links.length - 1)
-                Divider(height: 1, color: Colors.black.withOpacity(0.06)),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Opens inside the app.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: AppColors.lightGrey,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-enum _DashAction {
-  openDropoffs, // ✅ renamed from openAdminDropoffs
-  openSharedFiles,
-  openResources,
-  openSettings,
-}
-
-class _DashLink {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final _DashAction action;
-  const _DashLink({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.action,
-  });
-}
-
-class _QuickLinkRow extends StatefulWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _QuickLinkRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  State<_QuickLinkRow> createState() => _QuickLinkRowState();
-}
-
-class _QuickLinkRowState extends State<_QuickLinkRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: InkWell(
-        onTap: widget.onTap,
-        hoverColor: Colors.black.withOpacity(0.03),
-        splashColor: Colors.black.withOpacity(0.02),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              Icon(
-                widget.icon,
-                size: 20,
-                color: AppColors.brandBlue.withOpacity(0.85),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.brandBlue,
-                        height: 1.05,
-                        decoration: _hovered
-                            ? TextDecoration.underline
-                            : TextDecoration.none,
-                        decorationThickness: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w500,
-                        height: 1.15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: AppColors.brandBlue.withOpacity(_hovered ? 0.75 : 0.55),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WhiteSection extends StatelessWidget {
-  final Widget child;
-  final EdgeInsets padding;
-
-  const _WhiteSection({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-      ),
-      padding: padding,
-      child: child,
     );
   }
 }

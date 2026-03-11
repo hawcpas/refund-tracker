@@ -36,10 +36,10 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       foregroundColor: Colors.white,
       systemOverlayStyle: SystemUiOverlayStyle.light,
       elevation: 2,
-      title: const Text('Drop-Off Requests'),
+      title: const Text('Client Upload Links'),
       actions: [
         IconButton(
-          tooltip: 'Create drop-off link',
+          tooltip: 'Create client upload link',
           icon: const Icon(Icons.add_link),
           onPressed: _busy ? null : _showCreateDialog,
         ),
@@ -55,7 +55,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Create drop-off request'),
+        title: const Text('Create client upload link'),
         content: SingleChildScrollView(
           child: Column(
             children: [
@@ -130,8 +130,8 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
         SnackBar(
           content: Text(
             url.isNotEmpty
-                ? 'Drop-off link created and copied to clipboard.'
-                : 'Drop-off request created.',
+                ? 'Client upload link created and copied to clipboard.'
+                : 'Client upload link created.',
           ),
         ),
       );
@@ -162,7 +162,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Drop-off ${status == "open" ? "enabled" : "disabled"}',
+            'Client upload link ${status == "open" ? "enabled" : "disabled"}',
           ),
         ),
       );
@@ -194,7 +194,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Drop-off deleted.')));
+      ).showSnackBar(const SnackBar(content: Text('Client upload link deleted.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -398,7 +398,7 @@ class _RequestsListState extends State<_RequestsList> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Drop-Off Requests',
+            'Client Upload Links',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF101828),
@@ -407,7 +407,7 @@ class _RequestsListState extends State<_RequestsList> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Select a request to view uploaded files.',
+            'Select a link to view received uploads.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: const Color(0xFF475467),
               height: 1.25,
@@ -421,7 +421,7 @@ class _RequestsListState extends State<_RequestsList> {
             controller: _searchCtrl,
             onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
             decoration: InputDecoration(
-              hintText: 'Search by client name, email, or ID',
+              hintText: 'Search by client name, email, or link ID',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _q.isEmpty
                   ? null
@@ -471,8 +471,9 @@ class _RequestsListState extends State<_RequestsList> {
                     ? allDocs
                     : allDocs.where((doc) {
                         final data = doc.data();
-                        final name =
-                            (data['clientName'] ?? '').toString().toLowerCase();
+                        final name = (data['clientName'] ?? '')
+                            .toString()
+                            .toLowerCase();
                         final email = (data['clientEmail'] ?? '')
                             .toString()
                             .toLowerCase();
@@ -486,7 +487,7 @@ class _RequestsListState extends State<_RequestsList> {
                   return Center(
                     child: Text(
                       _q.isEmpty
-                          ? 'No drop-off requests yet.'
+                          ? 'No client upload links yet.'
                           : 'No results found.',
                       style: const TextStyle(color: Color(0xFF667085)),
                     ),
@@ -532,7 +533,9 @@ class _RequestsListState extends State<_RequestsList> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         child: InkWell(
-                          onTap: widget.busy ? null : () => widget.onSelect(d.id),
+                          onTap: widget.busy
+                              ? null
+                              : () => widget.onSelect(d.id),
                           borderRadius: BorderRadius.circular(12),
                           hoverColor: Colors.black.withOpacity(0.03),
                           splashColor: Colors.black.withOpacity(0.02),
@@ -576,19 +579,23 @@ class _RequestsListState extends State<_RequestsList> {
                                       8,
                                     ),
                                     child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         // clickable icon -> view details
                                         InkWell(
                                           onTap: widget.busy
                                               ? null
                                               : () => widget.onSelect(d.id),
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                           child: Padding(
                                             padding: const EdgeInsets.all(6),
                                             child: Icon(
                                               Icons.inbox_outlined,
-                                              color: AppColors.brandBlue.withOpacity(0.85),
+                                              color: AppColors.brandBlue
+                                                  .withOpacity(0.85),
                                             ),
                                           ),
                                         ),
@@ -601,11 +608,17 @@ class _RequestsListState extends State<_RequestsList> {
                                             onTap: widget.busy
                                                 ? null
                                                 : () => widget.onSelect(d.id),
-                                            borderRadius: BorderRadius.circular(10),
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
                                             child: Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 2),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 2,
+                                                  ),
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Row(
                                                     children: [
@@ -613,20 +626,37 @@ class _RequestsListState extends State<_RequestsList> {
                                                         child: Text(
                                                           title,
                                                           maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: theme.textTheme.bodyMedium?.copyWith(
-                                                            fontWeight: FontWeight.w800,
-                                                            color: const Color(0xFF101828),
-                                                          ),
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: theme
+                                                              .textTheme
+                                                              .bodyMedium
+                                                              ?.copyWith(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w800,
+                                                                color:
+                                                                    const Color(
+                                                                      0xFF101828,
+                                                                    ),
+                                                              ),
                                                         ),
                                                       ),
                                                       const SizedBox(width: 10),
                                                       Text(
                                                         'ID: ${d.id.substring(0, d.id.length > 6 ? 6 : d.id.length)}',
-                                                        style: theme.textTheme.labelSmall?.copyWith(
-                                                          color: const Color(0xFF98A2B3),
-                                                          fontWeight: FontWeight.w700,
-                                                        ),
+                                                        style: theme
+                                                            .textTheme
+                                                            .labelSmall
+                                                            ?.copyWith(
+                                                              color:
+                                                                  const Color(
+                                                                    0xFF98A2B3,
+                                                                  ),
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
                                                       ),
                                                     ],
                                                   ),
@@ -636,12 +666,19 @@ class _RequestsListState extends State<_RequestsList> {
                                                   Text(
                                                     subtitle,
                                                     maxLines: 2,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: theme.textTheme.bodySmall?.copyWith(
-                                                      color: const Color(0xFF667085),
-                                                      fontWeight: FontWeight.w600,
-                                                      height: 1.2,
-                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: const Color(
+                                                            0xFF667085,
+                                                          ),
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          height: 1.2,
+                                                        ),
                                                   ),
 
                                                   const SizedBox(height: 6),
@@ -650,42 +687,70 @@ class _RequestsListState extends State<_RequestsList> {
                                                   Wrap(
                                                     spacing: 10,
                                                     runSpacing: 4,
-                                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                                    crossAxisAlignment:
+                                                        WrapCrossAlignment
+                                                            .center,
                                                     children: [
                                                       Row(
-                                                        mainAxisSize: MainAxisSize.min,
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
                                                         children: [
                                                           const Icon(
                                                             Icons.attach_file,
                                                             size: 14,
-                                                            color: Color(0xFF667085),
+                                                            color: Color(
+                                                              0xFF667085,
+                                                            ),
                                                           ),
-                                                          const SizedBox(width: 4),
+                                                          const SizedBox(
+                                                            width: 4,
+                                                          ),
                                                           Text(
                                                             '$fileCount item${fileCount == 1 ? '' : 's'}',
-                                                            style: theme.textTheme.labelSmall?.copyWith(
-                                                              color: const Color(0xFF667085),
-                                                              fontWeight: FontWeight.w700,
-                                                            ),
+                                                            style: theme
+                                                                .textTheme
+                                                                .labelSmall
+                                                                ?.copyWith(
+                                                                  color: const Color(
+                                                                    0xFF667085,
+                                                                  ),
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                ),
                                                           ),
                                                         ],
                                                       ),
-                                                      if (createdText.isNotEmpty)
+                                                      if (createdText
+                                                          .isNotEmpty)
                                                         Row(
-                                                          mainAxisSize: MainAxisSize.min,
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
                                                           children: [
                                                             const Icon(
-                                                              Icons.calendar_today_outlined,
+                                                              Icons
+                                                                  .calendar_today_outlined,
                                                               size: 13,
-                                                              color: Color(0xFF667085),
+                                                              color: Color(
+                                                                0xFF667085,
+                                                              ),
                                                             ),
-                                                            const SizedBox(width: 4),
+                                                            const SizedBox(
+                                                              width: 4,
+                                                            ),
                                                             Text(
                                                               'Created $createdText',
-                                                              style: theme.textTheme.labelSmall?.copyWith(
-                                                                color: const Color(0xFF667085),
-                                                                fontWeight: FontWeight.w600,
-                                                              ),
+                                                              style: theme
+                                                                  .textTheme
+                                                                  .labelSmall
+                                                                  ?.copyWith(
+                                                                    color: const Color(
+                                                                      0xFF667085,
+                                                                    ),
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
                                                             ),
                                                           ],
                                                         ),
@@ -703,17 +768,22 @@ class _RequestsListState extends State<_RequestsList> {
                                         if (isMobile) ...[
                                           Column(
                                             mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
                                             children: [
                                               _StatusPill(status: status),
                                               const SizedBox(height: 6),
                                               PopupMenuButton<String>(
                                                 enabled: !widget.busy,
-                                                tooltip: widget.busy ? 'Working…' : 'Actions',
-                                                position: PopupMenuPosition.under,
+                                                tooltip: widget.busy
+                                                    ? 'Working…'
+                                                    : 'Actions',
+                                                position:
+                                                    PopupMenuPosition.under,
                                                 icon: Icon(
                                                   Icons.more_vert,
-                                                  color: AppColors.brandBlue.withOpacity(0.85),
+                                                  color: AppColors.brandBlue
+                                                      .withOpacity(0.85),
                                                 ),
                                                 onSelected: (value) async {
                                                   if (widget.busy) return;
@@ -722,22 +792,30 @@ class _RequestsListState extends State<_RequestsList> {
                                                     widget.onSelect(d.id);
                                                     return;
                                                   }
-                                                  if (value == 'copy' && url.isNotEmpty) {
+                                                  if (value == 'copy' &&
+                                                      url.isNotEmpty) {
                                                     await Clipboard.setData(
                                                       ClipboardData(text: url),
                                                     );
                                                     if (context.mounted) {
-                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
                                                         const SnackBar(
-                                                          content: Text('Drop-off link copied.'),
+                                                          content: Text('Client upload link copied.'),
                                                         ),
                                                       );
                                                     }
                                                     return;
                                                   }
                                                   if (value == 'toggle') {
-                                                    final nextStatus = isOpen ? 'closed' : 'open';
-                                                    await widget.onSetStatus(d.id, nextStatus);
+                                                    final nextStatus = isOpen
+                                                        ? 'closed'
+                                                        : 'open';
+                                                    await widget.onSetStatus(
+                                                      d.id,
+                                                      nextStatus,
+                                                    );
                                                   }
                                                 },
                                                 itemBuilder: (ctx) => [
@@ -745,7 +823,10 @@ class _RequestsListState extends State<_RequestsList> {
                                                     value: 'view',
                                                     child: Row(
                                                       children: [
-                                                        Icon(Icons.open_in_new, size: 18),
+                                                        Icon(
+                                                          Icons.open_in_new,
+                                                          size: 18,
+                                                        ),
                                                         SizedBox(width: 10),
                                                         Text('View details'),
                                                       ],
@@ -756,7 +837,10 @@ class _RequestsListState extends State<_RequestsList> {
                                                       value: 'copy',
                                                       child: Row(
                                                         children: [
-                                                          Icon(Icons.copy, size: 18),
+                                                          Icon(
+                                                            Icons.copy,
+                                                            size: 18,
+                                                          ),
                                                           SizedBox(width: 10),
                                                           Text('Copy link'),
                                                         ],
@@ -768,11 +852,17 @@ class _RequestsListState extends State<_RequestsList> {
                                                     child: Row(
                                                       children: [
                                                         Icon(
-                                                          isOpen ? Icons.link_off : Icons.link,
+                                                          isOpen
+                                                              ? Icons.link_off
+                                                              : Icons.link,
                                                           size: 18,
                                                         ),
                                                         SizedBox(width: 10),
-                                                        Text(isOpen ? 'Disable link' : 'Enable link'),
+                                                        Text(
+                                                          isOpen
+                                                              ? 'Disable link'
+                                                              : 'Enable link',
+                                                        ),
                                                       ],
                                                     ),
                                                   ),
@@ -786,25 +876,38 @@ class _RequestsListState extends State<_RequestsList> {
 
                                           if (url.isNotEmpty)
                                             Tooltip(
-                                              message: widget.busy ? 'Working…' : 'Copy link',
+                                              message: widget.busy
+                                                  ? 'Working…'
+                                                  : 'Copy link',
                                               child: IconButton(
-                                                visualDensity: VisualDensity.compact,
+                                                visualDensity:
+                                                    VisualDensity.compact,
                                                 padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints.tightFor(
-                                                  width: 36,
-                                                  height: 36,
+                                                constraints:
+                                                    const BoxConstraints.tightFor(
+                                                      width: 36,
+                                                      height: 36,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.copy,
+                                                  size: 18,
                                                 ),
-                                                icon: const Icon(Icons.copy, size: 18),
                                                 onPressed: widget.busy
                                                     ? null
                                                     : () async {
                                                         await Clipboard.setData(
-                                                          ClipboardData(text: url),
+                                                          ClipboardData(
+                                                            text: url,
+                                                          ),
                                                         );
                                                         if (context.mounted) {
-                                                          ScaffoldMessenger.of(context).showSnackBar(
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
                                                             const SnackBar(
-                                                              content: Text('Drop-off link copied.'),
+                                                              content: Text(
+                                                                'Client upload link copied.',
+                                                              ),
                                                             ),
                                                           );
                                                         }
@@ -813,14 +916,17 @@ class _RequestsListState extends State<_RequestsList> {
                                             ),
 
                                           Tooltip(
-                                            message: widget.busy ? 'Working…' : 'More actions',
+                                            message: widget.busy
+                                                ? 'Working…'
+                                                : 'More actions',
                                             child: PopupMenuButton<String>(
                                               enabled: !widget.busy,
                                               tooltip: 'More actions',
                                               position: PopupMenuPosition.under,
                                               icon: Icon(
                                                 Icons.more_horiz,
-                                                color: AppColors.brandBlue.withOpacity(0.85),
+                                                color: AppColors.brandBlue
+                                                    .withOpacity(0.85),
                                               ),
                                               onSelected: (value) async {
                                                 if (widget.busy) return;
@@ -830,8 +936,13 @@ class _RequestsListState extends State<_RequestsList> {
                                                   return;
                                                 }
                                                 if (value == 'toggle') {
-                                                  final nextStatus = isOpen ? 'closed' : 'open';
-                                                  await widget.onSetStatus(d.id, nextStatus);
+                                                  final nextStatus = isOpen
+                                                      ? 'closed'
+                                                      : 'open';
+                                                  await widget.onSetStatus(
+                                                    d.id,
+                                                    nextStatus,
+                                                  );
                                                 }
                                               },
                                               itemBuilder: (ctx) => [
@@ -839,7 +950,10 @@ class _RequestsListState extends State<_RequestsList> {
                                                   value: 'view',
                                                   child: Row(
                                                     children: [
-                                                      Icon(Icons.open_in_new, size: 18),
+                                                      Icon(
+                                                        Icons.open_in_new,
+                                                        size: 18,
+                                                      ),
                                                       SizedBox(width: 10),
                                                       Text('View details'),
                                                     ],
@@ -851,11 +965,17 @@ class _RequestsListState extends State<_RequestsList> {
                                                   child: Row(
                                                     children: [
                                                       Icon(
-                                                        isOpen ? Icons.link_off : Icons.link,
+                                                        isOpen
+                                                            ? Icons.link_off
+                                                            : Icons.link,
                                                         size: 18,
                                                       ),
                                                       SizedBox(width: 10),
-                                                      Text(isOpen ? 'Disable link' : 'Enable link'),
+                                                      Text(
+                                                        isOpen
+                                                            ? 'Disable link'
+                                                            : 'Enable link',
+                                                      ),
                                                     ],
                                                   ),
                                                 ),
@@ -864,17 +984,22 @@ class _RequestsListState extends State<_RequestsList> {
                                           ),
 
                                           IconButton(
-                                            visualDensity: VisualDensity.compact,
+                                            visualDensity:
+                                                VisualDensity.compact,
                                             padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints.tightFor(
-                                              width: 36,
-                                              height: 36,
-                                            ),
+                                            constraints:
+                                                const BoxConstraints.tightFor(
+                                                  width: 36,
+                                                  height: 36,
+                                                ),
                                             tooltip: 'View details',
-                                            onPressed: widget.busy ? null : () => widget.onSelect(d.id),
+                                            onPressed: widget.busy
+                                                ? null
+                                                : () => widget.onSelect(d.id),
                                             icon: Icon(
                                               Icons.chevron_right,
-                                              color: AppColors.brandBlue.withOpacity(0.55),
+                                              color: AppColors.brandBlue
+                                                  .withOpacity(0.55),
                                             ),
                                           ),
                                         ],
@@ -930,7 +1055,7 @@ class _DropoffDetailScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Drop‑Off Details'), elevation: 1),
+      appBar: AppBar(title: const Text('Client Upload Link'), elevation: 1),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -1050,7 +1175,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             _SectionHeader(
                               title: 'Access link',
                               subtitle:
-                                  'Share this link to allow uploads without sign‑in.',
+                                  'Share this link to allow clients to submit documents securely.',
                             ),
                             const SizedBox(height: 8),
                             _WhiteInset(
@@ -1104,7 +1229,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                           // ===== Uploaded files =====
                           _SectionHeader(
                             title: 'Uploads',
-                            subtitle: 'Files submitted for this request.',
+                            subtitle: 'Files submitted through this link.',
                           ),
                           const SizedBox(height: 8),
 
@@ -1511,7 +1636,7 @@ class _HelpPanel extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Use drop-off links to let clients upload files securely without logging in.',
+            'Use client-upload links to let clients upload files securely without logging in.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: const Color(0xFF475467),
               height: 1.25,
@@ -1526,7 +1651,7 @@ class _HelpPanel extends StatelessWidget {
               onPressed: onCreate,
               icon: const Icon(Icons.add_link),
               label: const Text(
-                'Create drop-off link',
+                'Create client-upload link',
                 style: TextStyle(fontWeight: FontWeight.w900),
               ),
               style: FilledButton.styleFrom(
