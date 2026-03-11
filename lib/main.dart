@@ -70,15 +70,12 @@ class _MyAppState extends State<MyApp> {
       onForcedLogout: () {
         _messengerKey.currentState?.showSnackBar(
           const SnackBar(
-            content: Text(
-              'Your account has been disabled. Please contact an admin.',
-            ),
+            content: Text('Your account has been disabled. Please contact an admin.'),
           ),
         );
-        _navKey.currentState?.pushNamedAndRemoveUntil(
-          '/login',
-          (route) => false,
-        );
+
+        // Always route to login on forced logout
+        _navKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
       },
     );
   }
@@ -99,7 +96,6 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: 'Axume & Associates CPAs Portal',
       debugShowCheckedModeBanner: false,
-
       navigatorKey: _navKey,
       scaffoldMessengerKey: _messengerKey,
 
@@ -107,7 +103,6 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: AppColors.pageBackgroundLight,
-
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: NoTransitionsBuilder(),
@@ -117,7 +112,6 @@ class _MyAppState extends State<MyApp> {
             TargetPlatform.windows: NoTransitionsBuilder(),
           },
         ),
-
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.brandBlue,
           foregroundColor: Colors.white,
@@ -130,8 +124,7 @@ class _MyAppState extends State<MyApp> {
       onGenerateRoute: (settings) {
         final route = settings.name ?? '/';
 
-        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES
-        // Must come FIRST and must use startsWith
+        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
         if (route.startsWith('/dropoff')) {
           return MaterialPageRoute(
             settings: settings,
@@ -141,8 +134,7 @@ class _MyAppState extends State<MyApp> {
           );
         }
 
-        // ✅ ✅ ✅ HARD SHORT-CIRCUIT AUTH ACTION ROUTES
-        // Password reset & email verification from email links
+        // ✅ ✅ ✅ HARD SHORT-CIRCUIT AUTH ACTION ROUTES (public)
         if (route.startsWith('/auth/action')) {
           return MaterialPageRoute(
             settings: settings,
@@ -150,7 +142,7 @@ class _MyAppState extends State<MyApp> {
           );
         }
 
-        // ✅ Public auth routes
+        // ✅ Public auth routes (no gating)
         if (route == '/' ||
             route == '/login' ||
             route == '/forgot-password' ||
@@ -172,35 +164,46 @@ class _MyAppState extends State<MyApp> {
           );
         }
 
-        // ✅ Everything below REQUIRES auth
-        final user = FirebaseAuth.instance.currentUser;
+        // ✅ Protected routes: ONLY build them once auth is restored
+        switch (route) {
+          case '/dashboard':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (_) => const DashboardScreen(),
+              ),
+            );
 
-        if (user == null) {
-          return MaterialPageRoute(builder: (_) => const LoginScreen());
-        }
+          case '/account-settings':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (_) => const AccountSettingsScreen(),
+              ),
+            );
 
-        if (!user.emailVerified) {
-          return MaterialPageRoute(builder: (_) => const VerifyEmailScreen());
-        }
+          case '/resources':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (_) => const ResourcesScreen(),
+              ),
+            );
 
-        return MaterialPageRoute(
-          settings: settings,
-          builder: (_) {
-            switch (route) {
-              case '/dashboard':
-                return const DashboardScreen();
+          case '/shared-files':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (_) => const SharedFilesScreen(),
+              ),
+            );
 
-              case '/account-settings':
-                return const AccountSettingsScreen();
-
-              case '/resources':
-                return const ResourcesScreen();
-
-              case '/shared-files':
-                return const SharedFilesScreen();
-
-              case '/admin-users':
-                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          case '/admin-users':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (user) => FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
                   future: FirebaseFirestore.instance
                       .collection('users')
                       .doc(user.uid)
@@ -211,24 +214,24 @@ class _MyAppState extends State<MyApp> {
                         body: Center(child: CircularProgressIndicator()),
                       );
                     }
+
                     final data = snap.data!.data() ?? {};
-                    final role = (data['role'] ?? '')
-                        .toString()
-                        .toLowerCase()
-                        .trim();
+                    final role = (data['role'] ?? '').toString().toLowerCase().trim();
 
-                    final canManageDropoffs =
-                        role == 'admin' ||
-                        (data['capabilities']?['dropoffs'] == true);
-
-                    // ❌ Only admins can access admin USERS screen
+                    // Only admins can access admin USERS screen
                     if (role != 'admin') return const DashboardScreen();
                     return const AdminUsersScreen();
                   },
-                );
+                ),
+              ),
+            );
 
-              case '/admin-dropoffs':
-                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          case '/admin-dropoffs':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (user) => FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
                   future: FirebaseFirestore.instance
                       .collection('users')
                       .doc(user.uid)
@@ -241,30 +244,62 @@ class _MyAppState extends State<MyApp> {
                     }
 
                     final data = snap.data!.data() ?? {};
-                    final role = (data['role'] ?? '')
-                        .toString()
-                        .toLowerCase()
-                        .trim();
+                    final role = (data['role'] ?? '').toString().toLowerCase().trim();
 
                     final hasDropoffAccess =
-                        role == 'admin' ||
-                        (data['capabilities']?['dropoffs'] == true);
+                        role == 'admin' || (data['capabilities']?['dropoffs'] == true);
 
-                    // ❌ No access → back to dashboard
-                    if (!hasDropoffAccess) {
-                      return const DashboardScreen();
-                    }
+                    // No access → back to dashboard
+                    if (!hasDropoffAccess) return const DashboardScreen();
 
-                    // ✅ Admins + Associates both land here
+                    // Admins + Associates with capability land here
                     return const AdminDropoffsScreen();
                   },
-                );
+                ),
+              ),
+            );
 
-              default:
-                return const DashboardScreen();
-            }
-          },
-        );
+          default:
+            // Default protected landing
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (_) => const DashboardScreen(),
+              ),
+            );
+        }
+      },
+    );
+  }
+}
+
+/// ✅ AuthGate (builder form):
+/// Prevents blank refresh by waiting for FirebaseAuth to restore session.
+/// Firebase notes currentUser can be null until auth finishes initializing,
+/// so authStateChanges() is the correct source of truth. [1](https://www.valimail.com/blog/understanding-email-authentication-headers/)[2](https://www.youtube.com/watch?v=S7LhAmuJGVA)
+class _AuthGate extends StatelessWidget {
+  final Widget Function(User user) builder;
+  const _AuthGate({required this.builder});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snap) {
+        // While Firebase restores session (especially on web refresh)
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final user = snap.data;
+
+        if (user == null) return const LoginScreen();
+        if (!user.emailVerified) return const VerifyEmailScreen();
+
+        // ✅ Only build protected UI AFTER user exists (prevents refresh blank)
+        return builder(user);
       },
     );
   }

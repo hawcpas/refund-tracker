@@ -2,7 +2,6 @@
   "functions": {
     "source": "functions"
   },
-
   "flutter": {
     "platforms": {
       "android": {
@@ -26,7 +25,6 @@
       }
     }
   },
-
   "hosting": {
     "public": "build/web",
     "ignore": [
@@ -34,36 +32,63 @@
       "**/.*",
       "**/node_modules/**"
     ],
-    "rewrites": [
-  {
-    "source": "/icons/**",
-    "destination": "/icons/**"
-  },
-
-  {
-    "source": "/auth/action",
-    "destination": "/index.html"
-  },
-  {
-    "source": "/auth/action/**",
-    "destination": "/index.html"
-  },
-
-  {
-    "source": "**",
-    "has": [
+    "headers": [
       {
-        "type": "header",
-        "name": "User-Agent",
-        "value": ".*(bot|crawler|facebookexternalhit|twitterbot|linkedinbot).*"
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/og.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
       }
     ],
-    "destination": "/og.html"
-  },
-  {
-    "source": "**",
-    "destination": "/index.html"
-  }
-]
+    "rewrites": [
+      {
+        "source": "/icons/**",
+        "destination": "/icons/**"
+      },
+      {
+        "source": "/auth/action",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/auth/action/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/",
+        "has": [
+          {
+            "type": "header",
+            "name": "User-Agent",
+            "value": ".*(bot|crawler|facebookexternalhit|twitterbot|linkedinbot).*"
+          }
+        ],
+        "destination": "/og.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
   }
 }
