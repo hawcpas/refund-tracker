@@ -30,8 +30,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cloud_firestore: ^6.1.2
 
+  flutter_web_plugins:
+    sdk: flutter
+
+  cloud_firestore: ^6.1.2
   firebase_core: ^4.4.0
   firebase_auth: ^6.1.4
   cupertino_icons: ^1.0.8
