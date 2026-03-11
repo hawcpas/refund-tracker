@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 
 import 'package:refund_tracker/theme/app_colors.dart';
 import 'firebase_options.dart';
@@ -17,12 +18,17 @@ import 'screens/shared_files_screen.dart';
 import 'screens/dropoff/dropoff_client_screen.dart';
 import 'screens/dropoff/dropoff_success_screen.dart';
 import 'screens/admin_dropoff_screen.dart';
+import 'screens/auth_action_screen.dart';
 
 import 'services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // ✅ Enable clean, path-based URLs (no #)
+  usePathUrlStrategy();
+
   runApp(const MyApp());
 }
 
@@ -132,6 +138,15 @@ class _MyAppState extends State<MyApp> {
             builder: (_) => route == '/dropoff/success'
                 ? const DropoffSuccessScreen()
                 : const DropoffClientScreen(),
+          );
+        }
+
+        // ✅ ✅ ✅ HARD SHORT-CIRCUIT AUTH ACTION ROUTES
+        // Password reset & email verification from email links
+        if (route.startsWith('/auth/action')) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => const AuthActionScreen(),
           );
         }
 

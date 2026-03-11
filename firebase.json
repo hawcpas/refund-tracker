@@ -35,25 +35,35 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+  {
+    "source": "/icons/**",
+    "destination": "/icons/**"
+  },
+
+  {
+    "source": "/auth/action",
+    "destination": "/index.html"
+  },
+  {
+    "source": "/auth/action/**",
+    "destination": "/index.html"
+  },
+
+  {
+    "source": "**",
+    "has": [
       {
-        "source": "/icons/**",
-        "destination": "/icons/**"
-      },
-      {
-        "source": "**",
-        "has": [
-          {
-            "type": "header",
-            "name": "User-Agent",
-            "value": ".*(Teams|Outlook|Slack|Twitter|LinkedIn|bot|crawler).*"
-          }
-        ],
-        "destination": "/og.html"
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
+        "type": "header",
+        "name": "User-Agent",
+        "value": ".*(bot|crawler|facebookexternalhit|twitterbot|linkedinbot).*"
       }
-    ]
+    ],
+    "destination": "/og.html"
+  },
+  {
+    "source": "**",
+    "destination": "/index.html"
+  }
+]
   }
 }

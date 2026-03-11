@@ -591,13 +591,13 @@ exports.notifyDropoffUpload = onDocumentCreated(
         }
         if (!to) return;
 
-const subject = `New upload received – ${APP_NAME.value()}`;
+        const subject = `New upload received – ${APP_NAME.value()}`;
 
-const fileLine = originalName
-  ? `<li style="margin:0 0 6px 0;"><b>${safeFilename(originalName)}</b></li>`
-  : "";
+        const fileLine = originalName
+          ? `<li style="margin:0 0 6px 0;"><b>${safeFilename(originalName)}</b></li>`
+          : "";
 
-const html = `
+        const html = `
 <div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
   <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
 
@@ -630,8 +630,7 @@ const html = `
           <b>${clientName}</b>.
         </p>
 
-        ${
-          fileLine
+        ${fileLine
             ? `
         <div style="margin:0 0 18px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px; background:#F9FAFB;">
           <p style="margin:0 0 8px 0; font-weight:700; color:#0B1F33;">
@@ -643,14 +642,13 @@ const html = `
         </div>
         `
             : ""
-        }
+          }
 
         <p style="margin:0 0 18px 0;">
           To review the uploaded file, open the firm portal using the link below.
         </p>
 
-        ${
-          portalUrl
+        ${portalUrl
             ? `
         <div style="margin:0 0 24px 0;">
           <a
@@ -663,7 +661,7 @@ const html = `
         </div>
         `
             : ""
-        }
+          }
 
         <p style="margin:0 0 8px 0;">
           If you were not expecting this upload, no action is required.
@@ -1184,9 +1182,8 @@ exports.resendInvite = onCall(
     } catch (err) {
       console.error("resendInvite failed:", err);
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError("internal", "Resend invite failed on server.", {
-        message: err?.message ?? String(err),
-      });
+      throw new HttpsError("internal", err?.message ?? String(err));
+
     }
   }
 );
