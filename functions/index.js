@@ -286,28 +286,161 @@ async function getUserDocByUid(uid) {
 exports.notifyDropoffBatchUpload = onCall(
   { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
   async (request) => {
-    const { rid, token } = request.data || {};
-    if (!rid || !token) {
-      throw new HttpsError("invalid-argument", "rid and token are required.");
+    console.log("✅ notifyDropoffBatchUpload CALLED", {
+      data: request.data,
+    });
+
+    try {
+      const { rid, token, files } = request.data || {};
+
+      if (!rid || !token || !Array.isArray(files) || files.length === 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          "rid, token, and files[] are required."
+        );
+      }
+
+      // ✅ execution continues → email WILL send
+
+      const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Drop-off request not found.");
+      }
+
+      const req = snap.data() || {};
+      if (sha256(token) !== req.tokenHash) {
+        throw new HttpsError("permission-denied", "Invalid token.");
+      }
+
+      const createdByUid = (req.createdByUid || "").toString().trim();
+      const createdByEmail = (req.createdByEmail || "").toString().trim();
+      const clientName = (req.clientName || "a client").toString().trim();
+
+      if (!createdByUid && !createdByEmail) return { ok: true, emailed: false };
+
+      // Determine recipient email
+      let to = createdByEmail;
+      if (!to) {
+        const u = await admin.auth().getUser(createdByUid);
+        to = (u.email || "").toString().trim();
+      }
+      if (!to) return { ok: true, emailed: false };
+
+      // Build portal link (same as single-file email)
+      const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
+      const portalUrl = baseUrl ? `${baseUrl}/admin-dropoffs` : "";
+
+      const subject = `${clientName} has uploaded files.`;
+      // ✅ MULTI‑FILE LIST (this is the only difference)
+      const safeFiles = files
+        .map((n) => safeFilename((n || "").toString().trim()))
+        .filter((n) => n);
+
+      // Build <li> list items (enterprise email-safe)
+      const fileLines = safeFiles
+        .map((n) => `<li style="margin:0 0 6px 0;"><b>${n}</b></li>`)
+        .join("");
+
+      const html = `
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
+
+    <!-- Header / Logo -->
+    <tr>
+      <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
+        <img
+          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          alt="Axume &amp; Associates CPAs"
+          width="360"
+          style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
+        />
+      </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+      <td style="padding:24px;">
+
+        <h2 style="margin:0 0 6px 0; font-size:20px; font-weight:700; color:#0B1F33;">
+          New file upload received
+        </h2>
+
+        <p style="margin:0 0 18px 0; font-size:14px; color:#475467;">
+          ${APP_NAME.value()}
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          New files have been uploaded to the secure drop‑off request for
+          <b>${clientName}</b>.
+        </p>
+
+        <div style="margin:0 0 18px 0; padding:16px; border:1px solid #E4E7EC; border-radius:8px; background:#F9FAFB;">
+          <p style="margin:0 0 8px 0; font-weight:700; color:#0B1F33;">
+            Uploaded files
+          </p>
+          <ul style="margin:0; padding-left:18px;">
+            ${fileLines}
+          </ul>
+        </div>
+
+        <p style="margin:0 0 18px 0;">
+          To review the uploaded files, open the firm portal using the link below.
+        </p>
+
+        ${portalUrl
+          ? `
+        <div style="margin:0 0 24px 0;">
+          <a
+            href="${portalUrl}"
+            style="display:inline-block; padding:10px 16px; background:#0B1F33; color:#ffffff;
+                   text-decoration:none; border-radius:6px; font-weight:600; font-size:14px;"
+          >
+            Open drop‑off requests
+          </a>
+        </div>
+        `
+          : ""
+        }
+
+        <p style="margin:0 0 8px 0;">
+          If you were not expecting this upload, no action is required.
+        </p>
+
+        <p style="margin:20px 0 0 0;">
+          Regards,<br/>
+          <b>Axume &amp; Associates CPAs</b><br/>
+          <span style="font-size:13px; color:#667085;">
+            Internal Systems Administration
+          </span>
+        </p>
+
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="padding:16px 24px; border-top:1px solid #E4E7EC;">
+        <p style="margin:0; font-size:12px; color:#667085;">
+          This message was generated automatically by the firm’s internal systems. Please do not reply.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</div>
+`;
+
+      await sendAccountEmail({ to, subject, html });
+
+      return { ok: true, emailed: true };
+    } catch (err) {
+      console.error("notifyDropoffBatchUpload failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Batch upload notification failed.", {
+        message: err?.message ?? String(err),
+      });
     }
-
-    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
-    const snap = await ref.get();
-    if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
-
-    const doc = snap.data() || {};
-    if (sha256(token) !== doc.tokenHash) {
-      throw new HttpsError("permission-denied", "Invalid token.");
-    }
-
-    // optional stamp
-    await ref.set(
-      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-
-    // ✅ UI-only (email is handled by Firestore trigger)
-    return { ok: true };
   }
 );
 
@@ -468,20 +601,16 @@ exports.finalizeDropoffUpload = onCall(
   { region: "us-central1" },
   async (request) => {
     const { rid, token, file } = request.data || {};
-
     if (!rid || !token || !file) {
       throw new HttpsError("invalid-argument", "rid, token, and file are required.");
     }
 
-    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+    const db = admin.firestore();
+    const ref = db.collection("dropoff_requests").doc(rid);
     const snap = await ref.get();
-
-    if (!snap.exists) {
-      throw new HttpsError("not-found", "Drop-off request not found.");
-    }
+    if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
 
     const doc = snap.data() || {};
-
     if ((doc.status || "open") !== "open") {
       throw new HttpsError("failed-precondition", "Drop-off is closed.");
     }
@@ -490,11 +619,21 @@ exports.finalizeDropoffUpload = onCall(
       throw new HttpsError("permission-denied", "Invalid token.");
     }
 
-    // generate a server-side fileId
-    const fileId = admin.firestore().collection("_tmp").doc().id;
+    // ✅ determine who created the request (staff)
+    const requestCreatedByUid = (doc.createdByUid || "").toString().trim();
 
-    // write file metadata (server-side)
+    // ✅ determine the creator role (admin/associate)
+    let requestCreatedByRole = "unknown";
+    if (requestCreatedByUid) {
+      const creatorSnap = await db.collection("users").doc(requestCreatedByUid).get();
+      requestCreatedByRole = ((creatorSnap.data()?.role || "") + "").toLowerCase().trim() || "unknown";
+    }
+
+    // generate a server-side fileId
+    const fileId = db.collection("_tmp").doc().id;
+
     await ref.collection("files").doc(fileId).set({
+      // existing fields you already write
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       originalName: file.originalName || "",
       storagePath: file.storagePath || "",
@@ -504,6 +643,11 @@ exports.finalizeDropoffUpload = onCall(
         type: "client",
         name: doc.clientName || "",
       },
+
+      // ✅ NEW fields (power the “admin vs associate visibility” rule + query)
+      requestId: rid,
+      requestCreatedByUid,
+      requestCreatedByRole, // "admin" | "associate" | "unknown"
     });
 
     // bump counters
@@ -537,6 +681,8 @@ exports.notifyDropoffUpload = onDocumentCreated(
 
       const { requestId } = event.params || {};
       if (!requestId) return;
+
+      return;
 
       const fileData = snap.data() || {};
       const originalName = (fileData.originalName || "").toString().trim();
@@ -591,7 +737,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
         }
         if (!to) return;
 
-        const subject = `New upload received – ${APP_NAME.value()}`;
+        const subject = `${clientName} has uploaded files.`;
 
         const fileLine = originalName
           ? `<li style="margin:0 0 6px 0;"><b>${safeFilename(originalName)}</b></li>`
@@ -1213,11 +1359,19 @@ exports.createDropoffRequest = onCall(
 
     const ref = admin.firestore().collection("dropoff_requests").doc();
 
-    const baseUrl = APP_URL.value();
-    if (!isValidHttpUrl(baseUrl)) {
-      throw new HttpsError("failed-precondition", "APP_URL is invalid.");
-    }
+    /*
+    const settingsSnap = await admin.firestore()
+      .collection("settings")
+      .doc("app")
+      .get();
 
+    const baseUrl = (settingsSnap.data()?.appUrl || "").toString();
+
+    if (!isValidHttpUrl(baseUrl)) {
+      throw new HttpsError("failed-precondition", "App URL not configured.");
+    }
+    */
+    const baseUrl = APP_URL.value();
     const cleanBase = baseUrl.replace(/\/$/, "");
     const url = `${cleanBase}/dropoff?rid=${ref.id}&t=${token}`;
 
@@ -1417,7 +1571,7 @@ exports.deleteDropoffRequest = onCall(
     for (const doc of filesSnap.docs) {
       const path = doc.data().storagePath;
       if (path) {
-        await bucket.file(path).delete().catch(() => {});
+        await bucket.file(path).delete().catch(() => { });
       }
     }
 
