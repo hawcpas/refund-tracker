@@ -27,14 +27,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+
+    // ✅ Wait for FirebaseAuth to produce a real user (same concept as _AuthGate)
+    // ✅ Wait for the first NON-null user (avoids the web refresh race condition)
+    FirebaseAuth.instance.authStateChanges().where((u) => u != null).first.then(
+      (u) {
+        if (!mounted) return;
+        _loadProfile(u!);
+      },
+    );
   }
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile(User user) async {
     setState(() => _loadingProfile = true);
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
     final doc = await FirebaseFirestore.instance
         .collection('users')
@@ -141,11 +146,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       _PrimaryFeatureCard(
                         isMobile: isMobile,
                         title: 'Client Upload Links',
-                        subtitle: 'Secure links for clients to submit documents.',
+                        subtitle:
+                            'Secure links for clients to submit documents.',
                         icon: Icons.link_outlined,
                         ctaLabel: 'Manage links',
                         onOpen: () =>
                             Navigator.pushNamed(context, '/admin-dropoffs'),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      _PrimaryFeatureCard(
+                        isMobile: isMobile,
+                        title: 'View uploaded files',
+                        subtitle:
+                            'All client uploads across all upload links (newest first).',
+                        icon: Icons.cloud_upload_outlined,
+                        ctaLabel: 'Open uploads',
+                        onOpen: () =>
+                            Navigator.pushNamed(context, '/dropoff-uploads'),
                       ),
 
                       const SizedBox(height: 24),
@@ -174,7 +193,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           context,
                           '/account-settings',
                         );
-                        if (changed == true) _loadProfile();
+                        if (changed == true) {
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null) {
+                            _loadProfile(user);
+                          }
+                        }
                       },
                     ),
 
@@ -744,8 +768,11 @@ class _CommsInlineBar extends StatelessWidget {
       child: Row(
         children: [
           if (hasWildix) ...[
-            Icon(Icons.phone_in_talk_outlined,
-                size: 16, color: AppColors.brandBlue.withOpacity(0.90)),
+            Icon(
+              Icons.phone_in_talk_outlined,
+              size: 16,
+              color: AppColors.brandBlue.withOpacity(0.90),
+            ),
             const SizedBox(width: 6),
             Text(
               'Wildix',
@@ -765,16 +792,21 @@ class _CommsInlineBar extends StatelessWidget {
           ],
           if (hasWildix && hasClearfly) ...[
             const SizedBox(width: 10),
-            Text('|',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFF98A2B3),
-                  fontWeight: FontWeight.w700,
-                )),
+            Text(
+              '|',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF98A2B3),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(width: 10),
           ],
           if (hasClearfly) ...[
-            Icon(Icons.sms_outlined,
-                size: 16, color: AppColors.brandBlue.withOpacity(0.90)),
+            Icon(
+              Icons.sms_outlined,
+              size: 16,
+              color: AppColors.brandBlue.withOpacity(0.90),
+            ),
             const SizedBox(width: 6),
             Text(
               'Clearfly/eFax',
