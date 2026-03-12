@@ -19,6 +19,7 @@ import 'screens/dropoff/dropoff_client_screen.dart';
 import 'screens/dropoff/dropoff_success_screen.dart';
 import 'screens/admin_dropoff_screen.dart';
 import 'screens/auth_action_screen.dart';
+import 'screens/dropoff_uploads_screen.dart';
 
 import 'services/auth_service.dart';
 
@@ -70,12 +71,17 @@ class _MyAppState extends State<MyApp> {
       onForcedLogout: () {
         _messengerKey.currentState?.showSnackBar(
           const SnackBar(
-            content: Text('Your account has been disabled. Please contact an admin.'),
+            content: Text(
+              'Your account has been disabled. Please contact an admin.',
+            ),
           ),
         );
 
         // Always route to login on forced logout
-        _navKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
+        _navKey.currentState?.pushNamedAndRemoveUntil(
+          '/login',
+          (route) => false,
+        );
       },
     );
   }
@@ -125,7 +131,8 @@ class _MyAppState extends State<MyApp> {
         final route = settings.name ?? '/';
 
         // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
-        if (route.startsWith('/dropoff')) {
+        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public client-only)
+        if (route.startsWith('/dropoff') && route != '/dropoff-uploads') {
           return MaterialPageRoute(
             settings: settings,
             builder: (_) => route == '/dropoff/success'
@@ -169,60 +176,92 @@ class _MyAppState extends State<MyApp> {
           case '/dashboard':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                builder: (_) => const DashboardScreen(),
-              ),
+              builder: (_) =>
+                  _AuthGate(builder: (_) => const DashboardScreen()),
             );
 
           case '/account-settings':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                builder: (_) => const AccountSettingsScreen(),
-              ),
+              builder: (_) =>
+                  _AuthGate(builder: (_) => const AccountSettingsScreen()),
             );
 
           case '/resources':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                builder: (_) => const ResourcesScreen(),
-              ),
+              builder: (_) =>
+                  _AuthGate(builder: (_) => const ResourcesScreen()),
             );
 
           case '/shared-files':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                builder: (_) => const SharedFilesScreen(),
-              ),
+              builder: (_) =>
+                  _AuthGate(builder: (_) => const SharedFilesScreen()),
             );
 
           case '/admin-users':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
-                builder: (user) => FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
-                  future: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user.uid)
-                      .get(const GetOptions(source: Source.server)),
-                  builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return const Scaffold(
-                        body: Center(child: CircularProgressIndicator()),
-                      );
-                    }
+                builder: (user) =>
+                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .get(const GetOptions(source: Source.server)),
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Scaffold(
+                            body: Center(child: CircularProgressIndicator()),
+                          );
+                        }
 
-                    final data = snap.data!.data() ?? {};
-                    final role = (data['role'] ?? '').toString().toLowerCase().trim();
+                        final data = snap.data!.data() ?? {};
+                        final role = (data['role'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .trim();
 
-                    // Only admins can access admin USERS screen
-                    if (role != 'admin') return const DashboardScreen();
-                    return const AdminUsersScreen();
-                  },
-                ),
+                        // Only admins can access admin USERS screen
+                        if (role != 'admin') return const DashboardScreen();
+                        return const AdminUsersScreen();
+                      },
+                    ),
+              ),
+            );
+
+          case '/dropoff-uploads':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                builder: (user) =>
+                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .get(const GetOptions(source: Source.server)),
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Scaffold(
+                            body: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final data = snap.data!.data() ?? {};
+                        final role = (data['role'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .trim();
+                        final hasDropoffAccess =
+                            role == 'admin' ||
+                            (data['capabilities']?['dropoffs'] == true);
+
+                        if (!hasDropoffAccess) return const DashboardScreen();
+                        return const DropoffUploadsScreen();
+                      },
+                    ),
               ),
             );
 
@@ -230,32 +269,37 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
-                builder: (user) => FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
-                  future: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(user.uid)
-                      .get(const GetOptions(source: Source.server)),
-                  builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return const Scaffold(
-                        body: Center(child: CircularProgressIndicator()),
-                      );
-                    }
+                builder: (user) =>
+                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .get(const GetOptions(source: Source.server)),
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Scaffold(
+                            body: Center(child: CircularProgressIndicator()),
+                          );
+                        }
 
-                    final data = snap.data!.data() ?? {};
-                    final role = (data['role'] ?? '').toString().toLowerCase().trim();
+                        final data = snap.data!.data() ?? {};
+                        final role = (data['role'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .trim();
 
-                    final hasDropoffAccess =
-                        role == 'admin' || (data['capabilities']?['dropoffs'] == true);
+                        final hasDropoffAccess =
+                            role == 'admin' ||
+                            (data['capabilities']?['dropoffs'] == true);
 
-                    // No access → back to dashboard
-                    if (!hasDropoffAccess) return const DashboardScreen();
+                        // No access → back to dashboard
+                        if (!hasDropoffAccess) return const DashboardScreen();
 
-                    // Admins + Associates with capability land here
-                    return const AdminDropoffsScreen();
-                  },
-                ),
+                        // Admins + Associates with capability land here
+                        return const AdminDropoffsScreen();
+                      },
+                    ),
               ),
             );
 
@@ -263,9 +307,8 @@ class _MyAppState extends State<MyApp> {
             // Default protected landing
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                builder: (_) => const DashboardScreen(),
-              ),
+              builder: (_) =>
+                  _AuthGate(builder: (_) => const DashboardScreen()),
             );
         }
       },
