@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 
+enum _SortField { name, client, size, date }
+
 class DropoffUploadsScreen extends StatefulWidget {
   const DropoffUploadsScreen({super.key});
 
@@ -11,13 +13,22 @@ class DropoffUploadsScreen extends StatefulWidget {
 }
 
 class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
-  String _q = '';
   final _searchCtrl = TextEditingController();
+  String _q = '';
 
   String? _role;
   bool _loadingRole = true;
 
-  late Stream<QuerySnapshot<Map<String, dynamic>>> _uploadsStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _uploadsStream;
+
+  // ✅ enterprise table state
+  final Set<String> _selected = {};
+  _SortField _sortField = _SortField.date;
+  bool _sortAsc = false;
+
+  // ✅ pagination (client-side, safe)
+  static const int _pageSize = 50;
+  int _visibleCount = _pageSize;
 
   @override
   void initState() {
@@ -46,36 +57,30 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
         .get(const GetOptions(source: Source.server));
 
     _role = (snap.data()?['role'] ?? '').toString().toLowerCase().trim();
-
     final isAdmin = _role == 'admin';
 
     _uploadsStream = isAdmin
         ? FirebaseFirestore.instance
-              .collectionGroup('files')
-              .orderBy('createdAt', descending: true)
-              .limit(500)
-              .snapshots()
+            .collectionGroup('files')
+            .orderBy('createdAt', descending: true)
+            .limit(500)
+            .snapshots()
         : FirebaseFirestore.instance
-              .collectionGroup('files')
-              .where('requestCreatedByRole', isEqualTo: 'associate')
-              .orderBy('createdAt', descending: true)
-              .limit(500)
-              .snapshots();
+            .collectionGroup('files')
+            .where('requestCreatedByRole', isEqualTo: 'associate')
+            .orderBy('createdAt', descending: true)
+            .limit(500)
+            .snapshots();
 
     _loadingRole = false;
     if (mounted) setState(() {});
   }
 
-  String _safeString(dynamic v) => (v ?? '').toString().trim();
+  String _s(dynamic v) => (v ?? '').toString().trim();
 
-  String _formatDateTime(BuildContext context, DateTime dt) {
-    final loc = MaterialLocalizations.of(context);
-    final date = loc.formatShortDate(dt);
-    final time = loc.formatTimeOfDay(
-      TimeOfDay.fromDateTime(dt),
-      alwaysUse24HourFormat: false,
-    );
-    return '$date • $time';
+  String _fmt(BuildContext c, DateTime d) {
+    final loc = MaterialLocalizations.of(c);
+    return '${loc.formatShortDate(d)} • ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(d))}';
   }
 
   @override
@@ -93,109 +98,192 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text("Client Upload Activity")),
+      appBar: AppBar(title: const Text('Client Upload Activity')),
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-            children: [
-              Container(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black.withOpacity(0.05)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Client Uploaded Files",
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
+          constraints: const BoxConstraints(maxWidth: 1400),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.black.withOpacity(0.05)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ✅ Header
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Client Uploaded Files',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              isAdmin
+                                  ? 'All uploads across all client upload links.'
+                                  : 'Uploads from associate-created client upload links.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475467),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isAdmin
-                          ? "All files uploaded through client upload links (admin + associate requests)."
-                          : "Files uploaded through client upload links created by associates.",
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
 
-                    // ✅ SEARCH — NOW STABLE
-                    TextField(
-                      controller: _searchCtrl,
-                      onChanged: (v) {
-                        setState(() {
-                          _q = v.toLowerCase();
-                        });
-                      },
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText:
-                            'Search by client name, file name, or request ID…',
-                      ),
-                    ),
-                    const SizedBox(height: 14),
+                      // ✅ Bulk actions
+                      if (_selected.isNotEmpty) ...[
+                        Text(
+                          '${_selected.length} selected',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: isAdmin ? () {} : null,
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          label: const Text('Delete'),
+                        ),
+                      ],
+                    ],
+                  ),
 
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  const SizedBox(height: 14),
+
+                  // ✅ Search
+                  TextField(
+                    controller: _searchCtrl,
+                    onChanged: (v) => setState(() {
+                      _q = v.toLowerCase();
+                      _visibleCount = _pageSize;
+                    }),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search),
+                      hintText:
+                          'Search by file name, client name, or storage path…',
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // ✅ Column headers
+                  _HeaderRow(
+                    sortField: _sortField,
+                    asc: _sortAsc,
+                    onSort: (f) => setState(() {
+                      _sortAsc = _sortField == f ? !_sortAsc : true;
+                      _sortField = f;
+                    }),
+                    onToggleAll: (v) =>
+                        setState(() => _selected.clear()),
+                  ),
+
+                  const Divider(height: 1),
+
+                  // ✅ Data
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: _uploadsStream,
                       builder: (context, snap) {
                         if (!snap.hasData) {
-                          return const Padding(
-                            padding: EdgeInsets.all(16),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
+                          return const Center(
+                              child: CircularProgressIndicator());
                         }
 
                         final q = _q.trim();
                         final docs = snap.data!.docs;
 
-                        final filtered = q.isEmpty
-                            ? docs
-                            : docs.where((d) {
-                                final data = d.data();
-                                return _safeString(
-                                      data['originalName'],
-                                    ).toLowerCase().contains(q) ||
-                                    _safeString(
-                                      data['storagePath'],
-                                    ).toLowerCase().contains(q) ||
-                                    _safeString(
-                                      (data['uploadedBy'] as Map?)?['name'],
-                                    ).toLowerCase().contains(q);
-                              }).toList();
+                        List<QueryDocumentSnapshot<Map<String, dynamic>>> rows =
+                            q.isEmpty
+                                ? docs
+                                : docs.where((d) {
+                                    final m = d.data();
+                                    return _s(m['originalName'])
+                                            .toLowerCase()
+                                            .contains(q) ||
+                                        _s(m['storagePath'])
+                                            .toLowerCase()
+                                            .contains(q) ||
+                                        _s((m['uploadedBy'] as Map?)?['name'])
+                                            .toLowerCase()
+                                            .contains(q);
+                                  }).toList();
 
-                        if (filtered.isEmpty) {
-                          return const Text(
-                            'No uploads found.',
-                            style: TextStyle(color: Color(0xFF667085)),
-                          );
-                        }
+                        // ✅ sort
+                        rows.sort((a, b) {
+                          final A = a.data(), B = b.data();
+                          int r = 0;
+                          switch (_sortField) {
+                            case _SortField.name:
+                              r = _s(A['originalName'])
+                                  .compareTo(_s(B['originalName']));
+                              break;
+                            case _SortField.client:
+                              r = _s((A['uploadedBy'] as Map?)?['name'])
+                                  .compareTo(
+                                      _s((B['uploadedBy'] as Map?)?['name']));
+                              break;
+                            case _SortField.size:
+                              r = (A['sizeBytes'] ?? 0)
+                                  .compareTo(B['sizeBytes'] ?? 0);
+                              break;
+                            case _SortField.date:
+                              r = (A['createdAt'] as Timestamp?)
+                                      ?.compareTo(B['createdAt']) ??
+                                  0;
+                              break;
+                          }
+                          return _sortAsc ? r : -r;
+                        });
 
-                        return Column(
-                          children: [
-                            for (final d in filtered)
-                              _UploadRow(
-                                data: d.data(),
-                                fullPath: d.reference.path,
-                                formatWhen: (dt) =>
-                                    _formatDateTime(context, dt),
-                              ),
-                          ],
+                        final visible =
+                            rows.take(_visibleCount).toList();
+
+                        return ListView.separated(
+                          itemCount: visible.length + 1,
+                          separatorBuilder: (_, __) =>
+                              Divider(height: 1, color: Colors.black12),
+                          itemBuilder: (c, i) {
+                            if (i == visible.length) {
+                              if (visible.length >= rows.length) {
+                                return const SizedBox(height: 12);
+                              }
+                              return TextButton(
+                                onPressed: () => setState(() =>
+                                    _visibleCount += _pageSize),
+                                child: const Text('Load more'),
+                              );
+                            }
+
+                            final d = visible[i];
+                            final id = d.reference.path;
+
+                            return _UploadRowEnterprise(
+                              selected: _selected.contains(id),
+                              onSelect: (v) => setState(() {
+                                v ? _selected.add(id) : _selected.remove(id);
+                              }),
+                              data: d.data(),
+                              formatWhen: (dt) => _fmt(context, dt),
+                              canDelete: isAdmin,
+                            );
+                          },
                         );
                       },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -203,128 +291,139 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
   }
 }
 
-class _UploadRow extends StatelessWidget {
-  final Map<String, dynamic> data;
-  final String fullPath;
-  final String Function(DateTime dt) formatWhen;
+/// ============================
+/// HEADER
+/// ============================
+class _HeaderRow extends StatelessWidget {
+  final _SortField sortField;
+  final bool asc;
+  final ValueChanged<_SortField> onSort;
+  final ValueChanged<bool?> onToggleAll;
 
-  const _UploadRow({
-    required this.data,
-    required this.fullPath,
-    required this.formatWhen,
+  const _HeaderRow({
+    required this.sortField,
+    required this.asc,
+    required this.onSort,
+    required this.onToggleAll,
   });
 
-  String _safeString(dynamic v) => (v ?? '').toString().trim();
+  @override
+  Widget build(BuildContext context) {
+    TextStyle h() => Theme.of(context).textTheme.labelMedium!.copyWith(
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFF667085),
+        );
 
-  String _extractRequestIdFromPath(String path) {
-    final parts = path.split('/');
-    final i = parts.indexOf('dropoff_requests');
-    if (i != -1 && i + 1 < parts.length) return parts[i + 1];
-    return '';
+    Widget col(String t, _SortField f, {int flex = 1}) {
+      return Expanded(
+        flex: flex,
+        child: InkWell(
+          onTap: () => onSort(f),
+          child: Row(
+            children: [
+              Text(t, style: h()),
+              if (sortField == f)
+                Icon(
+                  asc ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 14,
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Checkbox(value: false, onChanged: onToggleAll),
+          col('File name', _SortField.name, flex: 4),
+          col('Client', _SortField.client, flex: 3),
+          col('Size', _SortField.size),
+          col('Uploaded', _SortField.date, flex: 2),
+          const SizedBox(width: 88),
+        ],
+      ),
+    );
   }
+}
+
+/// ============================
+/// ROW
+/// ============================
+class _UploadRowEnterprise extends StatelessWidget {
+  final bool selected;
+  final ValueChanged<bool> onSelect;
+  final Map<String, dynamic> data;
+  final String Function(DateTime dt) formatWhen;
+  final bool canDelete;
+
+  const _UploadRowEnterprise({
+    required this.selected,
+    required this.onSelect,
+    required this.data,
+    required this.formatWhen,
+    required this.canDelete,
+  });
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final originalName = _safeString(data['originalName']);
-    final storagePath = _safeString(data['storagePath']);
+    final name = _s(data['originalName']);
     final sizeBytes = data['sizeBytes'];
-    final contentType = _safeString(data['contentType']);
-
-    final uploadedBy = (data['uploadedBy'] is Map)
-        ? Map<String, dynamic>.from(data['uploadedBy'])
-        : <String, dynamic>{};
-    final uploadedByName = _safeString(uploadedBy['name']);
+    final uploadedBy = (data['uploadedBy'] as Map?) ?? {};
+    final client = _s(uploadedBy['name']);
 
     final createdAt = data['createdAt'];
     DateTime? when;
     if (createdAt is Timestamp) when = createdAt.toDate();
 
-    final requestId = _extractRequestIdFromPath(fullPath);
-
-    String sizeLabel = '';
+    String size = '';
     if (sizeBytes is num) {
       final b = sizeBytes.toInt();
-      if (b < 1024) {
-        sizeLabel = '$b B';
-      } else if (b < 1024 * 1024) {
-        sizeLabel = '${(b / 1024).toStringAsFixed(1)} KB';
-      } else {
-        sizeLabel = '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
-      }
+      if (b < 1024) size = '$b B';
+      else if (b < 1024 * 1024)
+        size = '${(b / 1024).toStringAsFixed(1)} KB';
+      else
+        size = '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    return Container(
+      height: 42,
+      color: selected ? const Color(0xFFF2F4F7) : null,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.insert_drive_file_outlined,
-            size: 20,
-            color: AppColors.brandBlue.withOpacity(0.85),
-          ),
-          const SizedBox(width: 12),
+          Checkbox(value: selected, onChanged: (v) => onSelect(v ?? false)),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  originalName.isNotEmpty ? originalName : 'Untitled',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: const Color(0xFF101828),
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  [
-                    if (uploadedByName.isNotEmpty) uploadedByName,
-                    if (sizeLabel.isNotEmpty) sizeLabel,
-                    if (contentType.isNotEmpty) contentType,
-                  ].join(' • '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (when != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.schedule,
-                        size: 14,
-                        color: Color(0xFF667085),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        formatWhen(when!),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                if (requestId.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Request ID: ${requestId.substring(0, requestId.length > 8 ? 8 : requestId.length)}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: const Color(0xFF667085),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ],
+            flex: 4,
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium!.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
+          ),
+          Expanded(flex: 3, child: Text(client)),
+          Expanded(child: Text(size)),
+          Expanded(
+            flex: 2,
+            child: Text(when != null ? formatWhen(when!) : ''),
+          ),
+          IconButton(
+            icon: const Icon(Icons.download_outlined, size: 18),
+            tooltip: 'Download',
+            onPressed: () {},
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18),
+            tooltip: 'Delete',
+            onPressed: canDelete ? () {} : null,
           ),
         ],
       ),
