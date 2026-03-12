@@ -600,493 +600,18 @@ class _RequestsListState extends State<_RequestsList> {
 
                     final accent = _statusAccent(statusLower);
 
-                    return Padding(
-                      padding: const EdgeInsets.all(0),
-                      child: Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          onTap: widget.busy
-                              ? null
-                              : () => widget.onSelect(d.id),
-                          borderRadius: BorderRadius.circular(12),
-                          hoverColor: Colors.black.withOpacity(0.03),
-                          splashColor: Colors.black.withOpacity(0.02),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFFE4E7EC),
-                              ), // enterprise stroke
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.015),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // ✅ Status accent rail
-                                Container(
-                                  width: 5,
-                                  height: 60, // your current behavior kept
-                                  decoration: BoxDecoration(
-                                    color: accent.withOpacity(0.90),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(12),
-                                      bottomLeft: Radius.circular(12),
-                                    ),
-                                  ),
-                                ),
-
-                                // Main content padding
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      10,
-                                      8,
-                                      8,
-                                      8,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // clickable icon -> view details
-                                        InkWell(
-                                          onTap: widget.busy
-                                              ? null
-                                              : () => widget.onSelect(d.id),
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(6),
-                                            child: Icon(
-                                              Icons.inbox_outlined,
-                                              color: AppColors.brandBlue
-                                                  .withOpacity(0.85),
-                                            ),
-                                          ),
-                                        ),
-
-                                        const SizedBox(width: 10),
-
-                                        // clickable name/meta -> view details
-                                        Expanded(
-                                          child: InkWell(
-                                            onTap: widget.busy
-                                                ? null
-                                                : () => widget.onSelect(d.id),
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 2,
-                                                  ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          title,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: theme
-                                                              .textTheme
-                                                              .bodyMedium
-                                                              ?.copyWith(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w800,
-                                                                color:
-                                                                    const Color(
-                                                                      0xFF101828,
-                                                                    ),
-                                                              ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 10),
-                                                      Text(
-                                                        'ID: ${d.id.substring(0, d.id.length > 6 ? 6 : d.id.length)}',
-                                                        style: theme
-                                                            .textTheme
-                                                            .labelSmall
-                                                            ?.copyWith(
-                                                              color:
-                                                                  const Color(
-                                                                    0xFF98A2B3,
-                                                                  ),
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                            ),
-                                                      ),
-                                                    ],
-                                                  ),
-
-                                                  const SizedBox(height: 2),
-
-                                                  Text(
-                                                    subtitle,
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: theme
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: const Color(
-                                                            0xFF667085,
-                                                          ),
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          height: 1.2,
-                                                        ),
-                                                  ),
-
-                                                  const SizedBox(height: 6),
-
-                                                  // metadata: file count + created date
-                                                  Wrap(
-                                                    spacing: 10,
-                                                    runSpacing: 4,
-                                                    crossAxisAlignment:
-                                                        WrapCrossAlignment
-                                                            .center,
-                                                    children: [
-                                                      Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          const Icon(
-                                                            Icons.attach_file,
-                                                            size: 14,
-                                                            color: Color(
-                                                              0xFF667085,
-                                                            ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 4,
-                                                          ),
-                                                          Text(
-                                                            '$fileCount item${fileCount == 1 ? '' : 's'}',
-                                                            style: theme
-                                                                .textTheme
-                                                                .labelSmall
-                                                                ?.copyWith(
-                                                                  color: const Color(
-                                                                    0xFF667085,
-                                                                  ),
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w700,
-                                                                ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      if (createdText
-                                                          .isNotEmpty)
-                                                        Row(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            const Icon(
-                                                              Icons
-                                                                  .calendar_today_outlined,
-                                                              size: 13,
-                                                              color: Color(
-                                                                0xFF667085,
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 4,
-                                                            ),
-                                                            Text(
-                                                              'Created $createdText',
-                                                              style: theme
-                                                                  .textTheme
-                                                                  .labelSmall
-                                                                  ?.copyWith(
-                                                                    color: const Color(
-                                                                      0xFF667085,
-                                                                    ),
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                  ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-
-                                        const SizedBox(width: 10),
-
-                                        // Actions area (your existing logic preserved)
-                                        if (isMobile) ...[
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.end,
-                                            children: [
-                                              _StatusPill(status: status),
-                                              const SizedBox(height: 6),
-                                              PopupMenuButton<String>(
-                                                enabled: !widget.busy,
-                                                tooltip: widget.busy
-                                                    ? 'Working…'
-                                                    : 'Actions',
-                                                position:
-                                                    PopupMenuPosition.under,
-                                                icon: Icon(
-                                                  Icons.more_vert,
-                                                  color: AppColors.brandBlue
-                                                      .withOpacity(0.85),
-                                                ),
-                                                onSelected: (value) async {
-                                                  if (widget.busy) return;
-
-                                                  if (value == 'view') {
-                                                    widget.onSelect(d.id);
-                                                    return;
-                                                  }
-                                                  if (value == 'copy' &&
-                                                      url.isNotEmpty) {
-                                                    await Clipboard.setData(
-                                                      ClipboardData(text: url),
-                                                    );
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                            'Client upload link copied.',
-                                                          ),
-                                                        ),
-                                                      );
-                                                    }
-                                                    return;
-                                                  }
-                                                  if (value == 'toggle') {
-                                                    final nextStatus = isOpen
-                                                        ? 'closed'
-                                                        : 'open';
-                                                    await widget.onSetStatus(
-                                                      d.id,
-                                                      nextStatus,
-                                                    );
-                                                  }
-                                                },
-                                                itemBuilder: (ctx) => [
-                                                  const PopupMenuItem<String>(
-                                                    value: 'view',
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(
-                                                          Icons.open_in_new,
-                                                          size: 18,
-                                                        ),
-                                                        SizedBox(width: 10),
-                                                        Text('View details'),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  if (url.isNotEmpty)
-                                                    const PopupMenuItem<String>(
-                                                      value: 'copy',
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.copy,
-                                                            size: 18,
-                                                          ),
-                                                          SizedBox(width: 10),
-                                                          Text('Copy link'),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  const PopupMenuDivider(),
-                                                  PopupMenuItem<String>(
-                                                    value: 'toggle',
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(
-                                                          isOpen
-                                                              ? Icons.link_off
-                                                              : Icons.link,
-                                                          size: 18,
-                                                        ),
-                                                        SizedBox(width: 10),
-                                                        Text(
-                                                          isOpen
-                                                              ? 'Disable link'
-                                                              : 'Enable link',
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ] else ...[
-                                          _StatusPill(status: status),
-                                          const SizedBox(width: 6),
-
-                                          if (url.isNotEmpty)
-                                            Tooltip(
-                                              message: widget.busy
-                                                  ? 'Working…'
-                                                  : 'Copy link',
-                                              child: IconButton(
-                                                visualDensity:
-                                                    VisualDensity.compact,
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints.tightFor(
-                                                      width: 36,
-                                                      height: 36,
-                                                    ),
-                                                icon: const Icon(
-                                                  Icons.copy,
-                                                  size: 18,
-                                                ),
-                                                onPressed: widget.busy
-                                                    ? null
-                                                    : () async {
-                                                        await Clipboard.setData(
-                                                          ClipboardData(
-                                                            text: url,
-                                                          ),
-                                                        );
-                                                        if (context.mounted) {
-                                                          ScaffoldMessenger.of(
-                                                            context,
-                                                          ).showSnackBar(
-                                                            const SnackBar(
-                                                              content: Text(
-                                                                'Client upload link copied.',
-                                                              ),
-                                                            ),
-                                                          );
-                                                        }
-                                                      },
-                                              ),
-                                            ),
-
-                                          Tooltip(
-                                            message: widget.busy
-                                                ? 'Working…'
-                                                : 'More actions',
-                                            child: PopupMenuButton<String>(
-                                              enabled: !widget.busy,
-                                              tooltip: 'More actions',
-                                              position: PopupMenuPosition.under,
-                                              icon: Icon(
-                                                Icons.more_horiz,
-                                                color: AppColors.brandBlue
-                                                    .withOpacity(0.85),
-                                              ),
-                                              onSelected: (value) async {
-                                                if (widget.busy) return;
-
-                                                if (value == 'view') {
-                                                  widget.onSelect(d.id);
-                                                  return;
-                                                }
-                                                if (value == 'toggle') {
-                                                  final nextStatus = isOpen
-                                                      ? 'closed'
-                                                      : 'open';
-                                                  await widget.onSetStatus(
-                                                    d.id,
-                                                    nextStatus,
-                                                  );
-                                                }
-                                              },
-                                              itemBuilder: (ctx) => [
-                                                const PopupMenuItem<String>(
-                                                  value: 'view',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.open_in_new,
-                                                        size: 18,
-                                                      ),
-                                                      SizedBox(width: 10),
-                                                      Text('View details'),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const PopupMenuDivider(),
-                                                PopupMenuItem<String>(
-                                                  value: 'toggle',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        isOpen
-                                                            ? Icons.link_off
-                                                            : Icons.link,
-                                                        size: 18,
-                                                      ),
-                                                      SizedBox(width: 10),
-                                                      Text(
-                                                        isOpen
-                                                            ? 'Disable link'
-                                                            : 'Enable link',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                          IconButton(
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: EdgeInsets.zero,
-                                            constraints:
-                                                const BoxConstraints.tightFor(
-                                                  width: 36,
-                                                  height: 36,
-                                                ),
-                                            tooltip: 'View details',
-                                            onPressed: widget.busy
-                                                ? null
-                                                : () => widget.onSelect(d.id),
-                                            icon: Icon(
-                                              Icons.chevron_right,
-                                              color: AppColors.brandBlue
-                                                  .withOpacity(0.55),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                    return _DenseRequestRow(
+                      busy: widget.busy,
+                      onTap: () => widget.onSelect(d.id),
+                      statusColor: _statusAccent(statusLower),
+                      title: title,
+                      email: email,
+                      fileCount: fileCount,
+                      createdText: createdText,
+                      url: url,
+                      isOpen: isOpen,
+                      onToggleStatus: (nextStatus) =>
+                          widget.onSetStatus(d.id, nextStatus),
                     );
                   },
                 );
@@ -1102,6 +627,193 @@ class _RequestsListState extends State<_RequestsList> {
     return '${dt.month.toString().padLeft(2, '0')}/'
         '${dt.day.toString().padLeft(2, '0')}/'
         '${dt.year}';
+  }
+}
+
+class _DenseRequestRow extends StatefulWidget {
+  final bool busy;
+  final VoidCallback onTap;
+  final Color statusColor;
+  final String title;
+  final String email;
+  final int fileCount;
+  final String createdText;
+  final String url;
+  final bool isOpen;
+  final Future<void> Function(String nextStatus) onToggleStatus;
+
+  const _DenseRequestRow({
+    required this.busy,
+    required this.onTap,
+    required this.statusColor,
+    required this.title,
+    required this.email,
+    required this.fileCount,
+    required this.createdText,
+    required this.url,
+    required this.isOpen,
+    required this.onToggleStatus,
+  });
+
+  @override
+  State<_DenseRequestRow> createState() => _DenseRequestRowState();
+}
+
+class _DenseRequestRowState extends State<_DenseRequestRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final hoverBg = const Color(0xFF101828).withOpacity(0.12); // dark-ish gray
+    final normalBg = Colors.transparent;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.busy ? null : widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: _hover ? hoverBg : normalBg,
+              border: Border(
+                bottom: BorderSide(color: Colors.black.withOpacity(0.05)),
+              ),
+            ),
+            child: Row(
+              children: [
+                // Status dot
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: widget.statusColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Client name
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF101828),
+                    ),
+                  ),
+                ),
+
+                // Email
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    widget.email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                // File count
+                SizedBox(
+                  width: 90,
+                  child: Text(
+                    '${widget.fileCount} file${widget.fileCount == 1 ? '' : 's'}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF475467),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+
+                // Created date
+                SizedBox(
+                  width: 110,
+                  child: Text(
+                    widget.createdText,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                // Copy link
+                IconButton(
+                  tooltip: 'Copy link',
+                  icon: const Icon(Icons.copy, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  onPressed: widget.busy || widget.url.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: widget.url),
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Link copied')),
+                            );
+                          }
+                        },
+                ),
+
+                // Actions
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Center(
+                    child: PopupMenuButton<String>(
+                      tooltip: 'Actions',
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      onSelected: (value) async {
+                        if (widget.busy) return;
+                        if (value == 'view') widget.onTap();
+                        if (value == 'toggle') {
+                          await widget.onToggleStatus(
+                            widget.isOpen ? 'closed' : 'open',
+                          );
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'view',
+                          child: Text('View details'),
+                        ),
+                        PopupMenuItem(
+                          value: 'toggle',
+                          child: Text(
+                            widget.isOpen ? 'Disable link' : 'Enable link',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
