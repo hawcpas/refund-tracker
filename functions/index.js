@@ -1359,18 +1359,6 @@ exports.createDropoffRequest = onCall(
 
     const ref = admin.firestore().collection("dropoff_requests").doc();
 
-    /*
-    const settingsSnap = await admin.firestore()
-      .collection("settings")
-      .doc("app")
-      .get();
-
-    const baseUrl = (settingsSnap.data()?.appUrl || "").toString();
-
-    if (!isValidHttpUrl(baseUrl)) {
-      throw new HttpsError("failed-precondition", "App URL not configured.");
-    }
-    */
     const baseUrl = APP_URL.value();
     const cleanBase = baseUrl.replace(/\/$/, "");
     const url = `${cleanBase}/dropoff?rid=${ref.id}&t=${token}`;
@@ -1482,6 +1470,133 @@ exports.getAdminDownloadUrl = onCall(
       console.error("getAdminDownloadUrl failed:", err);
       if (err instanceof HttpsError) throw err;
       throw new HttpsError("internal", "Could not generate download URL.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
+
+// ============================
+// deleteDropoffUploadsBatch (admin-only)
+// ============================
+exports.deleteDropoffUploadsBatch = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+
+      if (!auth) {
+        throw new HttpsError("unauthenticated", "Sign-in required.");
+      }
+
+      await assertAdmin(auth.uid);
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if (items.length === 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          "items[] is required and cannot be empty."
+        );
+      }
+
+      const bucket = admin.storage().bucket();
+      const batch = admin.firestore().batch();
+
+      for (const item of items) {
+        const docPath = (item?.docPath || "").toString().trim();
+        const storagePath = (item?.storagePath || "").toString().trim();
+
+        if (docPath) {
+          batch.delete(admin.firestore().doc(docPath));
+        }
+
+        if (storagePath) {
+          await bucket.file(storagePath).delete().catch(() => { });
+        }
+      }
+
+      await batch.commit();
+
+      await admin.firestore().collection("auditLogs").add({
+        type: "uploads_bulk_delete",
+        count: items.length,
+        actorUid: auth.uid,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return { ok: true, deleted: items.length };
+    } catch (err) {
+      console.error("deleteDropoffUploadsBatch failed:", err);
+
+      if (err instanceof HttpsError) throw err;
+
+      throw new HttpsError("internal", "Bulk delete failed.", {
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+);
+
+// ============================
+// deleteDropoffUploadsBatch (admin-only)
+// Deletes Firestore metadata doc + Storage object
+// ============================
+exports.deleteDropoffUploadsBatch = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+      await assertAdmin(auth.uid); // uses your existing helper [1](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Forms/DispForm.aspx?ID=658&web=1)
+
+      const items = data?.items;
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new HttpsError("invalid-argument", "items[] is required.");
+      }
+
+      const db = admin.firestore();
+      const bucket = admin.storage().bucket();
+
+      const results = [];
+      for (const it of items) {
+        const docPath = (it?.docPath || "").toString().trim();
+        const storagePath = (it?.storagePath || "").toString().trim();
+
+        if (!docPath) {
+          results.push({ ok: false, docPath, error: "missing docPath" });
+          continue;
+        }
+
+        try {
+          // Delete Firestore metadata doc
+          await db.doc(docPath).delete().catch(() => { });
+
+          // Delete Storage object (if provided)
+          if (storagePath) {
+            await bucket.file(storagePath).delete().catch(() => { });
+          }
+
+          results.push({ ok: true, docPath });
+        } catch (e) {
+          console.error("deleteDropoffUploadsBatch item failed", {
+            docPath,
+            storagePath,
+            message: e?.message ?? String(e),
+          });
+          results.push({
+            ok: false,
+            docPath,
+            error: e?.message ?? String(e),
+          });
+        }
+      }
+
+      const deleted = results.filter((r) => r.ok).length;
+      return { ok: true, deleted, results };
+    } catch (err) {
+      console.error("deleteDropoffUploadsBatch failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Delete batch failed.", {
         message: err?.message ?? String(err),
       });
     }

@@ -81,6 +81,29 @@ Icon _fileTypeIcon({required String fileName, required String contentType}) {
   );
 }
 
+String formatDateTimeCompact(DateTime dt) {
+  final m = dt.month.toString().padLeft(2, '0');
+  final d = dt.day.toString().padLeft(2, '0');
+  final y = dt.year.toString();
+
+  int hour = dt.hour;
+  final minute = dt.minute.toString().padLeft(2, '0');
+  final ampm = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12;
+  if (hour == 0) hour = 12;
+
+  return '$m/$d/$y • $hour:$minute $ampm';
+}
+
+/// Sort options for the links list
+enum _DropoffSortField {
+  clientName,
+  createdAt,
+  lastUploadedAt,
+  fileCount,
+  status,
+}
+
 class AdminDropoffsScreen extends StatefulWidget {
   const AdminDropoffsScreen({super.key});
 
@@ -283,6 +306,60 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     }
   }
 
+  /// Bulk delete: uses same callable, but holds busy state once (enterprise feel)
+  Future<void> _bulkDeleteDropoffRequests(List<String> requestIds) async {
+    if (requestIds.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete selected links'),
+        content: Text(
+          'Delete ${requestIds.length} client upload link(s)? This will permanently remove the request and all associated uploads.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _busy = true);
+    try {
+      // Execute sequentially (safer for rate limits + audit readability)
+      for (final id in requestIds) {
+        await _deleteDropoffCallable.call({'requestId': id});
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted ${requestIds.length} link(s).')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Bulk delete failed: ${e.code} ${e.message ?? ''}'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Bulk delete failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _downloadFile({
     required String storagePath,
     required String filename,
@@ -309,7 +386,6 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
       if (!mounted) return;
 
-      // ✅ SINGLE launch, inside user gesture
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -388,6 +464,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
                                   );
                                 },
                                 onSetStatus: _setDropoffStatus,
+                                onBulkDelete: _bulkDeleteDropoffRequests,
                               ),
                             ),
                           ),
@@ -429,12 +506,14 @@ class _RequestsList extends StatefulWidget {
   final bool busy;
   final void Function(String requestId) onSelect;
   final Future<void> Function(String requestId, String status) onSetStatus;
+  final Future<void> Function(List<String> requestIds) onBulkDelete;
 
   const _RequestsList({
     required this.db,
     required this.busy,
     required this.onSelect,
     required this.onSetStatus,
+    required this.onBulkDelete,
   });
 
   @override
@@ -445,10 +524,56 @@ class _RequestsListState extends State<_RequestsList> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _q = '';
 
+  // Multi-select
+  final Set<String> _selected = {};
+
+  // Sorting (local sort to avoid new indexes)
+  _DropoffSortField _sortField = _DropoffSortField.createdAt;
+  bool _sortAsc = false;
+
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _toggleSort(_DropoffSortField field) {
+    setState(() {
+      if (_sortField == field) {
+        _sortAsc = !_sortAsc;
+      } else {
+        _sortField = field;
+        // default direction: created/lastUpload desc, others asc
+        _sortAsc =
+            !(field == _DropoffSortField.createdAt ||
+                field == _DropoffSortField.lastUploadedAt);
+      }
+    });
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${dt.month.toString().padLeft(2, '0')}/'
+        '${dt.day.toString().padLeft(2, '0')}/'
+        '${dt.year}';
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final y = dt.year.toString();
+
+    int hour = dt.hour;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour == 0) hour = 12;
+
+    return '$m/$d/$y • $hour:$minute $ampm';
+  }
+
+  DateTime? _asDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    return null;
   }
 
   @override
@@ -456,7 +581,6 @@ class _RequestsListState extends State<_RequestsList> {
     final theme = Theme.of(context);
     final isMobile = MediaQuery.of(context).size.width < 600;
 
-    // ✅ Build the query BEFORE the StreamBuilder (same as your current code)
     final uid = FirebaseAuth.instance.currentUser!.uid;
 
     final query = widget.db
@@ -489,10 +613,13 @@ class _RequestsListState extends State<_RequestsList> {
           ),
           const SizedBox(height: 12),
 
-          // ✅ NEW: Search bar (enterprise style)
+          // Search bar
           TextField(
             controller: _searchCtrl,
-            onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+            onChanged: (v) => setState(() {
+              _q = v.trim().toLowerCase();
+              _selected.clear();
+            }),
             decoration: InputDecoration(
               hintText: 'Search by client name, email, or link ID',
               prefixIcon: const Icon(Icons.search),
@@ -503,7 +630,10 @@ class _RequestsListState extends State<_RequestsList> {
                       icon: const Icon(Icons.close),
                       onPressed: () {
                         _searchCtrl.clear();
-                        setState(() => _q = '');
+                        setState(() {
+                          _q = '';
+                          _selected.clear();
+                        });
                       },
                     ),
               isDense: true,
@@ -521,7 +651,105 @@ class _RequestsListState extends State<_RequestsList> {
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          // Sort + bulk actions bar (enterprise)
+          Row(
+            children: [
+              Text(
+                'Sort:',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF667085),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<_DropoffSortField>(
+                value: _sortField,
+                underline: const SizedBox.shrink(),
+                onChanged: (v) {
+                  if (v == null) return;
+                  _toggleSort(v);
+                },
+                items: const [
+                  DropdownMenuItem(
+                    value: _DropoffSortField.clientName,
+                    child: Text('Client name'),
+                  ),
+                  DropdownMenuItem(
+                    value: _DropoffSortField.createdAt,
+                    child: Text('Date created'),
+                  ),
+                  DropdownMenuItem(
+                    value: _DropoffSortField.lastUploadedAt,
+                    child: Text('Latest upload'),
+                  ),
+                  DropdownMenuItem(
+                    value: _DropoffSortField.fileCount,
+                    child: Text('File count'),
+                  ),
+                  DropdownMenuItem(
+                    value: _DropoffSortField.status,
+                    child: Text('Status'),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: _sortAsc ? 'Ascending' : 'Descending',
+                onPressed: () => setState(() => _sortAsc = !_sortAsc),
+                icon: Icon(
+                  _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+                  size: 18,
+                  color: const Color(0xFF475467),
+                ),
+              ),
+              const Spacer(),
+
+              if (_selected.isNotEmpty) ...[
+                Text(
+                  '${_selected.length} selected',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF667085),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 36,
+                  child: FilledButton.icon(
+                    onPressed: widget.busy
+                        ? null
+                        : () async {
+                            final ids = _selected.toList(growable: false);
+
+                            if (ids.isEmpty) return;
+
+                            // Run delete (shows confirm dialog in parent)
+                            await widget.onBulkDelete(ids);
+
+                            // Clear selection after delete (prevents “nothing happened” feeling)
+                            if (!mounted) return;
+                            setState(() => _selected.clear());
+
+                            // Optional: immediate feedback (enterprise feel)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Delete requested for ${ids.length} link(s).',
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: Text('Delete (${_selected.length})'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 10),
 
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -539,7 +767,7 @@ class _RequestsListState extends State<_RequestsList> {
 
                 final allDocs = snap.data!.docs;
 
-                // ✅ NEW: Local filtering (no Firestore index required)
+                // Filter
                 final docs = _q.isEmpty
                     ? allDocs
                     : allDocs.where((doc) {
@@ -567,528 +795,202 @@ class _RequestsListState extends State<_RequestsList> {
                   );
                 }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(0),
-                  itemCount: docs.length,
-                  itemBuilder: (context, i) {
-                    final d = docs[i];
-                    final data = d.data();
+                // Normalize rows
+                final rows = docs.map((d) {
+                  final data = d.data();
+                  final email = (data['clientEmail'] ?? '').toString();
+                  final name = (data['clientName'] ?? '').toString();
+                  final url = (data['url'] ?? '').toString();
+                  final status = (data['status'] ?? 'open').toString();
 
-                    final email = (data['clientEmail'] ?? '').toString();
-                    final name = (data['clientName'] ?? '').toString();
-                    final url = (data['url'] ?? '').toString();
-                    final status = (data['status'] ?? 'open').toString();
+                  final fileCount = (data['fileCount'] is num)
+                      ? (data['fileCount'] as num).toInt()
+                      : 0;
 
-                    final fileCount = (data['fileCount'] is num)
-                        ? (data['fileCount'] as num).toInt()
-                        : 0;
+                  final createdAt = _asDate(data['createdAt']);
+                  final lastUploadedAt = _asDate(data['lastUploadedAt']);
 
-                    final createdAt = data['createdAt'];
-                    final createdText = createdAt is Timestamp
-                        ? _formatDate(createdAt.toDate())
-                        : '';
+                  final title = name.isNotEmpty
+                      ? name
+                      : (email.isNotEmpty ? email : d.id);
 
-                    final title = name.isNotEmpty
-                        ? name
-                        : (email.isNotEmpty ? email : d.id);
-                    final subtitle = name.isNotEmpty
-                        ? email
-                        : (data['message'] ?? '').toString();
+                  return _DropoffRowModel(
+                    id: d.id,
+                    title: title,
+                    email: email,
+                    url: url,
+                    status: status,
+                    fileCount: fileCount,
+                    createdAt: createdAt,
+                    lastUploadedAt: lastUploadedAt,
+                  );
+                }).toList();
 
-                    final statusLower = status.toLowerCase().trim();
-                    final isOpen = statusLower == 'open';
+                // Sort (local)
+                int cmpString(String a, String b) =>
+                    a.toLowerCase().compareTo(b.toLowerCase());
 
-                    final accent = _statusAccent(statusLower);
+                int cmpDate(DateTime? a, DateTime? b) {
+                  if (a == null && b == null) return 0;
+                  if (a == null) return -1;
+                  if (b == null) return 1;
+                  return a.compareTo(b);
+                }
 
-                    return Padding(
-                      padding: const EdgeInsets.all(0),
-                      child: Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          onTap: widget.busy
-                              ? null
-                              : () => widget.onSelect(d.id),
-                          borderRadius: BorderRadius.circular(12),
-                          hoverColor: Colors.black.withOpacity(0.03),
-                          splashColor: Colors.black.withOpacity(0.02),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFFE4E7EC),
-                              ), // enterprise stroke
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.015),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // ✅ Status accent rail
-                                Container(
-                                  width: 5,
-                                  height: 60, // your current behavior kept
-                                  decoration: BoxDecoration(
-                                    color: accent.withOpacity(0.90),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(12),
-                                      bottomLeft: Radius.circular(12),
-                                    ),
-                                  ),
-                                ),
+                rows.sort((a, b) {
+                  int res;
+                  switch (_sortField) {
+                    case _DropoffSortField.clientName:
+                      res = cmpString(a.title, b.title);
+                      break;
+                    case _DropoffSortField.createdAt:
+                      res = cmpDate(a.createdAt, b.createdAt);
+                      break;
+                    case _DropoffSortField.lastUploadedAt:
+                      res = cmpDate(a.lastUploadedAt, b.lastUploadedAt);
+                      break;
+                    case _DropoffSortField.fileCount:
+                      res = a.fileCount.compareTo(b.fileCount);
+                      break;
+                    case _DropoffSortField.status:
+                      res = cmpString(a.status, b.status);
+                      break;
+                  }
+                  return _sortAsc ? res : -res;
+                });
 
-                                // Main content padding
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      10,
-                                      8,
-                                      8,
-                                      8,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // clickable icon -> view details
-                                        InkWell(
-                                          onTap: widget.busy
-                                              ? null
-                                              : () => widget.onSelect(d.id),
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(6),
-                                            child: Icon(
-                                              Icons.inbox_outlined,
-                                              color: AppColors.brandBlue
-                                                  .withOpacity(0.85),
-                                            ),
-                                          ),
-                                        ),
+                final visibleIds = rows.map((e) => e.id).toSet();
+                final allSelected =
+                    rows.isNotEmpty && _selected.containsAll(visibleIds);
 
-                                        const SizedBox(width: 10),
-
-                                        // clickable name/meta -> view details
-                                        Expanded(
-                                          child: InkWell(
-                                            onTap: widget.busy
-                                                ? null
-                                                : () => widget.onSelect(d.id),
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 2,
-                                                  ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          title,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: theme
-                                                              .textTheme
-                                                              .bodyMedium
-                                                              ?.copyWith(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w800,
-                                                                color:
-                                                                    const Color(
-                                                                      0xFF101828,
-                                                                    ),
-                                                              ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 10),
-                                                      Text(
-                                                        'ID: ${d.id.substring(0, d.id.length > 6 ? 6 : d.id.length)}',
-                                                        style: theme
-                                                            .textTheme
-                                                            .labelSmall
-                                                            ?.copyWith(
-                                                              color:
-                                                                  const Color(
-                                                                    0xFF98A2B3,
-                                                                  ),
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                            ),
-                                                      ),
-                                                    ],
-                                                  ),
-
-                                                  const SizedBox(height: 2),
-
-                                                  Text(
-                                                    subtitle,
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: theme
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: const Color(
-                                                            0xFF667085,
-                                                          ),
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          height: 1.2,
-                                                        ),
-                                                  ),
-
-                                                  const SizedBox(height: 6),
-
-                                                  // metadata: file count + created date
-                                                  Wrap(
-                                                    spacing: 10,
-                                                    runSpacing: 4,
-                                                    crossAxisAlignment:
-                                                        WrapCrossAlignment
-                                                            .center,
-                                                    children: [
-                                                      Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          const Icon(
-                                                            Icons.attach_file,
-                                                            size: 14,
-                                                            color: Color(
-                                                              0xFF667085,
-                                                            ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 4,
-                                                          ),
-                                                          Text(
-                                                            '$fileCount item${fileCount == 1 ? '' : 's'}',
-                                                            style: theme
-                                                                .textTheme
-                                                                .labelSmall
-                                                                ?.copyWith(
-                                                                  color: const Color(
-                                                                    0xFF667085,
-                                                                  ),
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w700,
-                                                                ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      if (createdText
-                                                          .isNotEmpty)
-                                                        Row(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            const Icon(
-                                                              Icons
-                                                                  .calendar_today_outlined,
-                                                              size: 13,
-                                                              color: Color(
-                                                                0xFF667085,
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 4,
-                                                            ),
-                                                            Text(
-                                                              'Created $createdText',
-                                                              style: theme
-                                                                  .textTheme
-                                                                  .labelSmall
-                                                                  ?.copyWith(
-                                                                    color: const Color(
-                                                                      0xFF667085,
-                                                                    ),
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                  ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-
-                                        const SizedBox(width: 10),
-
-                                        // Actions area (your existing logic preserved)
-                                        if (isMobile) ...[
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.end,
-                                            children: [
-                                              _StatusPill(status: status),
-                                              const SizedBox(height: 6),
-                                              PopupMenuButton<String>(
-                                                enabled: !widget.busy,
-                                                tooltip: widget.busy
-                                                    ? 'Working…'
-                                                    : 'Actions',
-                                                position:
-                                                    PopupMenuPosition.under,
-                                                icon: Icon(
-                                                  Icons.more_vert,
-                                                  color: AppColors.brandBlue
-                                                      .withOpacity(0.85),
-                                                ),
-                                                onSelected: (value) async {
-                                                  if (widget.busy) return;
-
-                                                  if (value == 'view') {
-                                                    widget.onSelect(d.id);
-                                                    return;
-                                                  }
-                                                  if (value == 'copy' &&
-                                                      url.isNotEmpty) {
-                                                    await Clipboard.setData(
-                                                      ClipboardData(text: url),
-                                                    );
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                            'Client upload link copied.',
-                                                          ),
-                                                        ),
-                                                      );
-                                                    }
-                                                    return;
-                                                  }
-                                                  if (value == 'toggle') {
-                                                    final nextStatus = isOpen
-                                                        ? 'closed'
-                                                        : 'open';
-                                                    await widget.onSetStatus(
-                                                      d.id,
-                                                      nextStatus,
-                                                    );
-                                                  }
-                                                },
-                                                itemBuilder: (ctx) => [
-                                                  const PopupMenuItem<String>(
-                                                    value: 'view',
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(
-                                                          Icons.open_in_new,
-                                                          size: 18,
-                                                        ),
-                                                        SizedBox(width: 10),
-                                                        Text('View details'),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  if (url.isNotEmpty)
-                                                    const PopupMenuItem<String>(
-                                                      value: 'copy',
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.copy,
-                                                            size: 18,
-                                                          ),
-                                                          SizedBox(width: 10),
-                                                          Text('Copy link'),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  const PopupMenuDivider(),
-                                                  PopupMenuItem<String>(
-                                                    value: 'toggle',
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(
-                                                          isOpen
-                                                              ? Icons.link_off
-                                                              : Icons.link,
-                                                          size: 18,
-                                                        ),
-                                                        SizedBox(width: 10),
-                                                        Text(
-                                                          isOpen
-                                                              ? 'Disable link'
-                                                              : 'Enable link',
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ] else ...[
-                                          _StatusPill(status: status),
-                                          const SizedBox(width: 6),
-
-                                          if (url.isNotEmpty)
-                                            Tooltip(
-                                              message: widget.busy
-                                                  ? 'Working…'
-                                                  : 'Copy link',
-                                              child: IconButton(
-                                                visualDensity:
-                                                    VisualDensity.compact,
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints.tightFor(
-                                                      width: 36,
-                                                      height: 36,
-                                                    ),
-                                                icon: const Icon(
-                                                  Icons.copy,
-                                                  size: 18,
-                                                ),
-                                                onPressed: widget.busy
-                                                    ? null
-                                                    : () async {
-                                                        await Clipboard.setData(
-                                                          ClipboardData(
-                                                            text: url,
-                                                          ),
-                                                        );
-                                                        if (context.mounted) {
-                                                          ScaffoldMessenger.of(
-                                                            context,
-                                                          ).showSnackBar(
-                                                            const SnackBar(
-                                                              content: Text(
-                                                                'Client upload link copied.',
-                                                              ),
-                                                            ),
-                                                          );
-                                                        }
-                                                      },
-                                              ),
-                                            ),
-
-                                          Tooltip(
-                                            message: widget.busy
-                                                ? 'Working…'
-                                                : 'More actions',
-                                            child: PopupMenuButton<String>(
-                                              enabled: !widget.busy,
-                                              tooltip: 'More actions',
-                                              position: PopupMenuPosition.under,
-                                              icon: Icon(
-                                                Icons.more_horiz,
-                                                color: AppColors.brandBlue
-                                                    .withOpacity(0.85),
-                                              ),
-                                              onSelected: (value) async {
-                                                if (widget.busy) return;
-
-                                                if (value == 'view') {
-                                                  widget.onSelect(d.id);
-                                                  return;
-                                                }
-                                                if (value == 'toggle') {
-                                                  final nextStatus = isOpen
-                                                      ? 'closed'
-                                                      : 'open';
-                                                  await widget.onSetStatus(
-                                                    d.id,
-                                                    nextStatus,
-                                                  );
-                                                }
-                                              },
-                                              itemBuilder: (ctx) => [
-                                                const PopupMenuItem<String>(
-                                                  value: 'view',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.open_in_new,
-                                                        size: 18,
-                                                      ),
-                                                      SizedBox(width: 10),
-                                                      Text('View details'),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const PopupMenuDivider(),
-                                                PopupMenuItem<String>(
-                                                  value: 'toggle',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        isOpen
-                                                            ? Icons.link_off
-                                                            : Icons.link,
-                                                        size: 18,
-                                                      ),
-                                                      SizedBox(width: 10),
-                                                      Text(
-                                                        isOpen
-                                                            ? 'Disable link'
-                                                            : 'Enable link',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                          IconButton(
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: EdgeInsets.zero,
-                                            constraints:
-                                                const BoxConstraints.tightFor(
-                                                  width: 36,
-                                                  height: 36,
-                                                ),
-                                            tooltip: 'View details',
-                                            onPressed: widget.busy
-                                                ? null
-                                                : () => widget.onSelect(d.id),
-                                            icon: Icon(
-                                              Icons.chevron_right,
-                                              color: AppColors.brandBlue
-                                                  .withOpacity(0.55),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                // Header line: Select all (enterprise)
+                return Column(
+                  children: [
+                    Container(
+                      height: 42,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9FAFB),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.black.withOpacity(0.06),
                           ),
                         ),
                       ),
-                    );
-                  },
+                      child: Row(
+                        children: [
+                          Checkbox(
+                            value: allSelected,
+                            onChanged: widget.busy
+                                ? null
+                                : (v) {
+                                    setState(() {
+                                      if (v == true) {
+                                        _selected.addAll(visibleIds);
+                                      } else {
+                                        _selected.removeAll(visibleIds);
+                                      }
+                                    });
+                                  },
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Client',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFF475467),
+                              ),
+                            ),
+                          ),
+                          if (!isMobile) ...[
+                            SizedBox(
+                              width: 110,
+                              child: Text(
+                                'Files',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF475467),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 140,
+                              child: Text(
+                                'Created',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF475467),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 150,
+                              child: Text(
+                                'Latest upload',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF475467),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          const SizedBox(width: 78), // actions area
+                        ],
+                      ),
+                    ),
+
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(0),
+                        itemCount: rows.length,
+                        itemBuilder: (context, i) {
+                          final r = rows[i];
+                          final selected = _selected.contains(r.id);
+
+                          final createdText = r.createdAt != null
+                              ? _formatDate(r.createdAt!)
+                              : '';
+                          final lastUploadText = r.lastUploadedAt != null
+                              ? _formatDate(r.lastUploadedAt!)
+                              : '';
+
+                          return _DenseRequestRow(
+                            busy: widget.busy,
+                            selected: selected,
+                            onSelected: (v) {
+                              setState(() {
+                                if (v) {
+                                  _selected.add(r.id);
+                                } else {
+                                  _selected.remove(r.id);
+                                }
+                              });
+                            },
+                            onTap: () => widget.onSelect(r.id),
+                            statusColor: _statusAccent(
+                              r.status.toLowerCase().trim(),
+                            ),
+                            title: r.title,
+                            email: r.email,
+                            fileCount: r.fileCount,
+                            createdText: createdText,
+                            lastUploadText: lastUploadText,
+                            url: r.url,
+                            status: r.status,
+                            onToggleStatus: (nextStatus) =>
+                                widget.onSetStatus(r.id, nextStatus),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -1097,11 +999,259 @@ class _RequestsListState extends State<_RequestsList> {
       ),
     );
   }
+}
 
-  String _formatDate(DateTime dt) {
-    return '${dt.month.toString().padLeft(2, '0')}/'
-        '${dt.day.toString().padLeft(2, '0')}/'
-        '${dt.year}';
+class _DropoffRowModel {
+  final String id;
+  final String title;
+  final String email;
+  final String url;
+  final String status;
+  final int fileCount;
+  final DateTime? createdAt;
+  final DateTime? lastUploadedAt;
+
+  _DropoffRowModel({
+    required this.id,
+    required this.title,
+    required this.email,
+    required this.url,
+    required this.status,
+    required this.fileCount,
+    required this.createdAt,
+    required this.lastUploadedAt,
+  });
+}
+
+class _DenseRequestRow extends StatefulWidget {
+  final bool busy;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  final VoidCallback onTap;
+  final Color statusColor;
+  final String title;
+  final String email;
+  final int fileCount;
+  final String createdText;
+  final String lastUploadText;
+  final String url;
+  final String status;
+
+  final Future<void> Function(String nextStatus) onToggleStatus;
+
+  const _DenseRequestRow({
+    required this.busy,
+    required this.selected,
+    required this.onSelected,
+    required this.onTap,
+    required this.statusColor,
+    required this.title,
+    required this.email,
+    required this.fileCount,
+    required this.createdText,
+    required this.lastUploadText,
+    required this.url,
+    required this.status,
+    required this.onToggleStatus,
+  });
+
+  @override
+  State<_DenseRequestRow> createState() => _DenseRequestRowState();
+}
+
+class _DenseRequestRowState extends State<_DenseRequestRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    final hoverBg = const Color(0xFF101828).withOpacity(0.10);
+    final normalBg = Colors.transparent;
+
+    final statusLower = widget.status.toLowerCase().trim();
+    final isOpen = statusLower == 'open';
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.busy ? null : widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            height: isMobile ? 54 : 46,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: _hover ? hoverBg : normalBg,
+              border: Border(
+                bottom: BorderSide(color: Colors.black.withOpacity(0.05)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Checkbox(
+                  value: widget.selected,
+                  onChanged: widget.busy
+                      ? null
+                      : (v) => widget.onSelected(v ?? false),
+                ),
+
+                // Status dot
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: widget.statusColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Client name + email (mobile-friendly)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        widget.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF101828),
+                        ),
+                      ),
+                      if (isMobile && widget.email.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                if (!isMobile) ...[
+                  SizedBox(
+                    width: 110,
+                    child: Text(
+                      '${widget.fileCount}',
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFF475467),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 140,
+                    child: Text(
+                      widget.createdText,
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 150,
+                    child: Text(
+                      widget.lastUploadText.isEmpty
+                          ? '—'
+                          : widget.lastUploadText,
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(width: 8),
+
+                // Copy link
+                IconButton(
+                  tooltip: 'Copy link',
+                  icon: const Icon(Icons.copy, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  onPressed: widget.busy || widget.url.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: widget.url),
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Client upload link copied.'),
+                              ),
+                            );
+                          }
+                        },
+                ),
+
+                // Actions
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Center(
+                    child: PopupMenuButton<String>(
+                      tooltip: 'Actions',
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      onSelected: (value) async {
+                        if (widget.busy) return;
+
+                        if (value == 'view') {
+                          widget.onTap();
+                          return;
+                        }
+                        if (value == 'toggle') {
+                          await widget.onToggleStatus(
+                            isOpen ? 'closed' : 'open',
+                          );
+                          return;
+                        }
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'view',
+                          child: Text('View details'),
+                        ),
+                        PopupMenuItem(
+                          value: 'toggle',
+                          child: Text(isOpen ? 'Disable link' : 'Enable link'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1172,7 +1322,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                           .trim();
                       final canDelete = status == 'open';
 
-                      // Optional metadata if available (won’t break if missing)
                       final clientName = (reqData['clientName'] ?? '')
                           .toString()
                           .trim();
@@ -1187,7 +1336,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ===== Header (compact) =====
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
@@ -1205,7 +1353,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                               _StatusPill(status: status),
                             ],
                           ),
-
                           const SizedBox(height: 10),
                           Divider(
                             color: Colors.black.withOpacity(0.06),
@@ -1213,7 +1360,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 12),
 
-                          // ===== Overview (dense, enterprise) =====
                           if (clientName.isNotEmpty ||
                               clientEmail.isNotEmpty ||
                               createdText.isNotEmpty)
@@ -1245,7 +1391,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                               createdText.isNotEmpty)
                             const SizedBox(height: 12),
 
-                          // ===== Drop-off link (compact, actionable) =====
                           if (dropoffUrl.isNotEmpty) ...[
                             _SectionHeader(
                               title: 'Access link',
@@ -1271,7 +1416,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                                   Tooltip(
                                     message: 'Copy link',
                                     child: IconButton(
-                                      visualDensity: VisualDensity.compact,
                                       constraints:
                                           const BoxConstraints.tightFor(
                                             width: 36,
@@ -1301,7 +1445,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                             const SizedBox(height: 14),
                           ],
 
-                          // ===== Uploaded files =====
                           _SectionHeader(
                             title: 'Uploads',
                             subtitle: 'Files submitted through this link.',
@@ -1373,7 +1516,6 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                           const SizedBox(height: 16),
 
-                          // ===== Delete action (compact width, enterprise copy) =====
                           if (canDelete) ...[
                             Divider(
                               color: Colors.black.withOpacity(0.06),
@@ -1624,12 +1766,16 @@ class _FileRowState extends State<_FileRow> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     final name = (widget.data['originalName'] ?? 'Untitled').toString();
     final path = (widget.data['storagePath'] ?? '').toString();
     final contentType = (widget.data['contentType'] ?? '').toString();
     final size = (widget.data['sizeBytes'] is num)
         ? (widget.data['sizeBytes'] as num).toInt()
         : 0;
+
+    final createdAtRaw = widget.data['createdAt'];
+    final uploadedAt = createdAtRaw is Timestamp ? createdAtRaw.toDate() : null;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -1646,19 +1792,43 @@ class _FileRowState extends State<_FileRow> {
             children: [
               _fileTypeIcon(fileName: name, contentType: contentType),
               const SizedBox(width: 12),
+
+              // File name + uploaded timestamp (stacked, compact)
               Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.brandBlue,
-                    decoration: _hovered ? TextDecoration.underline : null,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.brandBlue,
+                        decoration: _hovered ? TextDecoration.underline : null,
+                      ),
+                    ),
+                    if (uploadedAt != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Uploaded ${formatDateTimeCompact(uploadedAt)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF667085),
+                          fontWeight: FontWeight.w600,
+                          height: 1.15,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+
               const SizedBox(width: 12),
+
+              // Size
               Text(
                 size == 0 ? '' : _formatSize(size),
                 style: theme.textTheme.labelMedium?.copyWith(
@@ -1666,7 +1836,9 @@ class _FileRowState extends State<_FileRow> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+
               const SizedBox(width: 8),
+
               Icon(
                 Icons.download,
                 size: 18,
