@@ -8,6 +8,79 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
 
+/// ============================
+/// FILE TYPE ICON HELPER
+/// ============================
+Icon _fileTypeIcon({required String fileName, required String contentType}) {
+  final name = fileName.toLowerCase();
+  final type = contentType.toLowerCase();
+
+  if (name.endsWith('.pdf') || type.contains('pdf')) {
+    return const Icon(
+      Icons.picture_as_pdf_outlined,
+      color: Color(0xFFD92D20),
+      size: 20,
+    );
+  }
+
+  if (name.endsWith('.doc') ||
+      name.endsWith('.docx') ||
+      type.contains('word')) {
+    return const Icon(
+      Icons.description_outlined,
+      color: Color(0xFF1570EF),
+      size: 20,
+    );
+  }
+
+  if (name.endsWith('.xls') ||
+      name.endsWith('.xlsx') ||
+      name.endsWith('.csv') ||
+      type.contains('excel') ||
+      type.contains('spreadsheet')) {
+    return const Icon(
+      Icons.table_chart_outlined,
+      color: Color(0xFF027A48),
+      size: 20,
+    );
+  }
+
+  if (type.startsWith('image/') ||
+      name.endsWith('.png') ||
+      name.endsWith('.jpg') ||
+      name.endsWith('.jpeg') ||
+      name.endsWith('.gif') ||
+      name.endsWith('.webp')) {
+    return const Icon(Icons.image_outlined, color: Color(0xFF2E90FA), size: 20);
+  }
+
+  if (name.endsWith('.txt') || name.endsWith('.log')) {
+    return const Icon(
+      Icons.article_outlined,
+      color: Color(0xFF0E7090),
+      size: 20,
+    );
+  }
+
+  if (name.endsWith('.ps1')) {
+    return const Icon(
+      Icons.terminal_outlined,
+      color: Color(0xFF6941C6),
+      size: 20,
+    );
+  }
+
+  if (name.endsWith('.cmd') || name.endsWith('.bat')) {
+    return const Icon(Icons.code_outlined, color: Color(0xFF475467), size: 20);
+  }
+
+  return const Icon(
+    Icons.insert_drive_file_outlined,
+    color: Color(0xFF667085),
+    size: 20,
+  );
+}
+
 class AdminDropoffsScreen extends StatefulWidget {
   const AdminDropoffsScreen({super.key});
 
@@ -192,9 +265,9 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       await _deleteDropoffCallable.call({'requestId': requestId});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Client upload link deleted.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Client upload link deleted.')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -802,7 +875,9 @@ class _RequestsListState extends State<_RequestsList> {
                                                         context,
                                                       ).showSnackBar(
                                                         const SnackBar(
-                                                          content: Text('Client upload link copied.'),
+                                                          content: Text(
+                                                            'Client upload link copied.',
+                                                          ),
                                                         ),
                                                       );
                                                     }
@@ -1569,10 +1644,7 @@ class _FileRowState extends State<_FileRow> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: [
-              Icon(
-                Icons.insert_drive_file_outlined,
-                color: AppColors.brandBlue.withOpacity(0.85),
-              ),
+              _fileTypeIcon(fileName: name, contentType: contentType),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(

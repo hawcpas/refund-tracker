@@ -21,12 +21,10 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _uploadsStream;
 
-  // ✅ enterprise table state
   final Set<String> _selected = {};
   _SortField _sortField = _SortField.date;
   bool _sortAsc = false;
 
-  // ✅ pagination (client-side, safe)
   static const int _pageSize = 50;
   int _visibleCount = _pageSize;
 
@@ -114,7 +112,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ✅ Header
                   Row(
                     children: [
                       Expanded(
@@ -139,13 +136,8 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                           ],
                         ),
                       ),
-
-                      // ✅ Bulk actions
                       if (_selected.isNotEmpty) ...[
-                        Text(
-                          '${_selected.length} selected',
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        Text('${_selected.length} selected'),
                         const SizedBox(width: 12),
                         FilledButton.icon(
                           onPressed: isAdmin ? () {} : null,
@@ -158,7 +150,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
                   const SizedBox(height: 14),
 
-                  // ✅ Search
                   TextField(
                     controller: _searchCtrl,
                     onChanged: (v) => setState(() {
@@ -175,7 +166,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
                   const SizedBox(height: 14),
 
-                  // ✅ Column headers
                   _HeaderRow(
                     sortField: _sortField,
                     asc: _sortAsc,
@@ -183,13 +173,12 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                       _sortAsc = _sortField == f ? !_sortAsc : true;
                       _sortField = f;
                     }),
-                    onToggleAll: (v) =>
+                    onToggleAll: (_) =>
                         setState(() => _selected.clear()),
                   ),
 
                   const Divider(height: 1),
 
-                  // ✅ Data
                   Expanded(
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: _uploadsStream,
@@ -218,7 +207,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                                             .contains(q);
                                   }).toList();
 
-                        // ✅ sort
                         rows.sort((a, b) {
                           final A = a.data(), B = b.data();
                           int r = 0;
@@ -258,8 +246,8 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                                 return const SizedBox(height: 12);
                               }
                               return TextButton(
-                                onPressed: () => setState(() =>
-                                    _visibleCount += _pageSize),
+                                onPressed: () => setState(
+                                    () => _visibleCount += _pageSize),
                                 child: const Text('Load more'),
                               );
                             }
@@ -270,7 +258,9 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                             return _UploadRowEnterprise(
                               selected: _selected.contains(id),
                               onSelect: (v) => setState(() {
-                                v ? _selected.add(id) : _selected.remove(id);
+                                v
+                                    ? _selected.add(id)
+                                    : _selected.remove(id);
                               }),
                               data: d.data(),
                               formatWhen: (dt) => _fmt(context, dt),
@@ -350,6 +340,66 @@ class _HeaderRow extends StatelessWidget {
 }
 
 /// ============================
+/// FILE TYPE ICON HELPER
+/// ============================
+Icon _fileTypeIcon({
+  required String fileName,
+  required String contentType,
+}) {
+  final name = fileName.toLowerCase();
+  final type = contentType.toLowerCase();
+
+  if (name.endsWith('.pdf') || type.contains('pdf')) {
+    return const Icon(Icons.picture_as_pdf_outlined,
+        color: Color(0xFFD92D20), size: 18);
+  }
+
+  if (name.endsWith('.doc') ||
+      name.endsWith('.docx') ||
+      type.contains('word')) {
+    return const Icon(Icons.description_outlined,
+        color: Color(0xFF1570EF), size: 18);
+  }
+
+  if (name.endsWith('.xls') ||
+      name.endsWith('.xlsx') ||
+      name.endsWith('.csv') ||
+      type.contains('excel') ||
+      type.contains('spreadsheet')) {
+    return const Icon(Icons.table_chart_outlined,
+        color: Color(0xFF027A48), size: 18);
+  }
+
+  if (type.startsWith('image/') ||
+      name.endsWith('.png') ||
+      name.endsWith('.jpg') ||
+      name.endsWith('.jpeg') ||
+      name.endsWith('.gif') ||
+      name.endsWith('.webp')) {
+    return const Icon(Icons.image_outlined,
+        color: Color(0xFF2E90FA), size: 18);
+  }
+
+  if (name.endsWith('.txt') || name.endsWith('.log')) {
+    return const Icon(Icons.article_outlined,
+        color: Color(0xFF0E7090), size: 18);
+  }
+
+  if (name.endsWith('.ps1')) {
+    return const Icon(Icons.terminal_outlined,
+        color: Color(0xFF6941C6), size: 18);
+  }
+
+  if (name.endsWith('.cmd') || name.endsWith('.bat')) {
+    return const Icon(Icons.code_outlined,
+        color: Color(0xFF475467), size: 18);
+  }
+
+  return const Icon(Icons.insert_drive_file_outlined,
+      color: Color(0xFF667085), size: 18);
+}
+
+/// ============================
 /// ROW
 /// ============================
 class _UploadRowEnterprise extends StatelessWidget {
@@ -374,6 +424,7 @@ class _UploadRowEnterprise extends StatelessWidget {
     final theme = Theme.of(context);
 
     final name = _s(data['originalName']);
+    final contentType = _s(data['contentType']);
     final sizeBytes = data['sizeBytes'];
     final uploadedBy = (data['uploadedBy'] as Map?) ?? {};
     final client = _s(uploadedBy['name']);
@@ -398,15 +449,19 @@ class _UploadRowEnterprise extends StatelessWidget {
       child: Row(
         children: [
           Checkbox(value: selected, onChanged: (v) => onSelect(v ?? false)),
+          _fileTypeIcon(
+            fileName: name,
+            contentType: contentType,
+          ),
+          const SizedBox(width: 8),
           Expanded(
             flex: 4,
             child: Text(
               name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium!.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: theme.textTheme.bodyMedium!
+                  .copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           Expanded(flex: 3, child: Text(client)),
