@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../theme/app_colors.dart';
 
 enum _SortField { name, client, size, date }
@@ -165,18 +166,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                   ),
 
                   const SizedBox(height: 14),
-
-                  _HeaderRow(
-                    sortField: _sortField,
-                    asc: _sortAsc,
-                    onSort: (f) => setState(() {
-                      _sortAsc = _sortField == f ? !_sortAsc : true;
-                      _sortField = f;
-                    }),
-                    onToggleAll: (_) =>
-                        setState(() => _selected.clear()),
-                  ),
-
                   const Divider(height: 1),
 
                   Expanded(
@@ -191,80 +180,32 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                         final q = _q.trim();
                         final docs = snap.data!.docs;
 
-                        List<QueryDocumentSnapshot<Map<String, dynamic>>> rows =
-                            q.isEmpty
-                                ? docs
-                                : docs.where((d) {
-                                    final m = d.data();
-                                    return _s(m['originalName'])
-                                            .toLowerCase()
-                                            .contains(q) ||
-                                        _s(m['storagePath'])
-                                            .toLowerCase()
-                                            .contains(q) ||
-                                        _s((m['uploadedBy'] as Map?)?['name'])
-                                            .toLowerCase()
-                                            .contains(q);
-                                  }).toList();
-
-                        rows.sort((a, b) {
-                          final A = a.data(), B = b.data();
-                          int r = 0;
-                          switch (_sortField) {
-                            case _SortField.name:
-                              r = _s(A['originalName'])
-                                  .compareTo(_s(B['originalName']));
-                              break;
-                            case _SortField.client:
-                              r = _s((A['uploadedBy'] as Map?)?['name'])
-                                  .compareTo(
-                                      _s((B['uploadedBy'] as Map?)?['name']));
-                              break;
-                            case _SortField.size:
-                              r = (A['sizeBytes'] ?? 0)
-                                  .compareTo(B['sizeBytes'] ?? 0);
-                              break;
-                            case _SortField.date:
-                              r = (A['createdAt'] as Timestamp?)
-                                      ?.compareTo(B['createdAt']) ??
-                                  0;
-                              break;
-                          }
-                          return _sortAsc ? r : -r;
-                        });
+                        final rows = q.isEmpty
+                            ? docs
+                            : docs.where((d) {
+                                final m = d.data();
+                                return _s(m['originalName'])
+                                        .toLowerCase()
+                                        .contains(q) ||
+                                    _s(m['storagePath'])
+                                        .toLowerCase()
+                                        .contains(q) ||
+                                    _s((m['uploadedBy'] as Map?)?['name'])
+                                        .toLowerCase()
+                                        .contains(q);
+                              }).toList();
 
                         final visible =
                             rows.take(_visibleCount).toList();
 
                         return ListView.separated(
-                          itemCount: visible.length + 1,
+                          itemCount: visible.length,
                           separatorBuilder: (_, __) =>
                               Divider(height: 1, color: Colors.black12),
                           itemBuilder: (c, i) {
-                            if (i == visible.length) {
-                              if (visible.length >= rows.length) {
-                                return const SizedBox(height: 12);
-                              }
-                              return TextButton(
-                                onPressed: () => setState(
-                                    () => _visibleCount += _pageSize),
-                                child: const Text('Load more'),
-                              );
-                            }
-
-                            final d = visible[i];
-                            final id = d.reference.path;
-
-                            return _UploadRowEnterprise(
-                              selected: _selected.contains(id),
-                              onSelect: (v) => setState(() {
-                                v
-                                    ? _selected.add(id)
-                                    : _selected.remove(id);
-                              }),
-                              data: d.data(),
+                            return _UploadRowEnhanced(
+                              data: visible[i].data(),
                               formatWhen: (dt) => _fmt(context, dt),
-                              canDelete: isAdmin,
                             );
                           },
                         );
@@ -282,203 +223,197 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 }
 
 /// ============================
-/// HEADER
+/// FILE TYPE META
 /// ============================
-class _HeaderRow extends StatelessWidget {
-  final _SortField sortField;
-  final bool asc;
-  final ValueChanged<_SortField> onSort;
-  final ValueChanged<bool?> onToggleAll;
+class _FileTypeMeta {
+  final IconData icon;
+  final Color color;
+  final String badge;
+  final String tooltip;
+  final bool isImage;
 
-  const _HeaderRow({
-    required this.sortField,
-    required this.asc,
-    required this.onSort,
-    required this.onToggleAll,
+  const _FileTypeMeta({
+    required this.icon,
+    required this.color,
+    required this.badge,
+    required this.tooltip,
+    required this.isImage,
   });
+}
 
-  @override
-  Widget build(BuildContext context) {
-    TextStyle h() => Theme.of(context).textTheme.labelMedium!.copyWith(
-          fontWeight: FontWeight.w800,
-          color: const Color(0xFF667085),
-        );
+_FileTypeMeta _fileMeta(String name, String type) {
+  final n = name.toLowerCase();
+  final t = type.toLowerCase();
 
-    Widget col(String t, _SortField f, {int flex = 1}) {
-      return Expanded(
-        flex: flex,
-        child: InkWell(
-          onTap: () => onSort(f),
-          child: Row(
-            children: [
-              Text(t, style: h()),
-              if (sortField == f)
-                Icon(
-                  asc ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 14,
-                ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Checkbox(value: false, onChanged: onToggleAll),
-          col('File name', _SortField.name, flex: 4),
-          col('Client', _SortField.client, flex: 3),
-          col('Size', _SortField.size),
-          col('Uploaded', _SortField.date, flex: 2),
-          const SizedBox(width: 88),
-        ],
-      ),
+  if (n.endsWith('.pdf') || t.contains('pdf')) {
+    return const _FileTypeMeta(
+      icon: Icons.picture_as_pdf_outlined,
+      color: Color(0xFFD92D20),
+      badge: 'PDF',
+      tooltip: 'PDF document',
+      isImage: false,
     );
   }
+  if (n.endsWith('.doc') || n.endsWith('.docx')) {
+    return const _FileTypeMeta(
+      icon: Icons.description_outlined,
+      color: Color(0xFF1570EF),
+      badge: 'DOC',
+      tooltip: 'Word document',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) {
+    return const _FileTypeMeta(
+      icon: Icons.table_chart_outlined,
+      color: Color(0xFF027A48),
+      badge: 'XLS',
+      tooltip: 'Spreadsheet',
+      isImage: false,
+    );
+  }
+  if (t.startsWith('image/')) {
+    return const _FileTypeMeta(
+      icon: Icons.image_outlined,
+      color: Color(0xFF2E90FA),
+      badge: 'IMG',
+      tooltip: 'Image file',
+      isImage: true,
+    );
+  }
+  if (n.endsWith('.txt') || n.endsWith('.log')) {
+    return const _FileTypeMeta(
+      icon: Icons.article_outlined,
+      color: Color(0xFF0E7090),
+      badge: 'TXT',
+      tooltip: 'Text file',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.ps1')) {
+    return const _FileTypeMeta(
+      icon: Icons.terminal_outlined,
+      color: Color(0xFF6941C6),
+      badge: 'PS',
+      tooltip: 'PowerShell script',
+      isImage: false,
+    );
+  }
+
+  return const _FileTypeMeta(
+    icon: Icons.insert_drive_file_outlined,
+    color: Color(0xFF667085),
+    badge: 'FILE',
+    tooltip: 'File',
+    isImage: false,
+  );
 }
 
 /// ============================
-/// FILE TYPE ICON HELPER
+/// ROW (ENHANCED, SAFE)
 /// ============================
-Icon _fileTypeIcon({
-  required String fileName,
-  required String contentType,
-}) {
-  final name = fileName.toLowerCase();
-  final type = contentType.toLowerCase();
-
-  if (name.endsWith('.pdf') || type.contains('pdf')) {
-    return const Icon(Icons.picture_as_pdf_outlined,
-        color: Color(0xFFD92D20), size: 18);
-  }
-
-  if (name.endsWith('.doc') ||
-      name.endsWith('.docx') ||
-      type.contains('word')) {
-    return const Icon(Icons.description_outlined,
-        color: Color(0xFF1570EF), size: 18);
-  }
-
-  if (name.endsWith('.xls') ||
-      name.endsWith('.xlsx') ||
-      name.endsWith('.csv') ||
-      type.contains('excel') ||
-      type.contains('spreadsheet')) {
-    return const Icon(Icons.table_chart_outlined,
-        color: Color(0xFF027A48), size: 18);
-  }
-
-  if (type.startsWith('image/') ||
-      name.endsWith('.png') ||
-      name.endsWith('.jpg') ||
-      name.endsWith('.jpeg') ||
-      name.endsWith('.gif') ||
-      name.endsWith('.webp')) {
-    return const Icon(Icons.image_outlined,
-        color: Color(0xFF2E90FA), size: 18);
-  }
-
-  if (name.endsWith('.txt') || name.endsWith('.log')) {
-    return const Icon(Icons.article_outlined,
-        color: Color(0xFF0E7090), size: 18);
-  }
-
-  if (name.endsWith('.ps1')) {
-    return const Icon(Icons.terminal_outlined,
-        color: Color(0xFF6941C6), size: 18);
-  }
-
-  if (name.endsWith('.cmd') || name.endsWith('.bat')) {
-    return const Icon(Icons.code_outlined,
-        color: Color(0xFF475467), size: 18);
-  }
-
-  return const Icon(Icons.insert_drive_file_outlined,
-      color: Color(0xFF667085), size: 18);
-}
-
-/// ============================
-/// ROW
-/// ============================
-class _UploadRowEnterprise extends StatelessWidget {
-  final bool selected;
-  final ValueChanged<bool> onSelect;
+class _UploadRowEnhanced extends StatelessWidget {
   final Map<String, dynamic> data;
   final String Function(DateTime dt) formatWhen;
-  final bool canDelete;
 
-  const _UploadRowEnterprise({
-    required this.selected,
-    required this.onSelect,
+  const _UploadRowEnhanced({
     required this.data,
     required this.formatWhen,
-    required this.canDelete,
   });
-
-  String _s(dynamic v) => (v ?? '').toString().trim();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final name = _s(data['originalName']);
-    final contentType = _s(data['contentType']);
-    final sizeBytes = data['sizeBytes'];
-    final uploadedBy = (data['uploadedBy'] as Map?) ?? {};
-    final client = _s(uploadedBy['name']);
+    final name = (data['originalName'] ?? 'Untitled').toString();
+    final contentType = (data['contentType'] ?? '').toString();
+    final storagePath = (data['storagePath'] ?? '').toString();
 
     final createdAt = data['createdAt'];
     DateTime? when;
     if (createdAt is Timestamp) when = createdAt.toDate();
 
-    String size = '';
-    if (sizeBytes is num) {
-      final b = sizeBytes.toInt();
-      if (b < 1024) size = '$b B';
-      else if (b < 1024 * 1024)
-        size = '${(b / 1024).toStringAsFixed(1)} KB';
-      else
-        size = '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
+    final meta = _fileMeta(name, contentType);
 
-    return Container(
-      height: 42,
-      color: selected ? const Color(0xFFF2F4F7) : null,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Checkbox(value: selected, onChanged: (v) => onSelect(v ?? false)),
-          _fileTypeIcon(
-            fileName: name,
-            contentType: contentType,
+          Tooltip(
+            message: meta.tooltip,
+            child: Icon(meta.icon, color: meta.color, size: 20),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 4,
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: meta.color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
             child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium!
-                  .copyWith(fontWeight: FontWeight.w700),
+              meta.badge,
+              style: TextStyle(
+                color: meta.color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
-          Expanded(flex: 3, child: Text(client)),
-          Expanded(child: Text(size)),
+          const SizedBox(width: 10),
+
           Expanded(
-            flex: 2,
-            child: Text(when != null ? formatWhen(when!) : ''),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                if (meta.isImage && storagePath.isNotEmpty)
+                  FutureBuilder<String>(
+                    future: FirebaseStorage.instance
+                        .ref(storagePath)
+                        .getDownloadURL(),
+                    builder: (context, snap) {
+                      if (!snap.hasData) return const SizedBox();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.network(
+                            snap.data!,
+                            height: 56,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.download_outlined, size: 18),
-            tooltip: 'Download',
-            onPressed: () {},
+
+          const SizedBox(width: 12),
+
+          Text(
+            when != null ? formatWhen(when!) : '',
+            style: theme.textTheme.bodySmall,
           ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, size: 18),
-            tooltip: 'Delete',
-            onPressed: canDelete ? () {} : null,
+
+          const SizedBox(width: 8),
+
+          PopupMenuButton<String>(
+            tooltip: 'Actions',
+            itemBuilder: (c) => const [
+              PopupMenuItem(value: 'open', child: Text('Open')),
+              PopupMenuItem(value: 'download', child: Text('Download')),
+            ],
+            onSelected: (v) {
+              // intentionally stubbed — wiring later
+            },
           ),
         ],
       ),

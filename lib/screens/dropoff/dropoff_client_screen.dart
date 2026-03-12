@@ -400,9 +400,35 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         if (mounted) setState(() {});
       }
-
       if (!mounted) return;
 
+      // ✅ Send ONE summary email (server-side), after all uploads complete
+      try {
+        final res = await _functions
+            .httpsCallable('notifyDropoffBatchUpload')
+            .call({'rid': _rid, 'token': _token, 'files': uploadedNames})
+            .timeout(const Duration(seconds: 20));
+
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('notifyDropoffBatchUpload result: ${res.data}');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('Batch email notify failed: $e');
+        }
+        // ✅ Non-fatal: uploads still succeeded
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Upload completed, but email notification failed: $e',
+              ),
+            ),
+          );
+        }
+      }
       // ✅ Send ONE summary email (server-side), after all uploads complete
       /*
       Map<String, dynamic>? notifyResult;
