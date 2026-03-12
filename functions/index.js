@@ -580,7 +580,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
 
         // Build a safe portal link (use your APP_URL param)
         const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
-        const portalUrl = baseUrl ? `${baseUrl}/#/admin-dropoffs` : "";
+        const portalUrl = baseUrl ? `${baseUrl}/admin-dropoffs` : "";
 
         // Determine recipient email:
         // Prefer createdByEmail from doc (most reliable), otherwise fall back to Auth lookup
@@ -1219,7 +1219,7 @@ exports.createDropoffRequest = onCall(
     }
 
     const cleanBase = baseUrl.replace(/\/$/, "");
-    const url = `${cleanBase}/#/dropoff?rid=${ref.id}&t=${token}`;
+    const url = `${cleanBase}/dropoff?rid=${ref.id}&t=${token}`;
 
     await ref.set({
       requestId: ref.id,
