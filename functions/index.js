@@ -1379,35 +1379,62 @@ exports.setDropoffStatus = onCall(
   }
 );
 
-// deleteDropoffRequest (admin-only)
+// deleteDropoffRequest (admin OR owner with dropoff access)
 exports.deleteDropoffRequest = onCall(
   { region: "us-central1" },
   async (request) => {
     const { auth, data } = request;
     if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-    await assertAdmin(auth.uid);
 
-    const requestId = (data.requestId || "").trim();
-    if (!requestId) {
-      throw new HttpsError("invalid-argument", "requestId required.");
-    }
+    // ✅ Allow admins OR associates with dropoff capability
+    await assertDropoffAccess(auth.uid);
+
+    const requestId = (data?.requestId || "").toString().trim();
+    if (!requestId) throw new HttpsError("invalid-argument", "requestId required.");
 
     const db = admin.firestore();
     const bucket = admin.storage().bucket();
-    const ref = db.collection("dropoff_requests").doc(requestId);
 
+    const ref = db.collection("dropoff_requests").doc(requestId);
+    const reqSnap = await ref.get();
+    if (!reqSnap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+    const req = reqSnap.data() || {};
+    const createdByUid = (req.createdByUid || "").toString().trim();
+
+    // ✅ Enforce: owner OR admin
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const callerRole = ((callerSnap.data()?.role || "") + "").toLowerCase().trim();
+    const isAdmin = callerRole === "admin";
+    const isOwner = createdByUid && createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to delete this request.");
+    }
+
+    // Delete storage files listed in subcollection
     const filesSnap = await ref.collection("files").get();
     for (const doc of filesSnap.docs) {
       const path = doc.data().storagePath;
       if (path) {
-        await bucket.file(path).delete().catch(() => { });
+        await bucket.file(path).delete().catch(() => {});
       }
     }
 
+    // Delete subcollection docs + request doc
     const batch = db.batch();
     filesSnap.docs.forEach((d) => batch.delete(d.ref));
     batch.delete(ref);
     await batch.commit();
+
+    // Optional: audit log
+    await db.collection("auditLogs").add({
+      type: "dropoff_deleted",
+      requestId,
+      actorUid: auth.uid,
+      actorRole: callerRole || null,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     return { ok: true };
   }
