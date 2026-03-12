@@ -720,9 +720,29 @@ class _RequestsListState extends State<_RequestsList> {
                   child: FilledButton.icon(
                     onPressed: widget.busy
                         ? null
-                        : () => widget.onBulkDelete(_selected.toList()),
+                        : () async {
+                            final ids = _selected.toList(growable: false);
+
+                            if (ids.isEmpty) return;
+
+                            // Run delete (shows confirm dialog in parent)
+                            await widget.onBulkDelete(ids);
+
+                            // Clear selection after delete (prevents “nothing happened” feeling)
+                            if (!mounted) return;
+                            setState(() => _selected.clear());
+
+                            // Optional: immediate feedback (enterprise feel)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Delete requested for ${ids.length} link(s).',
+                                ),
+                              ),
+                            );
+                          },
                     icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('Delete'),
+                    label: Text('Delete (${_selected.length})'),
                   ),
                 ),
               ],

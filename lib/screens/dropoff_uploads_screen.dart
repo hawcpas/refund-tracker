@@ -27,6 +27,7 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
   String? _role;
   bool _loadingRole = true;
+  List<_UploadDoc> _selectedDocsCache = const [];
 
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _uploadsStream;
 
@@ -277,21 +278,6 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                           ],
                         ),
                       ),
-
-                      if (_selected.isNotEmpty) ...[
-                        Text('${_selected.length} selected'),
-                        const SizedBox(width: 12),
-                        FilledButton.icon(
-                          onPressed: (!isAdmin || _busy)
-                              ? null
-                              : () {
-                                  // Deletion runs inside StreamBuilder where we have selected docs
-                                  // This button is wired there.
-                                },
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: const Text('Delete'),
-                        ),
-                      ],
                     ],
                   ),
 
@@ -551,6 +537,8 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                             .where((e) => _selected.contains(e.id))
                             .toList();
 
+                        _selectedDocsCache = selectedDocs;
+
                         return Column(
                           children: [
                             // Header row (select all + sortable columns)
@@ -692,24 +680,27 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                                   const SizedBox(width: 6),
 
                                   // Bulk delete button sits in header when selected
-                                  if (_selected.isNotEmpty)
-                                    SizedBox(
-                                      height: 34,
-                                      child: FilledButton.icon(
-                                        onPressed: (!isAdmin || _busy)
-                                            ? null
-                                            : () => _deleteSelectedAdmin(
-                                                selectedDocs,
-                                              ),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          size: 18,
-                                        ),
-                                        label: Text(
-                                          'Delete (${_selected.length})',
-                                        ),
+                                  if (_selected.isNotEmpty) ...[
+                                    Text('${_selected.length} selected'),
+                                    const SizedBox(width: 12),
+                                    FilledButton.icon(
+                                      onPressed:
+                                          (!isAdmin ||
+                                              _busy ||
+                                              _selectedDocsCache.isEmpty)
+                                          ? null
+                                          : () => _deleteSelectedAdmin(
+                                              _selectedDocsCache,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        'Delete (${_selected.length})',
                                       ),
                                     ),
+                                  ],
                                 ],
                               ),
                             ),
