@@ -28,7 +28,7 @@ class SharedFilesScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Shared Files')),
+      appBar: AppBar(title: const Text('Firm Documents')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -46,7 +46,7 @@ class SharedFilesScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Shared Files',
+                      'Shared Firm Documents',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
                         color: const Color(0xFF101828),
