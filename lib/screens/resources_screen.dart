@@ -93,7 +93,7 @@ class ResourcesScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Websites & Portals')),
+      appBar: AppBar(title: const Text('Websites & Resources')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -116,7 +116,7 @@ class ResourcesScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Firm Resources',
+                          'Firm-Related Websites and Useful Links',
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w900,
                             color: const Color(0xFF101828),

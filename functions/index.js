@@ -614,40 +614,60 @@ exports.finalizeDropoffUpload = onCall(
     if ((doc.status || "open") !== "open") {
       throw new HttpsError("failed-precondition", "Drop-off is closed.");
     }
-
     if (sha256(token) !== doc.tokenHash) {
       throw new HttpsError("permission-denied", "Invalid token.");
     }
 
-    // ✅ determine who created the request (staff)
+    // ✅ Request-level values we want to show in the global uploads table
+    const requestClientName = (doc.clientName || "").toString().trim();
+    const requestClientEmail = (doc.clientEmail || "").toString().trim();
+    const requestBusinessName = (doc.businessName || "").toString().trim();
+
+    // ✅ who created the request (staff)
     const requestCreatedByUid = (doc.createdByUid || "").toString().trim();
 
-    // ✅ determine the creator role (admin/associate)
+    // ✅ determine the creator role + display name (Requested by)
     let requestCreatedByRole = "unknown";
+    let requestCreatedByName = "";
+    let requestCreatedByEmail = "";
+
     if (requestCreatedByUid) {
       const creatorSnap = await db.collection("users").doc(requestCreatedByUid).get();
-      requestCreatedByRole = ((creatorSnap.data()?.role || "") + "").toLowerCase().trim() || "unknown";
+      const u = creatorSnap.data() || {};
+
+      requestCreatedByRole = ((u.role || "") + "").toString().toLowerCase().trim() || "unknown";
+
+      const first = (u.firstName || "").toString().trim();
+      const last = (u.lastName || "").toString().trim();
+      const displayName = (u.displayName || "").toString().trim();
+
+      requestCreatedByName = (first || last) ? `${first} ${last}`.trim() : displayName;
+      requestCreatedByEmail = (u.email || "").toString().trim();
     }
 
     // generate a server-side fileId
     const fileId = db.collection("_tmp").doc().id;
 
     await ref.collection("files").doc(fileId).set({
-      // existing fields you already write
+      // existing fields
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       originalName: file.originalName || "",
       storagePath: file.storagePath || "",
       sizeBytes: file.sizeBytes || 0,
       contentType: file.contentType || "",
-      uploadedBy: {
-        type: "client",
-        name: doc.clientName || "",
-      },
+      uploadedBy: { type: "client", name: requestClientName },
 
-      // ✅ NEW fields (power the “admin vs associate visibility” rule + query)
+      // existing visibility fields
       requestId: rid,
       requestCreatedByUid,
-      requestCreatedByRole, // "admin" | "associate" | "unknown"
+      requestCreatedByRole,
+
+      // ✅ NEW: columns for DropoffUploadsScreen
+      requestCreatedByName: requestCreatedByName || "",
+      requestCreatedByEmail: requestCreatedByEmail || "",
+      requestBusinessName: requestBusinessName || "",
+      requestClientEmail: requestClientEmail || "",
+      requestClientName: requestClientName || "",
     });
 
     // bump counters

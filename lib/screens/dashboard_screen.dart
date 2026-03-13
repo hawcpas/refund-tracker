@@ -136,38 +136,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     // ✅ NEW: Enterprise section header for "Request files"
                     if (_hasDropoffAccess) ...[
+                      // ============================
+                      // FILE BOX (PRIMARY – TOP)
+                      // ============================
                       _SectionLabel(
-                        title: 'Request files',
+                        title: 'Incoming files',
                         subtitle:
-                            'Create secure upload links and track incoming documents.',
+                            'All client-uploaded documents across all upload links.',
                       ),
                       const SizedBox(height: 12),
 
                       _PrimaryFeatureCard(
                         isMobile: isMobile,
-                        title: 'Client Upload Links',
+                        title: 'File Box',
                         subtitle:
-                            'Secure links for clients to submit documents.',
+                            'View and manage all uploaded files (newest first).',
+                        icon: Icons.cloud_upload_outlined,
+                        ctaLabel: 'Open file box',
+                        onOpen: () =>
+                            Navigator.pushNamed(context, '/dropoff-uploads'),
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      // ============================
+                      // REQUEST FILES (SECONDARY)
+                      // ============================
+                      _SectionLabel(
+                        title: 'Request files',
+                        subtitle:
+                            'Create secure upload links for clients to submit documents.',
+                      ),
+                      const SizedBox(height: 12),
+
+                      _PrimaryFeatureCard(
+                        isMobile: isMobile,
+                        title: 'Generate Upload Links',
+                        subtitle:
+                            'Create and manage secure upload links for clients.',
                         icon: Icons.link_outlined,
                         ctaLabel: 'Manage links',
                         onOpen: () =>
                             Navigator.pushNamed(context, '/view-dropoffs'),
                       ),
 
-                      const SizedBox(height: 12),
-
-                      _PrimaryFeatureCard(
-                        isMobile: isMobile,
-                        title: 'View uploaded files',
-                        subtitle:
-                            'All client uploads across all upload links (newest first).',
-                        icon: Icons.cloud_upload_outlined,
-                        ctaLabel: 'Open uploads',
-                        onOpen: () =>
-                            Navigator.pushNamed(context, '/dropoff-uploads'),
-                      ),
-
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 28),
                     ] else ...[
                       const SizedBox(height: 6),
                     ],
@@ -525,13 +538,13 @@ class _ToolGrid extends StatelessWidget {
       children: [
         _ToolCard(
           icon: Icons.folder_shared_outlined,
-          title: 'Shared Files',
+          title: 'Firm Documents',
           subtitle: 'Firm‑wide documents and shared resources.',
           onTap: onOpenSharedFiles,
         ),
         _ToolCard(
           icon: Icons.link_outlined,
-          title: 'Websites & Portals',
+          title: 'Websites & Resources',
           subtitle: 'External portals and firm tools.',
           onTap: onOpenResources,
         ),
@@ -561,36 +574,20 @@ class _BottomLogoutPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Session',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF101828),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Sign out of the firm portal on this device.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF475467),
-              height: 1.30,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
           const SizedBox(height: 14),
           SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: FilledButton.icon(
+            height: 40,
+            child: OutlinedButton.icon(
               onPressed: onLogout,
-              icon: const Icon(Icons.logout),
+              icon: const Icon(Icons.logout, size: 18),
               label: const Text('Logout'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.brandBlue,
-                foregroundColor: Colors.white,
-                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF475467),
+                side: BorderSide(color: Colors.black.withOpacity(0.12)),
+                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
             ),

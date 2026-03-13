@@ -471,6 +471,10 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                               ? (m['sizeBytes'] as num).toInt()
                               : 0;
 
+                          final requestedBy = _s(m['requestCreatedByName']);
+                          final companyName = _s(m['requestBusinessName']);
+                          final clientEmail = _s(m['requestClientEmail']);
+
                           return _UploadDoc(
                             id: d.id,
                             docPath: d.reference.path,
@@ -482,6 +486,18 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                                 : (fallbackClient.isNotEmpty
                                       ? fallbackClient
                                       : '—'),
+
+                            // ✅ NEW
+                            requestedBy: requestedBy.isNotEmpty
+                                ? requestedBy
+                                : '—',
+                            companyName: companyName.isNotEmpty
+                                ? companyName
+                                : '—',
+                            clientEmail: clientEmail.isNotEmpty
+                                ? clientEmail
+                                : '—',
+
                             when: createdAt,
                             sizeBytes: sizeBytes,
                             data: m,
@@ -493,7 +509,8 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                           // text search
                           if (q.isNotEmpty) {
                             final hay =
-                                ('${r.originalName} ${r.storagePath} ${r.clientName}')
+                                ('${r.originalName} ${r.storagePath} ${r.clientName} '
+                                        '${r.requestedBy} ${r.companyName} ${r.clientEmail}')
                                     .toLowerCase();
                             if (!hay.contains(q)) return false;
                           }
@@ -770,6 +787,12 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                                     selected: selected,
                                     isMobile: isMobile,
                                     clientName: row.clientName,
+
+                                    // ✅ NEW
+                                    requestedBy: row.requestedBy,
+                                    companyName: row.companyName,
+                                    clientEmail: row.clientEmail,
+
                                     formatWhen: (dt) => _fmt(context, dt),
                                     onSelect: (v) {
                                       setState(() {
@@ -820,6 +843,29 @@ class _SortIndicator extends StatelessWidget {
   }
 }
 
+class _MetaText extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MetaText(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final v = value.trim().isEmpty ? '—' : value.trim();
+
+    return Text(
+      '$label: $v',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: const Color(0xFF667085),
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
 class _UploadDoc {
   final String id;
   final String docPath;
@@ -827,6 +873,12 @@ class _UploadDoc {
   final String contentType;
   final String storagePath;
   final String clientName;
+
+  // ✅ NEW columns
+  final String requestedBy;
+  final String companyName;
+  final String clientEmail;
+
   final DateTime? when;
   final int sizeBytes;
   final Map<String, dynamic> data;
@@ -838,6 +890,9 @@ class _UploadDoc {
     required this.contentType,
     required this.storagePath,
     required this.clientName,
+    required this.requestedBy,
+    required this.companyName,
+    required this.clientEmail,
     required this.when,
     required this.sizeBytes,
     required this.data,
@@ -946,6 +1001,9 @@ class _UploadRowEnhanced extends StatelessWidget {
   final bool busy;
   final String clientName;
   final String Function(DateTime dt) formatWhen;
+  final String requestedBy;
+  final String companyName;
+  final String clientEmail;
   final ValueChanged<bool> onSelect;
 
   const _UploadRowEnhanced({
@@ -958,6 +1016,9 @@ class _UploadRowEnhanced extends StatelessWidget {
     required this.clientName,
     required this.formatWhen,
     required this.onSelect,
+    required this.requestedBy,
+    required this.companyName,
+    required this.clientEmail,
   });
 
   String _s(dynamic v) => (v ?? '').toString().trim();
@@ -1023,10 +1084,12 @@ class _UploadRowEnhanced extends StatelessWidget {
             const SizedBox(width: 10),
 
             // Main cell: filename + client name (always shown)
+            // Main cell: filename + metadata (enterprise-style)
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ✅ PRIMARY: File name
                   Text(
                     name,
                     maxLines: 1,
@@ -1036,22 +1099,22 @@ class _UploadRowEnhanced extends StatelessWidget {
                       color: const Color(0xFF101828),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  // Mobile: keep client under filename (since Client column is hidden)
-                  if (isMobile) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'Client: $clientName',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
 
-                  // Optional image preview (kept)
+                  const SizedBox(height: 4),
+
+                  // ✅ SECONDARY METADATA (enterprise-style)
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 2,
+                    children: [
+                      _MetaText('Client', clientName),
+                      _MetaText('Email', clientEmail),
+                      _MetaText('Company', companyName),
+                      _MetaText('Upload Link Creator', requestedBy),
+                    ],
+                  ),
+
+                  // ✅ Optional image preview stays the same (paste your existing block here)
                   if (!isMobile && meta.isImage && storagePath.isNotEmpty)
                     FutureBuilder<String>(
                       future: FirebaseStorage.instance
