@@ -413,7 +413,7 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
     setState(() => _busy = true);
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getAdminDownloadUrl')
+          .httpsCallable('getDropoffDownloadUrl')
           .call({
             'storagePath': storagePath,
             'filename': filename,

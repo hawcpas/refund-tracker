@@ -422,10 +422,29 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: _uploadsStream,
                       builder: (context, snap) {
-                        if (!snap.hasData) {
+                        if (snap.hasError) {
+                          final msg = snap.error.toString();
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                msg.contains('permission-denied')
+                                    ? 'You do not have permission to view these uploads.'
+                                    : 'Failed to load uploads: $msg',
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (snap.connectionState == ConnectionState.waiting) {
                           return const Center(
                             child: CircularProgressIndicator(),
                           );
+                        }
+
+                        if (!snap.hasData) {
+                          return const Center(child: Text('No data.'));
                         }
 
                         final q = _q.trim().toLowerCase();
