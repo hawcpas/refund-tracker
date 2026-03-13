@@ -151,7 +151,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         icon: Icons.link_outlined,
                         ctaLabel: 'Manage links',
                         onOpen: () =>
-                            Navigator.pushNamed(context, '/admin-dropoffs'),
+                            Navigator.pushNamed(context, '/view-dropoffs'),
                       ),
 
                       const SizedBox(height: 12),

@@ -329,7 +329,7 @@ exports.notifyDropoffBatchUpload = onCall(
 
       // Build portal link (same as single-file email)
       const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
-      const portalUrl = baseUrl ? `${baseUrl}/admin-dropoffs` : "";
+      const portalUrl = baseUrl ? `${baseUrl}/view-dropoffs` : "";
 
       const subject = `${clientName} has uploaded files.`;
       // ✅ MULTI‑FILE LIST (this is the only difference)
@@ -726,7 +726,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
 
         // Build a safe portal link (use your APP_URL param)
         const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
-        const portalUrl = baseUrl ? `${baseUrl}/admin-dropoffs` : "";
+        const portalUrl = baseUrl ? `${baseUrl}/view-dropoffs` : "";
 
         // Determine recipient email:
         // Prefer createdByEmail from doc (most reliable), otherwise fall back to Auth lookup
@@ -1350,8 +1350,17 @@ exports.createDropoffRequest = onCall(
     const lastName = normalizeName(data.lastName);
     const message = normalizeName(data.message);
 
+    // ✅ NEW optional fields
+    const clientEmail = normalizeEmail(data.clientEmail);
+    const businessName = normalizeName(data.businessName);
+
     if (!firstName || !lastName) {
       throw new HttpsError("invalid-argument", "First and last name required.");
+    }
+
+    // Optional email validation (only if provided)
+    if (clientEmail && !clientEmail.includes("@")) {
+      throw new HttpsError("invalid-argument", "clientEmail must be a valid email.");
     }
 
     const token = crypto.randomBytes(32).toString("hex");
@@ -1368,9 +1377,15 @@ exports.createDropoffRequest = onCall(
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       createdByUid: auth.uid,
       createdByEmail: normalizeEmail(auth.token?.email),
+
       clientFirstName: firstName,
       clientLastName: lastName,
       clientName: `${firstName} ${lastName}`,
+
+      // ✅ NEW stored fields
+      clientEmail: clientEmail || "",
+      businessName: businessName || "",
+
       message: message || "",
       status: "open",
       tokenHash,
@@ -1473,6 +1488,91 @@ exports.getAdminDownloadUrl = onCall(
         message: err?.message ?? String(err),
       });
     }
+  }
+);
+
+exports.getDropoffDownloadUrl = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) {
+      throw new HttpsError("unauthenticated", "Sign-in required.");
+    }
+
+    await assertDropoffAccess(auth.uid); // ✅ admins OR associates w/ capability
+
+    const storagePath = (data?.storagePath ?? "").toString().trim();
+    const rawFilename = (data?.filename ?? "").toString().trim();
+    const contentType = (data?.contentType ?? "").toString().trim();
+
+    if (!storagePath || !rawFilename) {
+      throw new HttpsError(
+        "invalid-argument",
+        "storagePath and filename required."
+      );
+    }
+
+    // ✅ Extract requestId from: dropoffs/{requestId}/...
+    const parts = storagePath.split("/");
+    const requestId = parts.length >= 2 ? parts[1] : null;
+
+    if (!requestId) {
+      throw new HttpsError("invalid-argument", "Invalid storage path.");
+    }
+
+    // ✅ Load dropoff request
+    const reqSnap = await admin
+      .firestore()
+      .collection("dropoff_requests")
+      .doc(requestId)
+      .get();
+
+    if (!reqSnap.exists) {
+      throw new HttpsError("not-found", "Drop-off request not found.");
+    }
+
+    const req = reqSnap.data() || {};
+
+    // ✅ Enforce access:
+    // - Admins
+    // - Owner of the dropoff
+    const callerSnap = await admin
+      .firestore()
+      .collection("users")
+      .doc(auth.uid)
+      .get();
+
+    const role = (callerSnap.data()?.role || "").toLowerCase();
+    const isAdmin = role === "admin";
+    const isOwner = req.createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError(
+        "permission-denied",
+        "Not allowed to download files for this request."
+      );
+    }
+
+    const safeName = safeFilename(rawFilename);
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(storagePath);
+
+    const options = {
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 5 * 60 * 1000,
+      responseDisposition:
+        `attachment; filename="${safeName}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(safeName)}`,
+    };
+
+    if (contentType) {
+      options.responseType = contentType;
+    }
+
+    const [url] = await file.getSignedUrl(options);
+
+    return { ok: true, url };
   }
 );
 

@@ -104,14 +104,14 @@ enum _DropoffSortField {
   status,
 }
 
-class AdminDropoffsScreen extends StatefulWidget {
-  const AdminDropoffsScreen({super.key});
+class ViewDropoffsScreen extends StatefulWidget {
+  const ViewDropoffsScreen({super.key});
 
   @override
-  State<AdminDropoffsScreen> createState() => _AdminDropoffsScreenState();
+  State<ViewDropoffsScreen> createState() => _ViewDropoffsScreenState();
 }
 
-class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
+class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
 
@@ -146,7 +146,16 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
   Future<void> _showCreateDialog() async {
     final firstCtrl = TextEditingController();
     final lastCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final businessCtrl = TextEditingController();
     final msgCtrl = TextEditingController();
+
+    bool isValidEmail(String v) {
+      // simple + safe
+      final s = v.trim();
+      if (s.isEmpty) return true;
+      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s);
+    }
 
     final ok = await showDialog<bool>(
       context: context,
@@ -170,6 +179,28 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
                   prefixIcon: Icon(Icons.badge_outlined),
                 ),
               ),
+
+              // ✅ NEW: Business name (optional)
+              const SizedBox(height: 12),
+              TextField(
+                controller: businessCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Business name (optional)',
+                  prefixIcon: Icon(Icons.business_outlined),
+                ),
+              ),
+
+              // ✅ NEW: Client email (optional)
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Client email (optional)',
+                  prefixIcon: Icon(Icons.alternate_email),
+                ),
+              ),
+
               const SizedBox(height: 12),
               TextField(
                 controller: msgCtrl,
@@ -199,6 +230,8 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
 
     final firstName = firstCtrl.text.trim();
     final lastName = lastCtrl.text.trim();
+    final clientEmail = emailCtrl.text.trim();
+    final businessName = businessCtrl.text.trim();
     final msg = msgCtrl.text.trim();
 
     if (firstName.isEmpty || lastName.isEmpty) {
@@ -208,11 +241,23 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
       return;
     }
 
+    if (!isValidEmail(clientEmail)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid client email address.')),
+      );
+      return;
+    }
+
     setState(() => _busy = true);
     try {
-      final res = await _callable(
-        'createDropoffRequest',
-      ).call({'firstName': firstName, 'lastName': lastName, 'message': msg});
+      final res = await _callable('createDropoffRequest').call({
+        'firstName': firstName,
+        'lastName': lastName,
+        'message': msg,
+        // ✅ NEW fields passed to server (optional)
+        'clientEmail': clientEmail,
+        'businessName': businessName,
+      });
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
@@ -368,7 +413,7 @@ class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
     setState(() => _busy = true);
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getAdminDownloadUrl')
+          .httpsCallable('getDropoffDownloadUrl')
           .call({
             'storagePath': storagePath,
             'filename': filename,
@@ -595,7 +640,7 @@ class _RequestsListState extends State<_RequestsList> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Client Upload Links',
+            'View & Edit Upload Links',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF101828),
@@ -772,15 +817,20 @@ class _RequestsListState extends State<_RequestsList> {
                     ? allDocs
                     : allDocs.where((doc) {
                         final data = doc.data();
+
                         final name = (data['clientName'] ?? '')
                             .toString()
                             .toLowerCase();
                         final email = (data['clientEmail'] ?? '')
                             .toString()
                             .toLowerCase();
+                        final business = (data['businessName'] ?? '')
+                            .toString()
+                            .toLowerCase();
                         final id = doc.id.toLowerCase();
                         return name.contains(_q) ||
                             email.contains(_q) ||
+                            business.contains(_q) ||
                             id.contains(_q);
                       }).toList();
 
@@ -802,6 +852,7 @@ class _RequestsListState extends State<_RequestsList> {
                   final name = (data['clientName'] ?? '').toString();
                   final url = (data['url'] ?? '').toString();
                   final status = (data['status'] ?? 'open').toString();
+                  final businessName = (data['businessName'] ?? '').toString();
 
                   final fileCount = (data['fileCount'] is num)
                       ? (data['fileCount'] as num).toInt()
@@ -818,6 +869,7 @@ class _RequestsListState extends State<_RequestsList> {
                     id: d.id,
                     title: title,
                     email: email,
+                    businessName: businessName,
                     url: url,
                     status: status,
                     fileCount: fileCount,
@@ -979,6 +1031,7 @@ class _RequestsListState extends State<_RequestsList> {
                             ),
                             title: r.title,
                             email: r.email,
+                            businessName: r.businessName,
                             fileCount: r.fileCount,
                             createdText: createdText,
                             lastUploadText: lastUploadText,
@@ -1003,8 +1056,9 @@ class _RequestsListState extends State<_RequestsList> {
 
 class _DropoffRowModel {
   final String id;
-  final String title;
-  final String email;
+  final String title; // clientName (primary)
+  final String email; // clientEmail
+  final String businessName; // businessName (optional)
   final String url;
   final String status;
   final int fileCount;
@@ -1015,6 +1069,7 @@ class _DropoffRowModel {
     required this.id,
     required this.title,
     required this.email,
+    required this.businessName,
     required this.url,
     required this.status,
     required this.fileCount,
@@ -1032,6 +1087,7 @@ class _DenseRequestRow extends StatefulWidget {
   final Color statusColor;
   final String title;
   final String email;
+  final String businessName;
   final int fileCount;
   final String createdText;
   final String lastUploadText;
@@ -1048,6 +1104,7 @@ class _DenseRequestRow extends StatefulWidget {
     required this.statusColor,
     required this.title,
     required this.email,
+    required this.businessName,
     required this.fileCount,
     required this.createdText,
     required this.lastUploadText,
@@ -1114,32 +1171,45 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
 
                 // Client name + email (mobile-friendly)
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF101828),
-                        ),
-                      ),
-                      if (isMobile && widget.email.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w600,
+                  child: Builder(
+                    builder: (context) {
+                      final subBits = <String>[
+                        if (widget.businessName.trim().isNotEmpty)
+                          widget.businessName.trim(),
+                        if (widget.email.trim().isNotEmpty) widget.email.trim(),
+                      ];
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF101828),
+                            ),
                           ),
-                        ),
-                      ],
-                    ],
+
+                          if (subBits.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              subBits.join(
+                                ' • ',
+                              ), // "Acme LLC • client@email.com"
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                 ),
 
@@ -1280,7 +1350,10 @@ class _DropoffDetailScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Client Upload Link'), elevation: 1),
+      appBar: AppBar(
+        title: const Text('Client Upload Link Details'),
+        elevation: 1,
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -1328,9 +1401,14 @@ class _DropoffDetailScreen extends StatelessWidget {
                       final clientEmail = (reqData['clientEmail'] ?? '')
                           .toString()
                           .trim();
+                      final businessName = (reqData['businessName'] ?? '')
+                          .toString()
+                          .trim();
                       final createdAt = reqData['createdAt'];
+                      final createdByUid = (reqData['createdByUid'] ?? '')
+                          .toString();
                       final createdText = createdAt is Timestamp
-                          ? _formatDate(createdAt.toDate())
+                          ? formatDateTimeCompact(createdAt.toDate())
                           : '';
 
                       return Column(
@@ -1341,7 +1419,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Drop‑Off Request',
+                                  'Upload Link Information',
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w800,
                                     color: const Color(0xFF101828),
@@ -1361,8 +1439,10 @@ class _DropoffDetailScreen extends StatelessWidget {
                           const SizedBox(height: 12),
 
                           if (clientName.isNotEmpty ||
+                              businessName.isNotEmpty ||
                               clientEmail.isNotEmpty ||
-                              createdText.isNotEmpty)
+                              createdText.isNotEmpty ||
+                              createdByUid.isNotEmpty)
                             _WhiteInset(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1372,15 +1452,40 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       label: 'Client',
                                       value: clientName,
                                     ),
+                                  if (businessName.isNotEmpty)
+                                    _KeyValueRow(
+                                      label: 'Business',
+                                      value: businessName,
+                                    ),
                                   if (clientEmail.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Email',
                                       value: clientEmail,
                                     ),
+
                                   if (createdText.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Created',
                                       value: createdText,
+                                    ),
+
+                                  if (createdByUid.isNotEmpty)
+                                    FutureBuilder<String>(
+                                      future: _resolveCreatedByName(
+                                        createdByUid,
+                                      ),
+                                      builder: (context, snap) {
+                                        if (!snap.hasData) {
+                                          return const _KeyValueRow(
+                                            label: 'Created by',
+                                            value: 'Loading…',
+                                          );
+                                        }
+                                        return _KeyValueRow(
+                                          label: 'Created by',
+                                          value: snap.data!,
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
@@ -1447,7 +1552,7 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                           _SectionHeader(
                             title: 'Uploads',
-                            subtitle: 'Files submitted through this link.',
+                            //subtitle: 'Files submitted through this link.',
                           ),
                           const SizedBox(height: 8),
 
@@ -1523,11 +1628,13 @@ class _DropoffDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 12),
 
+                            /*
                             _SectionHeader(
                               title: 'Request administration',
                               subtitle:
                                   'Permanently remove this request and associated uploads.',
                             ),
+                            */
                             const SizedBox(height: 10),
 
                             Align(
@@ -1541,7 +1648,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       color: Colors.red,
                                     ),
                                     label: const Text(
-                                      'Delete request',
+                                      'Delete Upload Link',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -1593,7 +1700,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             const SizedBox(height: 10),
 
                             Text(
-                              'Data retention: Deleted requests and their uploads are permanently removed and cannot be recovered.',
+                              'Deleted requests are permanently removed and cannot be recovered.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
@@ -1618,6 +1725,36 @@ class _DropoffDetailScreen extends StatelessWidget {
     return '${dt.month.toString().padLeft(2, '0')}/'
         '${dt.day.toString().padLeft(2, '0')}/'
         '${dt.year}';
+  }
+
+  Future<String> _resolveCreatedByName(String uid) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      final data = snap.data();
+      if (data == null) return '—';
+
+      // Prefer full name if available
+      final first = (data['firstName'] ?? '').toString().trim();
+      final last = (data['lastName'] ?? '').toString().trim();
+      final fullName = ('$first $last').trim();
+
+      if (fullName.isNotEmpty) return fullName;
+
+      // Fallbacks
+      final displayName = (data['displayName'] ?? '').toString().trim();
+      if (displayName.isNotEmpty) return displayName;
+
+      final email = (data['email'] ?? '').toString().trim();
+      if (email.isNotEmpty) return email;
+
+      return '—';
+    } catch (_) {
+      return '—';
+    }
   }
 }
 
