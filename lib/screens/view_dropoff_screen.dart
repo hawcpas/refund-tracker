@@ -146,7 +146,16 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
   Future<void> _showCreateDialog() async {
     final firstCtrl = TextEditingController();
     final lastCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final businessCtrl = TextEditingController();
     final msgCtrl = TextEditingController();
+
+    bool isValidEmail(String v) {
+      // simple + safe
+      final s = v.trim();
+      if (s.isEmpty) return true;
+      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s);
+    }
 
     final ok = await showDialog<bool>(
       context: context,
@@ -170,6 +179,28 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
                   prefixIcon: Icon(Icons.badge_outlined),
                 ),
               ),
+
+              // ✅ NEW: Business name (optional)
+              const SizedBox(height: 12),
+              TextField(
+                controller: businessCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Business name (optional)',
+                  prefixIcon: Icon(Icons.business_outlined),
+                ),
+              ),
+
+              // ✅ NEW: Client email (optional)
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Client email (optional)',
+                  prefixIcon: Icon(Icons.alternate_email),
+                ),
+              ),
+
               const SizedBox(height: 12),
               TextField(
                 controller: msgCtrl,
@@ -199,6 +230,8 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
 
     final firstName = firstCtrl.text.trim();
     final lastName = lastCtrl.text.trim();
+    final clientEmail = emailCtrl.text.trim();
+    final businessName = businessCtrl.text.trim();
     final msg = msgCtrl.text.trim();
 
     if (firstName.isEmpty || lastName.isEmpty) {
@@ -208,11 +241,23 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
       return;
     }
 
+    if (!isValidEmail(clientEmail)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid client email address.')),
+      );
+      return;
+    }
+
     setState(() => _busy = true);
     try {
-      final res = await _callable(
-        'createDropoffRequest',
-      ).call({'firstName': firstName, 'lastName': lastName, 'message': msg});
+      final res = await _callable('createDropoffRequest').call({
+        'firstName': firstName,
+        'lastName': lastName,
+        'message': msg,
+        // ✅ NEW fields passed to server (optional)
+        'clientEmail': clientEmail,
+        'businessName': businessName,
+      });
 
       final data = Map<String, dynamic>.from(res.data as Map);
       final url = (data['url'] ?? '').toString();
@@ -772,15 +817,20 @@ class _RequestsListState extends State<_RequestsList> {
                     ? allDocs
                     : allDocs.where((doc) {
                         final data = doc.data();
+
                         final name = (data['clientName'] ?? '')
                             .toString()
                             .toLowerCase();
                         final email = (data['clientEmail'] ?? '')
                             .toString()
                             .toLowerCase();
+                        final business = (data['businessName'] ?? '')
+                            .toString()
+                            .toLowerCase();
                         final id = doc.id.toLowerCase();
                         return name.contains(_q) ||
                             email.contains(_q) ||
+                            business.contains(_q) ||
                             id.contains(_q);
                       }).toList();
 
@@ -802,6 +852,7 @@ class _RequestsListState extends State<_RequestsList> {
                   final name = (data['clientName'] ?? '').toString();
                   final url = (data['url'] ?? '').toString();
                   final status = (data['status'] ?? 'open').toString();
+                  final businessName = (data['businessName'] ?? '').toString();
 
                   final fileCount = (data['fileCount'] is num)
                       ? (data['fileCount'] as num).toInt()
@@ -818,6 +869,7 @@ class _RequestsListState extends State<_RequestsList> {
                     id: d.id,
                     title: title,
                     email: email,
+                    businessName: businessName,
                     url: url,
                     status: status,
                     fileCount: fileCount,
@@ -979,6 +1031,7 @@ class _RequestsListState extends State<_RequestsList> {
                             ),
                             title: r.title,
                             email: r.email,
+                            businessName: r.businessName,
                             fileCount: r.fileCount,
                             createdText: createdText,
                             lastUploadText: lastUploadText,
@@ -1003,8 +1056,9 @@ class _RequestsListState extends State<_RequestsList> {
 
 class _DropoffRowModel {
   final String id;
-  final String title;
-  final String email;
+  final String title; // clientName (primary)
+  final String email; // clientEmail
+  final String businessName; // businessName (optional)
   final String url;
   final String status;
   final int fileCount;
@@ -1015,6 +1069,7 @@ class _DropoffRowModel {
     required this.id,
     required this.title,
     required this.email,
+    required this.businessName,
     required this.url,
     required this.status,
     required this.fileCount,
@@ -1032,6 +1087,7 @@ class _DenseRequestRow extends StatefulWidget {
   final Color statusColor;
   final String title;
   final String email;
+  final String businessName;
   final int fileCount;
   final String createdText;
   final String lastUploadText;
@@ -1048,6 +1104,7 @@ class _DenseRequestRow extends StatefulWidget {
     required this.statusColor,
     required this.title,
     required this.email,
+    required this.businessName,
     required this.fileCount,
     required this.createdText,
     required this.lastUploadText,
@@ -1114,32 +1171,45 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
 
                 // Client name + email (mobile-friendly)
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF101828),
-                        ),
-                      ),
-                      if (isMobile && widget.email.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          widget.email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w600,
+                  child: Builder(
+                    builder: (context) {
+                      final subBits = <String>[
+                        if (widget.businessName.trim().isNotEmpty)
+                          widget.businessName.trim(),
+                        if (widget.email.trim().isNotEmpty) widget.email.trim(),
+                      ];
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF101828),
+                            ),
                           ),
-                        ),
-                      ],
-                    ],
+
+                          if (subBits.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              subBits.join(
+                                ' • ',
+                              ), // "Acme LLC • client@email.com"
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                 ),
 
