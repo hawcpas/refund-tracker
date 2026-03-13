@@ -29,6 +29,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
   bool _loading = true;
   bool _uploading = false;
+
   bool get _isClosed => ((_info?['status'] ?? 'closed').toString() != 'open');
 
   String? _error;
@@ -39,6 +40,23 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
   String? _rid;
   String? _token;
+
+  int _totalToUpload = 0;
+  int _uploadedSoFar = 0;
+  String? _currentFileName;
+
+  double get _overallProgress {
+    if (_totalToUpload <= 0) return 0.0;
+
+    // You upload sequentially, so there is typically one active progress entry.
+    final activeKey = _currentlyUploadingKey;
+    final activeP = activeKey == null
+        ? 0.0
+        : (_uploadProgress[activeKey] ?? 0.0);
+
+    final overall = (_uploadedSoFar + activeP) / _totalToUpload;
+    return overall.clamp(0.0, 1.0);
+  }
 
   static const String _closedMsg =
       'This secure upload request has been closed. If you need to submit files, please request a new link.';
@@ -312,6 +330,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       _uploading = true;
       _error = null;
       _success = null;
+
+      _totalToUpload = _queuedFiles.length;
+      _uploadedSoFar = 0;
+      _currentFileName = null;
     });
 
     int uploaded = 0;
@@ -319,6 +341,12 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     try {
       for (final f in List<PlatformFile>.from(_queuedFiles)) {
+        if (mounted) {
+          setState(() {
+            _currentFileName = f.name;
+          });
+        }
+
         final contentType = _guessContentType(f.name);
         final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         final fileId = '${DateTime.now().microsecondsSinceEpoch}_$uploaded';
@@ -392,6 +420,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
         uploaded++;
         uploadedNames.add(f.name);
+
+        _uploadedSoFar = uploaded;
+        if (mounted) setState(() {});
+
         _queuedFiles.removeWhere((x) => _fileKey(x) == _fileKey(f));
 
         // ✅ cleanup progress state
@@ -492,7 +524,20 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         _error = message;
       });
     } finally {
-      if (mounted) setState(() => _uploading = false);
+      if (!mounted) return;
+
+      // Let the UI paint the "100%" / last file state at least once.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      if (!mounted) return;
+      setState(() {
+        _uploading = false;
+        _currentFileName = null;
+        _currentlyUploadingKey = null;
+        _uploadProgress.clear();
+        _totalToUpload = 0;
+        _uploadedSoFar = 0;
+      });
     }
   }
 
@@ -617,166 +662,195 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           title: const Text('Secure Drop-Off'),
           automaticallyImplyLeading: false,
         ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-              children: [
-                _WhiteSection(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Upload Documents',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: const Color(0xFF101828),
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Select files first, review the list, remove any items, then upload.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF475467),
-                          height: 1.25,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      if (_loading) ...[
-                        Row(
-                          children: [
-                            const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+        body: Stack(
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                  children: [
+                    _WhiteSection(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Upload Documents',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF101828),
+                              letterSpacing: -0.2,
                             ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Validating link…',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF667085),
-                                fontWeight: FontWeight.w600,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Select files first, review the list, remove any items, then upload.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF475467),
+                              height: 1.25,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          if (_loading) ...[
+                            Row(
+                              children: [
+                                const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Validating link…',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF667085),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          if (_uploading) ...[
+                            _UploadingBanner(
+                              total: _totalToUpload,
+                              done: _uploadedSoFar,
+                              currentFileName: _currentFileName,
+                              progress: _overallProgress,
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          if (_error != null && !_isClosed) ...[
+                            _ErrorBanner(message: _error!),
+                            const SizedBox(height: 12),
+                          ],
+
+                          if (_success != null) ...[
+                            _SuccessBanner(message: _success!),
+                            const SizedBox(height: 12),
+                          ],
+
+                          if (_recentUploads.isNotEmpty) ...[
+                            _RecentUploadsCard(
+                              fileNames: _recentUploads,
+                              onClear: () {
+                                setState(() {
+                                  _recentUploads.clear();
+                                  _success = null;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          if ((_info?['message'] ?? '')
+                              .toString()
+                              .trim()
+                              .isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.brandBlue.withOpacity(0.07),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.brandBlue.withOpacity(0.18),
+                                ),
+                              ),
+                              child: Text(
+                                (_info?['message'] ?? '').toString(),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF475467),
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+
+                          if (!_loading && !canUploadNow) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Text(
+                                _closedMsg,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.red.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                      ],
 
-                      if (_error != null && !_isClosed) ...[
-                        _ErrorBanner(message: _error!),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (_success != null) ...[
-                        _SuccessBanner(message: _success!),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (_recentUploads.isNotEmpty) ...[
-                        _RecentUploadsCard(
-                          fileNames: _recentUploads,
-                          onClear: () {
-                            setState(() {
-                              _recentUploads.clear();
-                              _success = null;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if ((_info?['message'] ?? '')
-                          .toString()
-                          .trim()
-                          .isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandBlue.withOpacity(0.07),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.brandBlue.withOpacity(0.18),
+                          if (_queuedFiles.isNotEmpty) ...[
+                            _QueuedFilesCard(
+                              files: _queuedFiles,
+                              onRemove: _removeQueuedAt,
+                              disabled: _uploading,
+                              progress: _uploadProgress,
+                              activeKey: _currentlyUploadingKey,
                             ),
-                          ),
-                          child: Text(
-                            (_info?['message'] ?? '').toString(),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF475467),
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
+                            const SizedBox(height: 12),
+                          ],
 
-                      if (!_loading && !canUploadNow) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Text(
-                            _closedMsg,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.red.shade700,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-
-                      if (_queuedFiles.isNotEmpty) ...[
-                        _QueuedFilesCard(
-                          files: _queuedFiles,
-                          onRemove: _removeQueuedAt,
-                          disabled: _uploading,
-                          progress: _uploadProgress,
-                          activeKey: _currentlyUploadingKey,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      Row(
-                        children: [
-                          Flexible(
-                            fit: FlexFit.loose,
-                            child: IgnorePointer(
-                              ignoring:
-                                  !canUploadNow, // ✅ HARD disable pointer interaction
-                              child: Opacity(
-                                opacity: canUploadNow
-                                    ? 1.0
-                                    : 0.55, // ✅ visual cue (enterprise subtle)
-                                child: SizedBox(height: 48, child: addFilesBtn),
+                          Row(
+                            children: [
+                              Flexible(
+                                fit: FlexFit.loose,
+                                child: IgnorePointer(
+                                  ignoring: !canUploadNow,
+                                  child: Opacity(
+                                    opacity: canUploadNow ? 1.0 : 0.55,
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: addFilesBtn,
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                fit: FlexFit.loose,
+                                child: SizedBox(height: 48, child: uploadBtn),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            fit: FlexFit.loose,
-                            child: SizedBox(height: 48, child: uploadBtn),
+
+                          const SizedBox(height: 10),
+                          Text(
+                            'Files are uploaded securely. You can add more files, remove items, then upload when ready.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
-
-                      const SizedBox(height: 10),
-                      Text(
-                        'Files are uploaded securely. You can add more files, remove items, then upload when ready.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+
+            // ✅ enterprise top progress indicator while uploading
+            if (_uploading)
+              const Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  color: AppColors.brandBlue,
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -914,6 +988,100 @@ class _WhiteSection extends StatelessWidget {
       ),
       padding: padding,
       child: child,
+    );
+  }
+}
+
+class _UploadingBanner extends StatelessWidget {
+  final int total;
+  final int done;
+  final double progress;
+  final String? currentFileName;
+
+  const _UploadingBanner({
+    required this.total,
+    required this.done,
+    required this.progress,
+    required this.currentFileName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final pct = (progress * 100).clamp(0, 100).toStringAsFixed(0);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.brandBlue.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.brandBlue.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.cloud_upload_outlined,
+                color: AppColors.brandBlue,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Uploading files — please do not close this browser window.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF101828),
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                  ),
+                ),
+              ),
+              Text(
+                '$done/$total',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF475467),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+
+          if (currentFileName != null &&
+              currentFileName!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Current file: $currentFileName',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: const Color(0xFF475467),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.black.withOpacity(0.06),
+              color: AppColors.brandBlue,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '$pct% complete',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: const Color(0xFF667085),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
