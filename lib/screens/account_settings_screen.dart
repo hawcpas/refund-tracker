@@ -252,6 +252,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   // ---------- Actions ----------
+
   Future<void> _savePersonalInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;

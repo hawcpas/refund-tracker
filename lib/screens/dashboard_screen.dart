@@ -72,6 +72,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign out'),
+        content: const Text(
+          'Are you sure you want to sign out of the firm portal?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     await _auth.logout();
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
@@ -98,10 +120,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
-          IconButton(
-            tooltip: 'Logout',
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: FilledButton.icon(
+              onPressed: _logout,
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('Sign out'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: Colors.white,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -216,9 +253,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
 
                     const SizedBox(height: 22),
-
-                    // ✅ Bottom logout (enterprise-style)
-                    _BottomLogoutPanel(onLogout: _logout),
                   ],
                 );
               },
@@ -555,45 +589,6 @@ class _ToolGrid extends StatelessWidget {
           onTap: onOpenSettings,
         ),
       ],
-    );
-  }
-}
-
-/// ============================
-/// Bottom Logout Panel
-/// ============================
-class _BottomLogoutPanel extends StatelessWidget {
-  const _BottomLogoutPanel({required this.onLogout});
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return _SurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 40,
-            child: OutlinedButton.icon(
-              onPressed: onLogout,
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text('Logout'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF475467),
-                side: BorderSide(color: Colors.black.withOpacity(0.12)),
-                textStyle: const TextStyle(fontWeight: FontWeight.w700),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
