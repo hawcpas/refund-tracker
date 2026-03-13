@@ -943,6 +943,9 @@ exports.updateUser = onCall(
       const role = (data?.role || "").toString().toLowerCase().trim();
       let status = (data?.status || "").toString().toLowerCase().trim();
       const reason = (data?.reason || "").toString().trim();
+      const firstName = (data?.firstName ?? "").toString().trim();
+      const lastName = (data?.lastName ?? "").toString().trim();
+      const displayName = `${firstName} ${lastName}`.trim();
       const communicationsRaw = data?.communications ?? null;
 
       const allowedRoles = new Set(["associate", "admin"]);
@@ -960,8 +963,11 @@ exports.updateUser = onCall(
         throw new HttpsError("invalid-argument", "Invalid status.");
       }
 
-      if (email) {
-        await admin.auth().updateUser(uid, { email });
+      if (email || displayName) {
+        await admin.auth().updateUser(uid, {
+          ...(email ? { email } : {}),
+          ...(displayName ? { displayName } : {}),
+        });
       }
 
       const { ref, data: existing } = await getUserDocByUid(uid);
@@ -981,6 +987,9 @@ exports.updateUser = onCall(
       if (email) patch.email = email;
       if (role) patch.role = role;
       if (status) patch.status = status;
+      if (firstName) patch.firstName = firstName;
+      if (lastName) patch.lastName = lastName;
+      if (displayName) patch.displayName = displayName;
 
       if (communicationsRaw && typeof communicationsRaw === "object") {
         const clean = {};
@@ -1016,6 +1025,9 @@ exports.updateUser = onCall(
           role: role || null,
           status: status || null,
           communications: commsChange,
+          firstName: firstName || null,
+          lastName: lastName || null,
+          displayName: displayName || null,
         },
         reason: reason || null,
         actorUid: auth.uid,

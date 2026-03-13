@@ -112,7 +112,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String role,
     required String status,
     required String reason,
-    Map<String, dynamic>? communications, // ✅ optional
+
+    // ✅ NEW
+    required String firstName,
+    required String lastName,
+
+    Map<String, dynamic>? communications,
   }) async {
     setState(() => _busy = true);
     try {
@@ -122,6 +127,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         'role': role,
         'status': status,
         'reason': reason,
+
+        // ✅ NEW
+        'firstName': firstName,
+        'lastName': lastName,
       };
 
       if (communications != null) {
@@ -255,8 +264,16 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String currentEmail,
     required String currentRole,
     required String currentStatus,
-    Map<String, dynamic>? currentCommunications, // ✅ NEW
+
+    // ✅ NEW
+    required String currentFirstName,
+    required String currentLastName,
+    required String currentDisplayName,
+
+    Map<String, dynamic>? currentCommunications,
   }) async {
+    final firstNameCtrl = TextEditingController(text: currentFirstName);
+    final lastNameCtrl = TextEditingController(text: currentLastName);
     final emailCtrl = TextEditingController(text: currentEmail);
 
     String role = (currentRole.isEmpty ? 'associate' : currentRole)
@@ -287,6 +304,22 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              TextField(
+                controller: firstNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'First name',
+                  prefixIcon: Icon(Icons.person_outline),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: lastNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Last name',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: emailCtrl,
                 keyboardType: TextInputType.emailAddress,
@@ -400,6 +433,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       role: role,
       status: status,
       reason: reasonCtrl.text.trim(),
+
+      // ✅ NEW
+      firstName: firstNameCtrl.text.trim(),
+      lastName: lastNameCtrl.text.trim(),
+
       communications: {
         'wildixExtension': wildixCtrl.text.trim(),
         'clearflySmsNumber': clearflyCtrl.text.trim(),
@@ -923,7 +961,13 @@ class _UsersPane extends StatefulWidget {
     required String currentEmail,
     required String currentRole,
     required String currentStatus,
-    Map<String, dynamic>? currentCommunications, // ✅ NEW
+
+    // ✅ NEW
+    required String currentFirstName,
+    required String currentLastName,
+    required String currentDisplayName,
+
+    Map<String, dynamic>? currentCommunications,
   })
   onEditUser;
 
@@ -977,6 +1021,9 @@ class _UsersPaneState extends State<_UsersPane> {
     required String role,
     required String status,
     required String titleName,
+    required String firstName,
+    required String lastName,
+    required String displayName,
     required Map<String, dynamic> communications,
   }) {
     if (isMe) return const SizedBox(width: 40, height: 36);
@@ -999,6 +1046,12 @@ class _UsersPaneState extends State<_UsersPane> {
                 currentEmail: email,
                 currentRole: role,
                 currentStatus: status,
+
+                // ✅ NEW
+                currentFirstName: firstName,
+                currentLastName: lastName,
+                currentDisplayName: displayName,
+
                 currentCommunications: communications,
               );
             } else if (value == 'resendInvite') {
@@ -1288,6 +1341,12 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
+
+                                  // ✅ NEW (required by your updated signature)
+                                  firstName: firstName,
+                                  lastName: lastName,
+                                  displayName: displayName,
+
                                   communications: communications,
                                 ),
                               ],
@@ -1356,6 +1415,12 @@ class _UsersPaneState extends State<_UsersPane> {
                                   role: role,
                                   status: status,
                                   titleName: titleName,
+
+                                  // ✅ NEW (required by your updated signature)
+                                  firstName: firstName,
+                                  lastName: lastName,
+                                  displayName: displayName,
+
                                   communications: communications,
                                 ),
                               ],
