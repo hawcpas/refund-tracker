@@ -1401,6 +1401,9 @@ class _DropoffDetailScreen extends StatelessWidget {
                       final clientEmail = (reqData['clientEmail'] ?? '')
                           .toString()
                           .trim();
+                      final businessName = (reqData['businessName'] ?? '')
+                          .toString()
+                          .trim();
                       final createdAt = reqData['createdAt'];
                       final createdByUid = (reqData['createdByUid'] ?? '')
                           .toString();
@@ -1436,6 +1439,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                           const SizedBox(height: 12),
 
                           if (clientName.isNotEmpty ||
+                              businessName.isNotEmpty ||
                               clientEmail.isNotEmpty ||
                               createdText.isNotEmpty ||
                               createdByUid.isNotEmpty)
@@ -1448,7 +1452,11 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       label: 'Client',
                                       value: clientName,
                                     ),
-
+                                  if (businessName.isNotEmpty)
+                                    _KeyValueRow(
+                                      label: 'Business',
+                                      value: businessName,
+                                    ),
                                   if (clientEmail.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Email',
