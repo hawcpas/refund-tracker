@@ -746,7 +746,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       child: Scaffold(
         backgroundColor: AppColors.pageBackgroundLight,
         appBar: AppBar(
-          title: const Text('Secure Drop-Off'),
+          title: const Text('Secure Upload Link'),
           automaticallyImplyLeading: false,
         ),
         body: Stack(

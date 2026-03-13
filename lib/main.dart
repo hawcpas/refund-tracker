@@ -17,7 +17,7 @@ import 'screens/resources_screen.dart';
 import 'screens/shared_files_screen.dart';
 import 'screens/dropoff/dropoff_client_screen.dart';
 import 'screens/dropoff/dropoff_success_screen.dart';
-import 'screens/admin_dropoff_screen.dart';
+import 'screens/view_dropoff_screen.dart';
 import 'screens/auth_action_screen.dart';
 import 'screens/dropoff_uploads_screen.dart';
 
@@ -265,7 +265,7 @@ class _MyAppState extends State<MyApp> {
               ),
             );
 
-          case '/admin-dropoffs':
+          case '/view-dropoffs':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
@@ -297,7 +297,7 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) return const DashboardScreen();
 
                         // Admins + Associates with capability land here
-                        return const AdminDropoffsScreen();
+                        return const ViewDropoffsScreen();
                       },
                     ),
               ),

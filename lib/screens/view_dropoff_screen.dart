@@ -104,14 +104,14 @@ enum _DropoffSortField {
   status,
 }
 
-class AdminDropoffsScreen extends StatefulWidget {
-  const AdminDropoffsScreen({super.key});
+class ViewDropoffsScreen extends StatefulWidget {
+  const ViewDropoffsScreen({super.key});
 
   @override
-  State<AdminDropoffsScreen> createState() => _AdminDropoffsScreenState();
+  State<ViewDropoffsScreen> createState() => _ViewDropoffsScreenState();
 }
 
-class _AdminDropoffsScreenState extends State<AdminDropoffsScreen> {
+class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
 
@@ -595,7 +595,7 @@ class _RequestsListState extends State<_RequestsList> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Client Upload Links',
+            'View & Edit Upload Links',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF101828),
@@ -1280,7 +1280,10 @@ class _DropoffDetailScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Client Upload Link'), elevation: 1),
+      appBar: AppBar(
+        title: const Text('Client Upload Link Details'),
+        elevation: 1,
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
@@ -1329,8 +1332,10 @@ class _DropoffDetailScreen extends StatelessWidget {
                           .toString()
                           .trim();
                       final createdAt = reqData['createdAt'];
+                      final createdByUid = (reqData['createdByUid'] ?? '')
+                          .toString();
                       final createdText = createdAt is Timestamp
-                          ? _formatDate(createdAt.toDate())
+                          ? formatDateTimeCompact(createdAt.toDate())
                           : '';
 
                       return Column(
@@ -1341,7 +1346,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Drop‑Off Request',
+                                  'Upload Link Information',
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w800,
                                     color: const Color(0xFF101828),
@@ -1362,7 +1367,8 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                           if (clientName.isNotEmpty ||
                               clientEmail.isNotEmpty ||
-                              createdText.isNotEmpty)
+                              createdText.isNotEmpty ||
+                              createdByUid.isNotEmpty)
                             _WhiteInset(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1372,15 +1378,36 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       label: 'Client',
                                       value: clientName,
                                     ),
+
                                   if (clientEmail.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Email',
                                       value: clientEmail,
                                     ),
+
                                   if (createdText.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Created',
                                       value: createdText,
+                                    ),
+
+                                  if (createdByUid.isNotEmpty)
+                                    FutureBuilder<String>(
+                                      future: _resolveCreatedByName(
+                                        createdByUid,
+                                      ),
+                                      builder: (context, snap) {
+                                        if (!snap.hasData) {
+                                          return const _KeyValueRow(
+                                            label: 'Created by',
+                                            value: 'Loading…',
+                                          );
+                                        }
+                                        return _KeyValueRow(
+                                          label: 'Created by',
+                                          value: snap.data!,
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
@@ -1447,7 +1474,7 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                           _SectionHeader(
                             title: 'Uploads',
-                            subtitle: 'Files submitted through this link.',
+                            //subtitle: 'Files submitted through this link.',
                           ),
                           const SizedBox(height: 8),
 
@@ -1523,11 +1550,13 @@ class _DropoffDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 12),
 
+                            /*
                             _SectionHeader(
                               title: 'Request administration',
                               subtitle:
                                   'Permanently remove this request and associated uploads.',
                             ),
+                            */
                             const SizedBox(height: 10),
 
                             Align(
@@ -1541,7 +1570,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       color: Colors.red,
                                     ),
                                     label: const Text(
-                                      'Delete request',
+                                      'Delete Upload Link',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                       ),
@@ -1593,7 +1622,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             const SizedBox(height: 10),
 
                             Text(
-                              'Data retention: Deleted requests and their uploads are permanently removed and cannot be recovered.',
+                              'Deleted requests are permanently removed and cannot be recovered.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
@@ -1618,6 +1647,36 @@ class _DropoffDetailScreen extends StatelessWidget {
     return '${dt.month.toString().padLeft(2, '0')}/'
         '${dt.day.toString().padLeft(2, '0')}/'
         '${dt.year}';
+  }
+
+  Future<String> _resolveCreatedByName(String uid) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      final data = snap.data();
+      if (data == null) return '—';
+
+      // Prefer full name if available
+      final first = (data['firstName'] ?? '').toString().trim();
+      final last = (data['lastName'] ?? '').toString().trim();
+      final fullName = ('$first $last').trim();
+
+      if (fullName.isNotEmpty) return fullName;
+
+      // Fallbacks
+      final displayName = (data['displayName'] ?? '').toString().trim();
+      if (displayName.isNotEmpty) return displayName;
+
+      final email = (data['email'] ?? '').toString().trim();
+      if (email.isNotEmpty) return email;
+
+      return '—';
+    } catch (_) {
+      return '—';
+    }
   }
 }
 
