@@ -1479,6 +1479,7 @@ exports.getAdminDownloadUrl = onCall(
 // ============================
 // deleteDropoffUploadsBatch (admin-only)
 // ============================
+/*
 exports.deleteDropoffUploadsBatch = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -1537,6 +1538,8 @@ exports.deleteDropoffUploadsBatch = onCall(
   }
 );
 
+*/
+
 // ============================
 // deleteDropoffUploadsBatch (admin-only)
 // Deletes Firestore metadata doc + Storage object
@@ -1547,56 +1550,77 @@ exports.deleteDropoffUploadsBatch = onCall(
     try {
       const { auth, data } = request;
       if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
-      await assertAdmin(auth.uid); // uses your existing helper [1](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Forms/DispForm.aspx?ID=658&web=1)
+      await assertAdmin(auth.uid);
 
-      const items = data?.items;
-      if (!Array.isArray(items) || items.length === 0) {
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if (items.length === 0) {
         throw new HttpsError("invalid-argument", "items[] is required.");
       }
 
       const db = admin.firestore();
       const bucket = admin.storage().bucket();
 
-      const results = [];
+      const affectedRequestIds = new Set();
+
+      // Delete files
       for (const it of items) {
         const docPath = (it?.docPath || "").toString().trim();
         const storagePath = (it?.storagePath || "").toString().trim();
 
-        if (!docPath) {
-          results.push({ ok: false, docPath, error: "missing docPath" });
-          continue;
+        if (!docPath) continue;
+
+        // Extract requestId from:
+        // dropoff_requests/{requestId}/files/{fileId}
+        const parts = docPath.split("/");
+        const idx = parts.indexOf("dropoff_requests");
+        if (idx !== -1 && parts.length > idx + 1) {
+          affectedRequestIds.add(parts[idx + 1]);
         }
 
-        try {
-          // Delete Firestore metadata doc
-          await db.doc(docPath).delete().catch(() => { });
-
-          // Delete Storage object (if provided)
-          if (storagePath) {
-            await bucket.file(storagePath).delete().catch(() => { });
-          }
-
-          results.push({ ok: true, docPath });
-        } catch (e) {
-          console.error("deleteDropoffUploadsBatch item failed", {
-            docPath,
-            storagePath,
-            message: e?.message ?? String(e),
-          });
-          results.push({
-            ok: false,
-            docPath,
-            error: e?.message ?? String(e),
-          });
+        await db.doc(docPath).delete().catch(() => { });
+        if (storagePath) {
+          await bucket.file(storagePath).delete().catch(() => { });
         }
       }
 
-      const deleted = results.filter((r) => r.ok).length;
-      return { ok: true, deleted, results };
+      // ✅ Recalculate counters per request
+      for (const requestId of affectedRequestIds) {
+        const reqRef = db.collection("dropoff_requests").doc(requestId);
+        const filesSnap = await reqRef.collection("files").get();
+
+        let lastUploadedAt = null;
+        for (const d of filesSnap.docs) {
+          const ts = d.data().createdAt;
+          if (
+            ts &&
+            (!lastUploadedAt || ts.toMillis() > lastUploadedAt.toMillis())
+          ) {
+            lastUploadedAt = ts;
+          }
+        }
+
+        await reqRef.set(
+          {
+            fileCount: filesSnap.size,
+            lastUploadedAt: lastUploadedAt || null,
+          },
+          { merge: true }
+        );
+      }
+
+      await db.collection("auditLogs").add({
+        type: "uploads_bulk_delete",
+        deleted: items.length,
+        affectedRequests: Array.from(affectedRequestIds),
+        actorUid: auth.uid,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return { ok: true, deleted: items.length };
     } catch (err) {
       console.error("deleteDropoffUploadsBatch failed:", err);
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError("internal", "Delete batch failed.", {
+      throw new HttpsError("internal", "Bulk delete failed.", {
         message: err?.message ?? String(err),
       });
     }
