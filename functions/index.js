@@ -9,6 +9,12 @@ const {
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const functions = require("firebase-functions");
+
+
+admin.initializeApp();
+const db = admin.firestore();
+
 
 admin.initializeApp();
 
@@ -29,9 +35,16 @@ const SMTP_PORT = defineInt("SMTP_PORT", { default: 587 });
 const SMTP_SECURE = defineBoolean("SMTP_SECURE", { default: false });
 const SMTP_FROM = defineString("SMTP_FROM");
 
+
+
 // ============================
 // Helpers
 // ============================
+
+function hashOtp(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
 function renderActivationEmail({ appName, firstName, resetLink, verifyLink }) {
   const safeFirstName = (firstName || "").toString().trim() || "there";
 
@@ -174,6 +187,83 @@ function renderActivationEmail({ appName, firstName, resetLink, verifyLink }) {
 `;
 }
 
+function renderOtpEmail({ appName, code }) {
+  return `
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
+
+    <!-- Header -->
+    <tr>
+      <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
+        <img
+          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          alt="Axume & Associates CPAs"
+          width="360"
+          style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
+        />
+      </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+      <td style="padding:24px;">
+
+        <h2 style="margin:0 0 6px 0; font-size:20px; font-weight:700; color:#0B1F33;">
+          Login verification required
+        </h2>
+
+        <p style="margin:0 0 18px 0; font-size:14px; color:#475467;">
+          ${appName}
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          A sign‑in attempt was made to your account.  
+          To continue, enter the verification code below.
+        </p>
+
+        <!-- Code box -->
+        <div style="margin:20px 0 22px 0; padding:18px; border:1px solid #E4E7EC;
+                    border-radius:10px; background:#F9FAFB; text-align:center;">
+          <div style="font-size:32px; font-weight:800; letter-spacing:6px; color:#0B1F33;">
+            ${code}
+          </div>
+        </div>
+
+        <p style="margin:0 0 16px 0; font-size:13px; color:#475467;">
+          This code expires in <b>5 minutes</b> and can only be used once.
+        </p>
+
+        <p style="margin:0 0 14px 0; font-size:13px; color:#475467;">
+          If you did not attempt to sign in, please notify your administrator immediately.
+        </p>
+
+        <!-- Support -->
+        <p style="margin:20px 0 0 0;">
+          Regards,<br/>
+          <b>Axume & Associates CPAs</b><br/>
+          <span style="font-size:13px; color:#667085;">
+            Internal Systems Administration
+          </span>
+        </p>
+
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="padding:16px 24px; border-top:1px solid #E4E7EC;">
+        <p style="margin:0; font-size:12px; color:#667085;">
+          This message was generated automatically by the firm’s internal systems.
+          Please do not reply.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</div>
+`;
+}
+
 function safeFilename(name) {
   return (name || "")
     .toString()
@@ -245,6 +335,108 @@ function buildTransport() {
     tls: { rejectUnauthorized: true },
   });
 }
+
+exports.verifyLoginOtp = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated");
+    }
+
+    const code = String(request.data?.code || "").trim();
+    if (!code) {
+      throw new HttpsError("invalid-argument", "Code is required.");
+    }
+
+    const uid = request.auth.uid;
+    const ref = db.collection("auth_otps").doc(uid);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "No active OTP.");
+    }
+
+    const data = snap.data();
+
+    if (data.expiresAt.toDate() < new Date()) {
+      await ref.delete();
+      throw new HttpsError("deadline-exceeded", "Code expired.");
+    }
+
+    if (data.codeHash !== hashOtp(code)) {
+      await ref.update({
+        attempts: admin.firestore.FieldValue.increment(1),
+      });
+      throw new HttpsError("permission-denied", "Invalid code.");
+    }
+
+    // ✅ OTP success
+    await admin.auth().setCustomUserClaims(uid, {
+      otp_verified: true,
+    });
+
+    await ref.delete();
+
+    return { ok: true };
+  }
+);
+
+
+exports.sendLoginOtp = onCall(
+  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated");
+    }
+
+    const uid = request.auth.uid;
+    const email = request.auth.token.email;
+    if (!email) {
+      throw new HttpsError("failed-precondition", "User has no email.");
+    }
+
+    const ref = db.collection("auth_otps").doc(uid);
+    const existing = await ref.get();
+
+    // ✅ If a valid OTP already exists, DO NOT regenerate
+    if (existing.exists) {
+      const data = existing.data();
+      if (data?.expiresAt?.toDate() > new Date()) {
+        console.log("✅ Reusing existing OTP (not expired)");
+        return { ok: true, reused: true };
+      }
+    }
+
+    // ✅ Clear previous OTP trust
+    await admin.auth().setCustomUserClaims(uid, {
+      otp_verified: false,
+    });
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    await ref.set({
+      codeHash: hashOtp(code),
+      expiresAt: admin.firestore.Timestamp.fromDate(
+        new Date(Date.now() + 5 * 60 * 1000)
+      ),
+      attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await sendAccountEmail({
+      to: email,
+      subject: "Login verification code",
+      html: renderOtpEmail({
+        appName: APP_NAME.value(),
+        code,
+      }),
+    });
+
+    return { ok: true, sent: true };
+  }
+);
+
+
 
 async function sendAccountEmail({ to, subject, html }) {
   const transporter = buildTransport();
