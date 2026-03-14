@@ -20,6 +20,7 @@ import 'screens/dropoff/dropoff_success_screen.dart';
 import 'screens/view_dropoff_screen.dart';
 import 'screens/auth_action_screen.dart';
 import 'screens/dropoff_uploads_screen.dart';
+import 'screens/otp_verify_screen.dart';
 
 import 'services/auth_service.dart';
 
@@ -329,7 +330,6 @@ class _AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
-        // While Firebase restores session (especially on web refresh)
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -337,12 +337,29 @@ class _AuthGate extends StatelessWidget {
         }
 
         final user = snap.data;
-
         if (user == null) return const LoginScreen();
         if (!user.emailVerified) return const VerifyEmailScreen();
 
-        // ✅ Only build protected UI AFTER user exists (prevents refresh blank)
-        return builder(user);
+        // 🔐 OTP enforcement: check custom claim
+        return FutureBuilder<IdTokenResult>(
+          future: user.getIdTokenResult(true),
+          builder: (context, tokenSnap) {
+            if (tokenSnap.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final claims = tokenSnap.data?.claims ?? {};
+            final otpOk = claims['otp_verified'] == true;
+
+            if (!otpOk) {
+              return const OtpVerifyScreen();
+            }
+
+            return builder(user);
+          },
+        );
       },
     );
   }

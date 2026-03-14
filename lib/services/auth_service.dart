@@ -99,6 +99,25 @@ class AuthService {
   // Helpers
   // =========================
 
+  // =========================
+  // OTP (2FA)
+  // =========================
+
+  Future<void> sendLoginOtp() async {
+    await FirebaseFunctions.instanceFor(
+      region: 'us-central1',
+    ).httpsCallable('sendLoginOtp').call();
+  }
+
+  Future<void> verifyLoginOtp(String code) async {
+    await FirebaseFunctions.instanceFor(
+      region: 'us-central1',
+    ).httpsCallable('verifyLoginOtp').call({'code': code});
+
+    // 🔄 Force-refresh token so otp_verified claim is available
+    await _auth.currentUser?.getIdToken(true);
+  }
+
   Future<void> markUserActiveIfInvited() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -305,6 +324,13 @@ class AuthService {
       final user = result.user;
       if (user == null) return null;
 
+      try {
+        await sendLoginOtp();
+      } catch (e) {
+        // ignore: avoid_print
+        print('OTP SEND FAILED (non-blocking): $e');
+      }
+
       await user.reload();
       final refreshedUser = _auth.currentUser;
       if (refreshedUser == null) return user;
@@ -483,25 +509,13 @@ class AuthService {
   /// This allows "no-password" client uploads while still giving request.auth != null
   /// for Firebase Storage rules.
   Future<User?> signInAnonymouslyIfNeeded() async {
-    final existing = _auth.currentUser;
-    if (existing != null) return existing;
-
-    try {
-      final cred = await _auth.signInAnonymously();
-      return cred.user;
-    } on FirebaseAuthException catch (e) {
-      // ignore: avoid_print
-      print("ANON SIGN-IN ERROR: ${e.code} - ${e.message}");
-      return null;
-    } catch (e) {
-      // ignore: avoid_print
-      print("ANON SIGN-IN ERROR (unknown): $e");
-      return null;
-    }
-  }
+  // ❌ Anonymous auth disabled at Firebase level
+  // ✅ Fail fast and let caller handle unauthenticated state
+  return _auth.currentUser;
+}
 
   /// Convenience helper
-  bool get isAnonymous => _auth.currentUser?.isAnonymous ?? false;
+  bool get isAnonymous => false;
 
   // =========================
   // LOGOUT

@@ -26,8 +26,6 @@ class _AuthActionScreenState extends State<AuthActionScreen> {
     final base = Uri.base;
 
     // ✅ Flutter Web hash routing support
-    // Example fragment:
-    // /auth/action?mode=resetPassword&oobCode=XYZ
     Uri effectiveUri;
     if (base.fragment.isNotEmpty) {
       effectiveUri = Uri.parse('https://dummy${base.fragment}');
@@ -38,10 +36,12 @@ class _AuthActionScreenState extends State<AuthActionScreen> {
     _mode = effectiveUri.queryParameters['mode'];
     _oobCode = effectiveUri.queryParameters['oobCode'];
 
+    // ✅ CRITICAL FIX:
+    // If this screen is opened WITHOUT an email action link,
+    // silently exit instead of showing an error.
     if (_mode == null || _oobCode == null) {
-      setState(() {
-        _loading = false;
-        _error = 'This link is invalid or incomplete.';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, '/login');
       });
       return;
     }
