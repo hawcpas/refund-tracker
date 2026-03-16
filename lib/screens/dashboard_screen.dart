@@ -15,6 +15,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _auth = AuthService();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   bool _loadingProfile = true;
   bool _hasDropoffAccess = false;
@@ -28,8 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
 
-    // ✅ Wait for FirebaseAuth to produce a real user (same concept as _AuthGate)
-    // ✅ Wait for the first NON-null user (avoids the web refresh race condition)
+    // ✅ Wait for first NON-null user (avoids web refresh race)
     FirebaseAuth.instance.authStateChanges().where((u) => u != null).first.then(
       (u) {
         if (!mounted) return;
@@ -115,10 +115,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? 'Welcome back, $_fullName'
         : 'Welcome back';
 
+    // ✅ Mobile breakpoint for sidebar -> drawer
+    final isMobileShell = MediaQuery.of(context).size.width < 900;
+    final currentRoute = ModalRoute.of(context)?.settings.name ?? '/dashboard';
+
+    void navigateTo(String route) async {
+      // Close drawer first (mobile)
+      if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+        Navigator.pop(context);
+      }
+
+      // ✅ Special action: logout
+      if (route == '__logout__') {
+        await _logout();
+        return;
+      }
+
+      // If already on the route, do nothing
+      if (route == currentRoute) return;
+
+      Navigator.pushNamed(context, route);
+    }
+
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.pageBackgroundLight,
+
       appBar: AppBar(
         title: const Text('Dashboard'),
+        leading: isMobileShell
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              )
+            : null,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -142,120 +172,134 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+
+      // ✅ Drawer on mobile only
+      drawer: isMobileShell
+          ? Drawer(
+              child: SafeArea(
+                child: _SidebarNav(
+                  compact: false,
+                  currentRoute: currentRoute,
+                  onNavigate: navigateTo,
+                ),
+              ),
+            )
+          : null,
+
+      // ✅ Desktop: persistent sidebar + main content
+      body: Row(
         children: [
-          CenteredSection(
-            // Slightly less wide than before to avoid “stretched” feel
-            maxWidth: 980,
-            child: LayoutBuilder(
-              builder: (context, c) {
-                final w = c.maxWidth;
+          if (!isMobileShell)
+            _SidebarNav(
+              compact: true,
+              currentRoute: currentRoute,
+              onNavigate: navigateTo,
+            ),
 
-                final isMobile = w < 560;
-                final isWide = w >= 980;
+          // ✅ MAIN CONTENT (always visible on desktop)
+          Expanded(
+            child: Scrollbar(
+              thumbVisibility: !isMobileShell,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                children: [
+                  CenteredSection(
+                    maxWidth: 980,
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final w = c.maxWidth;
+                        final isMobile = w < 560;
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _ContextHeader(
-                      loading: _loadingProfile,
-                      welcomeText: welcomeText,
-                      isAdmin: isAdmin,
-                      isMobile: isMobile,
-                      wildix: _wildixExt,
-                      clearfly: _clearflyNumber,
-                      onAdminTap: () =>
-                          Navigator.pushNamed(context, '/admin-users'),
-                    ),
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _ContextHeader(
+                              loading: _loadingProfile,
+                              welcomeText: welcomeText,
+                              isAdmin: isAdmin,
+                              isMobile: isMobile,
+                              wildix: _wildixExt,
+                              clearfly: _clearflyNumber,
+                              onAdminTap: () =>
+                                  Navigator.pushNamed(context, '/admin-users'),
+                            ),
+                            const SizedBox(height: 18),
 
-                    const SizedBox(height: 18),
-
-                    // ✅ NEW: Enterprise section header for "Request files"
-                    if (_hasDropoffAccess) ...[
-                      // ============================
-                      // FILE BOX (PRIMARY – TOP)
-                      // ============================
-                      _SectionLabel(
-                        title: 'Incoming files',
-                        subtitle:
-                            'All client-uploaded documents across all upload links.',
-                      ),
-                      const SizedBox(height: 12),
-
-                      _PrimaryFeatureCard(
-                        isMobile: isMobile,
-                        title: 'File Box',
-                        subtitle:
-                            'View and manage all uploaded files (newest first).',
-                        icon: Icons.cloud_upload_outlined,
-                        ctaLabel: 'Open file box',
-                        onOpen: () =>
-                            Navigator.pushNamed(context, '/dropoff-uploads'),
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      // ============================
-                      // REQUEST FILES (SECONDARY)
-                      // ============================
-                      _SectionLabel(
-                        title: 'Request files',
-                        subtitle:
-                            'Create secure upload links for clients to submit documents.',
-                      ),
-                      const SizedBox(height: 12),
-
-                      _PrimaryFeatureCard(
-                        isMobile: isMobile,
-                        title: 'Generate Upload Links',
-                        subtitle:
-                            'Create and manage secure upload links for clients.',
-                        icon: Icons.link_outlined,
-                        ctaLabel: 'Manage links',
-                        onOpen: () =>
-                            Navigator.pushNamed(context, '/view-dropoffs'),
-                      ),
-
-                      const SizedBox(height: 28),
-                    ] else ...[
-                      const SizedBox(height: 6),
-                    ],
-
-                    Text(
-                      'Quick access',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // ✅ Enterprise grid: 1 column mobile, 2 column medium, 3 column desktop
-                    _ToolGrid(
-                      columns: isMobile ? 1 : (isWide ? 3 : 2),
-                      onOpenSharedFiles: () =>
-                          Navigator.pushNamed(context, '/shared-files'),
-                      onOpenResources: () =>
-                          Navigator.pushNamed(context, '/resources'),
-                      onOpenSettings: () async {
-                        final changed = await Navigator.pushNamed(
-                          context,
-                          '/account-settings',
+                            if (_hasDropoffAccess) ...[
+                              const _SectionLabel(
+                                title: 'Incoming files',
+                                subtitle:
+                                    'All client-uploaded documents across all upload links.',
+                              ),
+                              const SizedBox(height: 12),
+                              _PrimaryFeatureCard(
+                                isMobile: isMobile,
+                                title: 'File Box',
+                                subtitle:
+                                    'View and manage all uploaded files (newest first).',
+                                icon: Icons.cloud_upload_outlined,
+                                ctaLabel: 'Open file box',
+                                onOpen: () => Navigator.pushNamed(
+                                  context,
+                                  '/dropoff-uploads',
+                                ),
+                              ),
+                              const SizedBox(height: 28),
+                              const _SectionLabel(
+                                title: 'Request files',
+                                subtitle:
+                                    'Create secure upload links for clients to submit documents.',
+                              ),
+                              const SizedBox(height: 12),
+                              _PrimaryFeatureCard(
+                                isMobile: isMobile,
+                                title: 'Generate Upload Links',
+                                subtitle:
+                                    'Create and manage secure upload links for clients.',
+                                icon: Icons.link_outlined,
+                                ctaLabel: 'Manage links',
+                                onOpen: () => Navigator.pushNamed(
+                                  context,
+                                  '/view-dropoffs',
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 8),
+                              _SurfaceCard(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Access notice',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w900,
+                                            color: const Color(0xFF101828),
+                                          ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'You currently do not have access to Client Upload Links. '
+                                      'If you believe this is incorrect, please contact an administrator.',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: const Color(0xFF475467),
+                                            height: 1.35,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 22),
+                          ],
                         );
-                        if (changed == true) {
-                          final user = FirebaseAuth.instance.currentUser;
-                          if (user != null) {
-                            _loadProfile(user);
-                          }
-                        }
                       },
                     ),
-
-                    const SizedBox(height: 22),
-                  ],
-                );
-              },
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -265,7 +309,145 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 /// ============================
-/// NEW: Small enterprise section label
+/// Sidebar Navigation (Enterprise, compact + tight)
+/// ============================
+class _SidebarNav extends StatelessWidget {
+  const _SidebarNav({
+    required this.currentRoute,
+    required this.onNavigate,
+    this.compact = true,
+  });
+
+  final String currentRoute;
+  final void Function(String route) onNavigate;
+  final bool compact;
+
+  Widget _item({
+    required IconData icon,
+    required String label,
+    required String route,
+    bool danger = false,
+  }) {
+    final isActive = currentRoute == route;
+
+    final Color baseText = danger
+        ? const Color(0xFFB42318)
+        : const Color(0xFF344054);
+    final Color baseIcon = danger
+        ? const Color(0xFFB42318)
+        : const Color(0xFF667085);
+
+    final Color activeText = danger
+        ? const Color(0xFFB42318)
+        : AppColors.brandBlue;
+    final Color activeIcon = danger
+        ? const Color(0xFFB42318)
+        : AppColors.brandBlue;
+
+    final Color bg = isActive
+        ? (danger
+              ? const Color(0xFFB42318).withOpacity(0.10)
+              : AppColors.brandBlue.withOpacity(0.12))
+        : (danger
+              ? const Color(0xFFB42318).withOpacity(0.06)
+              : Colors.transparent);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => onNavigate(route),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: isActive ? activeIcon : baseIcon),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+                color: isActive ? activeText : baseText,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = compact ? 210.0 : double.infinity;
+
+    return Container(
+      width: width,
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(color: Colors.black.withOpacity(0.06)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'NAVIGATION',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+              color: const Color(0xFF98A2B3),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          _item(
+            icon: Icons.dashboard_outlined,
+            label: 'Dashboard',
+            route: '/dashboard',
+          ),
+          const SizedBox(height: 4),
+
+          _item(
+            icon: Icons.folder_shared_outlined,
+            label: 'Firm Documents',
+            route: '/shared-files',
+          ),
+          const SizedBox(height: 4),
+
+          _item(
+            icon: Icons.link_outlined,
+            label: 'Websites & Resources',
+            route: '/resources',
+          ),
+          const SizedBox(height: 4),
+
+          _item(
+            icon: Icons.person_outline,
+            label: 'Account Settings',
+            route: '/account-settings',
+          ),
+
+          const SizedBox(height: 6),
+
+          _item(
+            icon: Icons.logout,
+            label: 'Sign out',
+            route: '__logout__',
+            danger: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ============================
+/// Small enterprise section label
 /// ============================
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.title, this.subtitle});
@@ -305,9 +487,6 @@ class _SectionLabel extends StatelessWidget {
 
 /// ============================
 /// Enterprise Context Header
-/// - Compact CTA (not stretched)
-/// - Mobile stacks cleanly
-/// - Shows comms bar when available
 /// ============================
 class _ContextHeader extends StatelessWidget {
   const _ContextHeader({
@@ -342,7 +521,6 @@ class _ContextHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row: icon + title + (admin button)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -360,7 +538,6 @@ class _ContextHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 14),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -387,7 +564,6 @@ class _ContextHeader extends StatelessWidget {
                   ],
                 ),
               ),
-
               if (!isMobile && isAdmin) ...[
                 const SizedBox(width: 12),
                 _CompactButton(
@@ -399,7 +575,6 @@ class _ContextHeader extends StatelessWidget {
               ],
             ],
           ),
-
           if (isMobile && isAdmin) ...[
             const SizedBox(height: 14),
             SizedBox(
@@ -420,7 +595,6 @@ class _ContextHeader extends StatelessWidget {
               ),
             ),
           ],
-
           if (showComms) ...[
             const SizedBox(height: 14),
             _CommsInlineBar(
@@ -477,7 +651,6 @@ class _PrimaryFeatureCard extends StatelessWidget {
                 child: Icon(icon, color: AppColors.brandBlue, size: 22),
               ),
               const SizedBox(width: 14),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,7 +675,6 @@ class _PrimaryFeatureCard extends StatelessWidget {
                   ],
                 ),
               ),
-
               if (!isMobile) ...[
                 const SizedBox(width: 12),
                 _CompactButton(
@@ -513,7 +685,6 @@ class _PrimaryFeatureCard extends StatelessWidget {
               ],
             ],
           ),
-
           if (isMobile) ...[
             const SizedBox(height: 14),
             SizedBox(
@@ -535,60 +706,6 @@ class _PrimaryFeatureCard extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
-}
-
-/// ============================
-/// Enterprise Tool Grid
-/// ============================
-class _ToolGrid extends StatelessWidget {
-  const _ToolGrid({
-    required this.columns,
-    required this.onOpenSharedFiles,
-    required this.onOpenResources,
-    required this.onOpenSettings,
-  });
-
-  final int columns;
-  final VoidCallback onOpenSharedFiles;
-  final VoidCallback onOpenResources;
-  final VoidCallback onOpenSettings;
-
-  @override
-  Widget build(BuildContext context) {
-    final isMobile = columns == 1;
-    final childAspectRatio = isMobile ? 3.3 : (columns == 2 ? 3.0 : 2.9);
-
-    return GridView(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: childAspectRatio,
-      ),
-      children: [
-        _ToolCard(
-          icon: Icons.folder_shared_outlined,
-          title: 'Firm Documents',
-          subtitle: 'Firm‑wide documents and shared resources.',
-          onTap: onOpenSharedFiles,
-        ),
-        _ToolCard(
-          icon: Icons.link_outlined,
-          title: 'Websites & Resources',
-          subtitle: 'External portals and firm tools.',
-          onTap: onOpenResources,
-        ),
-        _ToolCard(
-          icon: Icons.person_outline,
-          title: 'Account Settings',
-          subtitle: 'Update your name, password, and profile.',
-          onTap: onOpenSettings,
-        ),
-      ],
     );
   }
 }
@@ -649,81 +766,6 @@ class _CompactButton extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Enterprise Tool Card
-/// ============================
-class _ToolCard extends StatelessWidget {
-  const _ToolCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black.withOpacity(0.05)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 22, color: AppColors.brandBlue.withOpacity(0.9)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: const Color(0xFF101828),
-                      height: 1.05,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF667085),
-                      height: 1.15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right,
-              size: 18,
-              color: AppColors.brandBlue.withOpacity(0.55),
-            ),
-          ],
         ),
       ),
     );
