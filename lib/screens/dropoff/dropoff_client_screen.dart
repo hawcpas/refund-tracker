@@ -641,76 +641,106 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     final brand = AppColors.brandBlue;
 
-    Widget addFilesBtn = OutlinedButton.icon(
-      onPressed: (canUploadNow && !_uploading)
-          ? () async {
-              setState(() {
-                _error = null;
-                _success = null;
-              });
+    final isIOSWeb = kIsWeb && WebFileSelector.isIOSWeb;
 
-              // ✅ Re-check server status right before letting user pick
-              final ok = await _refreshAndCheckCanUpload(showMessage: true);
-              if (!ok) {
+    Widget addFilesBtn;
+
+    // ✅ iOS Web: NEVER await before the picker opens.
+    // The file dialog must be triggered directly by the user gesture. [2](https://www.telerik.com/blazor-ui/documentation/knowledge-base/upload-openselectfilesdialog-safari)[1](https://github.com/miguelpruivo/flutter_file_picker/issues/1736)
+    if (isIOSWeb) {
+      final baseBtn = OutlinedButton.icon(
+        onPressed: (canUploadNow && !_uploading)
+            ? () {
+                // Keep this synchronous so iOS Safari still treats the gesture as "direct".
                 setState(() {
-                  _queuedFiles.clear();
-                  _uploadProgress.clear();
-                  _currentlyUploadingKey = null;
+                  _error = null;
+                  _success = null;
                 });
-                return;
               }
+            : null,
+        icon: const Icon(Icons.add),
+        label: const Text(
+          'Add files',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: brand,
+          iconColor: brand,
+          side: BorderSide(color: brand, width: 1.6),
+          backgroundColor: brand.withOpacity(0.08),
+          overlayColor: brand.withOpacity(0.12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          disabledForegroundColor: brand.withOpacity(0.55),
+          disabledBackgroundColor: Colors.transparent,
+        ),
+      );
 
-              // Non‑iOS web/native: open normal picker
-              if (!WebFileSelector.isIOSWeb) {
-                _pickFilesToQueue();
-              }
-              // iOS web: WebFileSelector wrapper handles the file prompt
-            }
-          : null,
-      icon: const Icon(Icons.add),
-      label: const Text(
-        'Add files',
-        style: TextStyle(fontWeight: FontWeight.w900),
-      ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor:
-            brand, // bright text color [2](https://github.com/koichia/flutter_web_file_selector)
-        iconColor: brand, // force icon to match (no theme surprise)
-        side: BorderSide(
-          color: brand,
-          width: 1.6,
-        ), // stronger stroke = more “pop”
-        backgroundColor: brand.withOpacity(
-          0.08,
-        ), // subtle tint to make it punchy
-        overlayColor: brand.withOpacity(0.12), // press ripple tint
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        disabledForegroundColor: brand.withOpacity(
-          0.55,
-        ), // disabled, but still branded [1](https://stackoverflow.com/questions/77714785/flutter-web-file-picker-not-working-on-safari)
-        disabledBackgroundColor: Colors.transparent,
-      ),
-    );
-
-    if (WebFileSelector.isIOSWeb && canUploadNow && !_uploading) {
+      // WebFileSelector is designed to fix iOS/iPadOS web picker behavior. [3](https://github.com/koichia/flutter_web_file_selector)
       addFilesBtn = WebFileSelector(
         multiple: true,
         onData: (files) async {
+          // ✅ Validate AFTER selection (safe on iOS Safari)
           final ok = await _refreshAndCheckCanUpload(showMessage: true);
           if (!ok) {
+            if (!mounted) return;
             setState(() {
               _queuedFiles.clear();
               _uploadProgress.clear();
               _currentlyUploadingKey = null;
             });
-
             return;
           }
 
           await _queueFromXFiles(files);
         },
-        child: addFilesBtn,
+        child: baseBtn,
+      );
+    } else {
+      // ✅ Non‑iOS web/native: your original flow is fine
+      addFilesBtn = OutlinedButton.icon(
+        onPressed: (canUploadNow && !_uploading)
+            ? () async {
+                setState(() {
+                  _error = null;
+                  _success = null;
+                });
+
+                // ✅ Re-check server status right before letting user pick
+                final ok = await _refreshAndCheckCanUpload(showMessage: true);
+                if (!ok) {
+                  if (!mounted) return;
+                  setState(() {
+                    _queuedFiles.clear();
+                    _uploadProgress.clear();
+                    _currentlyUploadingKey = null;
+                  });
+                  return;
+                }
+
+                _pickFilesToQueue();
+              }
+            : null,
+        icon: const Icon(Icons.add),
+        label: const Text(
+          'Add files',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: brand,
+          iconColor: brand,
+          side: BorderSide(color: brand, width: 1.6),
+          backgroundColor: brand.withOpacity(0.08),
+          overlayColor: brand.withOpacity(0.12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          disabledForegroundColor: brand.withOpacity(0.55),
+          disabledBackgroundColor: Colors.transparent,
+        ),
       );
     }
 
@@ -889,28 +919,41 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                             const SizedBox(height: 12),
                           ],
 
-                          Row(
-                            children: [
-                              Flexible(
-                                fit: FlexFit.loose,
-                                child: IgnorePointer(
-                                  ignoring: !canUploadNow,
-                                  child: Opacity(
-                                    opacity: canUploadNow ? 1.0 : 0.55,
-                                    child: SizedBox(
-                                      height: 48,
-                                      child: addFilesBtn,
+                          if (isCompact) ...[
+                            SizedBox(
+                              height: 48,
+                              child: IgnorePointer(
+                                ignoring: !canUploadNow,
+                                child: Opacity(
+                                  opacity: canUploadNow ? 1.0 : 0.55,
+                                  child: addFilesBtn,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(height: 48, child: uploadBtn),
+                          ] else ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: IgnorePointer(
+                                      ignoring: !canUploadNow,
+                                      child: Opacity(
+                                        opacity: canUploadNow ? 1.0 : 0.55,
+                                        child: addFilesBtn,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                fit: FlexFit.loose,
-                                child: SizedBox(height: 48, child: uploadBtn),
-                              ),
-                            ],
-                          ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: SizedBox(height: 48, child: uploadBtn),
+                                ),
+                              ],
+                            ),
+                          ],
 
                           const SizedBox(height: 10),
                           Text(
