@@ -126,23 +126,6 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
   HttpsCallable get _setDropoffStatusCallable =>
       _functions.httpsCallable('setDropoffStatus');
 
-  PreferredSizeWidget _appBar() {
-    return AppBar(
-      backgroundColor: AppColors.brandBlue,
-      foregroundColor: Colors.white,
-      systemOverlayStyle: SystemUiOverlayStyle.light,
-      elevation: 2,
-      title: const Text('Client Upload Links'),
-      actions: [
-        IconButton(
-          tooltip: 'Create client upload link',
-          icon: const Icon(Icons.add_link),
-          onPressed: _busy ? null : _showCreateDialog,
-        ),
-      ],
-    );
-  }
-
   Future<void> _showCreateDialog() async {
     final firstCtrl = TextEditingController();
     final lastCtrl = TextEditingController();
@@ -474,74 +457,134 @@ class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _appBar(),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth >= 1100;
-                  return CenteredSection(
-                    maxWidth: isWide ? 1400 : 1100,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+    final theme = Theme.of(context);
+
+    // ✅ Content-only screen: AppShell provides AppBar + sidebar.
+    // We keep all existing layout and functionality, but remove the nested Scaffold/AppBar.
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 1100;
+
+              return CenteredSection(
+                maxWidth: isWide ? 1400 : 1100,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ✅ Enterprise header row (replaces the old AppBar action)
+                      Row(
                         children: [
                           Expanded(
-                            flex: 5,
-                            child: _WhiteCard(
-                              child: _RequestsList(
-                                db: _db,
-                                busy: _busy,
-                                onSelect: (rid) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => _DropoffDetailScreen(
-                                        requestId: rid,
-                                        onDownload: _downloadFile,
-                                        onDelete: _deleteDropoffRequest,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                onSetStatus: _setDropoffStatus,
-                                onBulkDelete: _bulkDeleteDropoffRequests,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Client Upload Links',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF101828),
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Create and manage secure upload links for clients.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF475467),
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          if (isWide) ...[
-                            const SizedBox(width: 16),
-                            Expanded(
-                              flex: 2,
-                              child: _WhiteCard(
-                                child: _HelpPanel(
-                                  onCreate: _busy ? null : _showCreateDialog,
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            height: 40,
+                            child: FilledButton.icon(
+                              onPressed: _busy ? null : _showCreateDialog,
+                              icon: const Icon(Icons.add_link, size: 18),
+                              label: const Text('Create link'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.brandBlue,
+                                foregroundColor: Colors.white,
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
+
+                      const SizedBox(height: 14),
+
+                      // ✅ Main layout (same as before, just no Scaffold/AppBar)
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 5,
+                              child: _WhiteCard(
+                                child: _RequestsList(
+                                  db: _db,
+                                  busy: _busy,
+                                  onSelect: (rid) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => _DropoffDetailScreen(
+                                          requestId: rid,
+                                          onDownload: _downloadFile,
+                                          onDelete: _deleteDropoffRequest,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  onSetStatus: _setDropoffStatus,
+                                  onBulkDelete: _bulkDeleteDropoffRequests,
+                                ),
+                              ),
+                            ),
+                            if (isWide) ...[
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 2,
+                                child: _WhiteCard(
+                                  child: _HelpPanel(
+                                    onCreate: _busy ? null : _showCreateDialog,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
-          if (_busy)
-            const Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: LinearProgressIndicator(minHeight: 2),
-            ),
-        ],
-      ),
-      backgroundColor: AppColors.pageBackgroundLight,
+        ),
+
+        if (_busy)
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+      ],
     );
   }
 }
@@ -1348,18 +1391,25 @@ class _DropoffDetailScreen extends StatelessWidget {
     final db = FirebaseFirestore.instance;
     final theme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(
-        title: const Text('Client Upload Link Details'),
-        elevation: 1,
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: ListView(
-            padding: const EdgeInsets.all(16),
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        CenteredSection(
+          maxWidth: 1100,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ✅ Page title (AppShell provides the top bar)
+              Text(
+                'Client Upload Link Details',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  color: const Color(0xFF101828),
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 12),
+
               _WhiteCard(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1462,13 +1512,11 @@ class _DropoffDetailScreen extends StatelessWidget {
                                       label: 'Email',
                                       value: clientEmail,
                                     ),
-
                                   if (createdText.isNotEmpty)
                                     _KeyValueRow(
                                       label: 'Created',
                                       value: createdText,
                                     ),
-
                                   if (createdByUid.isNotEmpty)
                                     FutureBuilder<String>(
                                       future: _resolveCreatedByName(
@@ -1550,10 +1598,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                             const SizedBox(height: 14),
                           ],
 
-                          _SectionHeader(
-                            title: 'Uploads',
-                            //subtitle: 'Files submitted through this link.',
-                          ),
+                          const _SectionHeader(title: 'Uploads'),
                           const SizedBox(height: 8),
 
                           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1565,7 +1610,7 @@ class _DropoffDetailScreen extends StatelessWidget {
                                 .snapshots(),
                             builder: (context, snap) {
                               if (snap.hasError) {
-                                return _InlineMessage(
+                                return const _InlineMessage(
                                   text: 'Unable to load uploads.',
                                   tone: _InlineTone.error,
                                 );
@@ -1581,7 +1626,7 @@ class _DropoffDetailScreen extends StatelessWidget {
 
                               final docs = snap.data!.docs;
                               if (docs.isEmpty) {
-                                return _InlineMessage(
+                                return const _InlineMessage(
                                   text: 'No uploads have been received.',
                                   tone: _InlineTone.neutral,
                                 );
@@ -1628,13 +1673,6 @@ class _DropoffDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 12),
 
-                            /*
-                            _SectionHeader(
-                              title: 'Request administration',
-                              subtitle:
-                                  'Permanently remove this request and associated uploads.',
-                            ),
-                            */
                             const SizedBox(height: 10),
 
                             Align(
@@ -1717,7 +1755,7 @@ class _DropoffDetailScreen extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 

@@ -7,11 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
+import '../widgets/centered_section.dart';
 
 enum _SortField { name, client, size, date }
-
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
-
 enum _DateFilter { all, today, last7, last30 }
 
 class DropoffUploadsScreen extends StatefulWidget {
@@ -74,16 +73,16 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
     _uploadsStream = isAdmin
         ? FirebaseFirestore.instance
-              .collectionGroup('files')
-              .orderBy('createdAt', descending: true)
-              .limit(500)
-              .snapshots()
+            .collectionGroup('files')
+            .orderBy('createdAt', descending: true)
+            .limit(500)
+            .snapshots()
         : FirebaseFirestore.instance
-              .collectionGroup('files')
-              .where('requestCreatedByRole', isEqualTo: 'associate')
-              .orderBy('createdAt', descending: true)
-              .limit(500)
-              .snapshots();
+            .collectionGroup('files')
+            .where('requestCreatedByRole', isEqualTo: 'associate')
+            .orderBy('createdAt', descending: true)
+            .limit(500)
+            .snapshots();
 
     _loadingRole = false;
     if (mounted) setState(() {});
@@ -112,15 +111,17 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
         n.endsWith('.xlsx') ||
         n.endsWith('.csv') ||
         t.contains('excel') ||
-        t.contains('spreadsheet'))
+        t.contains('spreadsheet')) {
       return _TypeFilter.xls;
+    }
     if (t.startsWith('image/') ||
         n.endsWith('.png') ||
         n.endsWith('.jpg') ||
         n.endsWith('.jpeg') ||
         n.endsWith('.gif') ||
-        n.endsWith('.webp'))
+        n.endsWith('.webp')) {
       return _TypeFilter.img;
+    }
     if (n.endsWith('.txt') || n.endsWith('.log')) return _TypeFilter.txt;
     return _TypeFilter.other;
   }
@@ -175,9 +176,8 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
 
     setState(() => _busy = true);
     try {
-      final callable = FirebaseFunctions.instanceFor(
-        region: 'us-central1',
-      ).httpsCallable('deleteDropoffUploadsBatch');
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('deleteDropoffUploadsBatch');
 
       final payload = selectedDocs.map((d) {
         return {'docPath': d.docPath, 'storagePath': d.storagePath};
@@ -191,9 +191,9 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
         _visibleCount = _pageSize;
       });
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Selected files deleted.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected files deleted.')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -201,9 +201,9 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -225,597 +225,495 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // ✅ Content-only loading state (AppShell provides chrome)
     if (_loadingRole) {
-      return const Scaffold(
-        backgroundColor: AppColors.pageBackgroundLight,
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     final isAdmin = _role == 'admin';
     final isMobile = MediaQuery.of(context).size.width < 700;
 
-    return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Client Upload Activity')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1400),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.black.withOpacity(0.05)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    // ✅ Content-only screen (AppShell provides AppBar + sidebar)
+    return CenteredSection(
+      maxWidth: 1400,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.black.withOpacity(0.05)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ===== Header =====
+              Row(
                 children: [
-                  // ===== Header =====
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Client Uploaded Files',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isAdmin
-                                  ? 'All uploads across all client upload links.'
-                                  : 'Uploads from associate-created client upload links.',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF475467),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // ===== Search =====
-                  TextField(
-                    controller: _searchCtrl,
-                    onChanged: (v) => setState(() {
-                      _q = v.toLowerCase();
-                      _visibleCount = _pageSize;
-                      _selected.clear();
-                    }),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Search by file name, client name, or path…',
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // ===== Filters (enterprise) =====
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: isMobile ? 220 : 260,
-                        child: DropdownButtonFormField<_TypeFilter>(
-                          value: _typeFilter,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'File type',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: _TypeFilter.all,
-                              child: Text('All types'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.pdf,
-                              child: Text('PDF'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.doc,
-                              child: Text('Word'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.xls,
-                              child: Text('Excel / CSV'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.img,
-                              child: Text('Images'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.txt,
-                              child: Text('Text / Log'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.other,
-                              child: Text('Other'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() {
-                              _typeFilter = v;
-                              _visibleCount = _pageSize;
-                              _selected.clear();
-                            });
-                          },
-                        ),
-                      ),
-                      SizedBox(
-                        width: isMobile ? 220 : 240,
-                        child: DropdownButtonFormField<_DateFilter>(
-                          value: _dateFilter,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Date range',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: _DateFilter.all,
-                              child: Text('All time'),
-                            ),
-                            DropdownMenuItem(
-                              value: _DateFilter.today,
-                              child: Text('Today'),
-                            ),
-                            DropdownMenuItem(
-                              value: _DateFilter.last7,
-                              child: Text('Last 7 days'),
-                            ),
-                            DropdownMenuItem(
-                              value: _DateFilter.last30,
-                              child: Text('Last 30 days'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() {
-                              _dateFilter = v;
-                              _visibleCount = _pageSize;
-                              _selected.clear();
-                            });
-                          },
-                        ),
-                      ),
-
-                      TextButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () {
-                                setState(() {
-                                  _q = '';
-                                  _searchCtrl.clear();
-                                  _typeFilter = _TypeFilter.all;
-                                  _dateFilter = _DateFilter.all;
-                                  _sortField = _SortField.date;
-                                  _sortAsc = false;
-                                  _visibleCount = _pageSize;
-                                  _selected.clear();
-                                });
-                              },
-                        icon: const Icon(Icons.filter_alt_off, size: 18),
-                        label: const Text('Clear'),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 12),
-                  const Divider(height: 1),
-
-                  // ===== Table header + list =====
                   Expanded(
-                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _uploadsStream,
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          final msg = snap.error.toString();
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                msg.contains('permission-denied')
-                                    ? 'You do not have permission to view these uploads.'
-                                    : 'Failed to load uploads: $msg',
-                                style: const TextStyle(color: Colors.red),
-                              ),
-                            ),
-                          );
-                        }
-
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-
-                        if (!snap.hasData) {
-                          return const Center(child: Text('No data.'));
-                        }
-
-                        final q = _q.trim().toLowerCase();
-                        final docs = snap.data!.docs;
-
-                        // Build normalized doc models
-                        final all = docs.map((d) {
-                          final m = d.data();
-                          final name = _s(m['originalName']);
-                          final contentType = _s(m['contentType']);
-                          final storagePath = _s(m['storagePath']);
-
-                          // Client name (requested)
-                          final uploadedBy = m['uploadedBy'];
-                          final clientName = (uploadedBy is Map)
-                              ? _s(uploadedBy['name'])
-                              : '';
-                          final fallbackClient = _s(m['clientName']).isNotEmpty
-                              ? _s(m['clientName'])
-                              : '';
-
-                          final createdAt = _asDate(m['createdAt']);
-                          final sizeBytes = (m['sizeBytes'] is num)
-                              ? (m['sizeBytes'] as num).toInt()
-                              : 0;
-
-                          final requestedBy = _s(m['requestCreatedByName']);
-                          final companyName = _s(m['requestBusinessName']);
-                          final clientEmail = _s(m['requestClientEmail']);
-
-                          return _UploadDoc(
-                            id: d.id,
-                            docPath: d.reference.path,
-                            originalName: name,
-                            contentType: contentType,
-                            storagePath: storagePath,
-                            clientName: clientName.isNotEmpty
-                                ? clientName
-                                : (fallbackClient.isNotEmpty
-                                      ? fallbackClient
-                                      : '—'),
-
-                            // ✅ NEW
-                            requestedBy: requestedBy.isNotEmpty
-                                ? requestedBy
-                                : '—',
-                            companyName: companyName.isNotEmpty
-                                ? companyName
-                                : '—',
-                            clientEmail: clientEmail.isNotEmpty
-                                ? clientEmail
-                                : '—',
-
-                            when: createdAt,
-                            sizeBytes: sizeBytes,
-                            data: m,
-                          );
-                        }).toList();
-
-                        // Filter
-                        List<_UploadDoc> filtered = all.where((r) {
-                          // text search
-                          if (q.isNotEmpty) {
-                            final hay =
-                                ('${r.originalName} ${r.storagePath} ${r.clientName} '
-                                        '${r.requestedBy} ${r.companyName} ${r.clientEmail}')
-                                    .toLowerCase();
-                            if (!hay.contains(q)) return false;
-                          }
-
-                          // type filter
-                          if (_typeFilter != _TypeFilter.all) {
-                            final inferred = _inferTypeFilter(
-                              r.originalName,
-                              r.contentType,
-                            );
-                            if (inferred != _typeFilter) return false;
-                          }
-
-                          // date filter
-                          if (!_passesDateFilter(r.when)) return false;
-
-                          return true;
-                        }).toList();
-
-                        // Sort
-                        int cmpString(String a, String b) =>
-                            a.toLowerCase().compareTo(b.toLowerCase());
-                        int cmpInt(int a, int b) => a.compareTo(b);
-                        int cmpDate(DateTime? a, DateTime? b) {
-                          if (a == null && b == null) return 0;
-                          if (a == null) return -1;
-                          if (b == null) return 1;
-                          return a.compareTo(b);
-                        }
-
-                        filtered.sort((a, b) {
-                          int res;
-                          switch (_sortField) {
-                            case _SortField.name:
-                              res = cmpString(a.originalName, b.originalName);
-                              break;
-                            case _SortField.client:
-                              res = cmpString(a.clientName, b.clientName);
-                              break;
-                            case _SortField.size:
-                              res = cmpInt(a.sizeBytes, b.sizeBytes);
-                              break;
-                            case _SortField.date:
-                              res = cmpDate(a.when, b.when);
-                              break;
-                          }
-                          return _sortAsc ? res : -res;
-                        });
-
-                        // Pagination
-                        final visible = filtered.take(_visibleCount).toList();
-
-                        // Selection helpers
-                        final visibleIds = visible.map((e) => e.id).toSet();
-                        final allVisibleSelected =
-                            visible.isNotEmpty &&
-                            _selected.containsAll(visibleIds);
-
-                        final selectedDocs = visible
-                            .where((e) => _selected.contains(e.id))
-                            .toList();
-
-                        _selectedDocsCache = selectedDocs;
-
-                        return Column(
-                          children: [
-                            // Header row (select all + sortable columns)
-                            Container(
-                              height: 44,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9FAFB),
-                                border: Border(
-                                  bottom: BorderSide(
-                                    color: Colors.black.withOpacity(0.06),
-                                  ),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Checkbox(
-                                    value: allVisibleSelected,
-                                    onChanged: _busy
-                                        ? null
-                                        : (v) {
-                                            setState(() {
-                                              if (v == true) {
-                                                _selected.addAll(visibleIds);
-                                              } else {
-                                                _selected.removeAll(visibleIds);
-                                              }
-                                            });
-                                          },
-                                  ),
-                                  const SizedBox(width: 4),
-
-                                  // File column
-                                  Expanded(
-                                    child: InkWell(
-                                      onTap: () => _toggleSort(_SortField.name),
-                                      child: Row(
-                                        children: [
-                                          const Text(
-                                            'File',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField == _SortField.name,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                  // Client column (hide on very small screens)
-                                  if (!isMobile)
-                                    SizedBox(
-                                      width: 220,
-                                      child: InkWell(
-                                        onTap: () =>
-                                            _toggleSort(_SortField.client),
-                                        child: Row(
-                                          children: [
-                                            const Text(
-                                              'Client',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            _SortIndicator(
-                                              active:
-                                                  _sortField ==
-                                                  _SortField.client,
-                                              asc: _sortAsc,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-
-                                  // Size
-                                  if (!isMobile)
-                                    SizedBox(
-                                      width: 100,
-                                      child: InkWell(
-                                        onTap: () =>
-                                            _toggleSort(_SortField.size),
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.end,
-                                          children: [
-                                            const Text(
-                                              'Size',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            _SortIndicator(
-                                              active:
-                                                  _sortField == _SortField.size,
-                                              asc: _sortAsc,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-
-                                  // Uploaded
-                                  SizedBox(
-                                    width: isMobile ? 140 : 180,
-                                    child: InkWell(
-                                      onTap: () => _toggleSort(_SortField.date),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          const Text(
-                                            'Uploaded',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField == _SortField.date,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                  const SizedBox(width: 6),
-
-                                  // Bulk delete button sits in header when selected
-                                  if (_selected.isNotEmpty) ...[
-                                    Text('${_selected.length} selected'),
-                                    const SizedBox(width: 12),
-                                    FilledButton.icon(
-                                      onPressed:
-                                          (!isAdmin ||
-                                              _busy ||
-                                              _selectedDocsCache.isEmpty)
-                                          ? null
-                                          : () => _deleteSelectedAdmin(
-                                              _selectedDocsCache,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 18,
-                                      ),
-                                      label: Text(
-                                        'Delete (${_selected.length})',
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-
-                            // List
-                            Expanded(
-                              child: ListView.separated(
-                                itemCount: visible.length + 1,
-                                separatorBuilder: (_, __) => const Divider(
-                                  height: 1,
-                                  color: Colors.black12,
-                                ),
-                                itemBuilder: (c, i) {
-                                  if (i == visible.length) {
-                                    // Footer: load more
-                                    if (_visibleCount >= filtered.length) {
-                                      return const SizedBox(height: 8);
-                                    }
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      child: Center(
-                                        child: OutlinedButton(
-                                          onPressed: _busy
-                                              ? null
-                                              : () => setState(() {
-                                                  _visibleCount =
-                                                      (_visibleCount +
-                                                              _pageSize)
-                                                          .clamp(0, 500);
-                                                }),
-                                          child: Text(
-                                            'Load more (${filtered.length - visible.length} remaining)',
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-
-                                  final row = visible[i];
-                                  final selected = _selected.contains(row.id);
-
-                                  return _UploadRowEnhanced(
-                                    id: row.id,
-                                    docPath: row.docPath,
-                                    data: row.data,
-                                    selected: selected,
-                                    isMobile: isMobile,
-                                    clientName: row.clientName,
-
-                                    // ✅ NEW
-                                    requestedBy: row.requestedBy,
-                                    companyName: row.companyName,
-                                    clientEmail: row.clientEmail,
-
-                                    formatWhen: (dt) => _fmt(context, dt),
-                                    onSelect: (v) {
-                                      setState(() {
-                                        if (v) {
-                                          _selected.add(row.id);
-                                        } else {
-                                          _selected.remove(row.id);
-                                        }
-                                      });
-                                    },
-                                    busy: _busy,
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Client Uploaded Files',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          isAdmin
+                              ? 'All uploads across all client upload links.'
+                              : 'Uploads from associate-created client upload links.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF475467),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ),
+
+              const SizedBox(height: 14),
+
+              // ===== Search =====
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() {
+                  _q = v.toLowerCase();
+                  _visibleCount = _pageSize;
+                  _selected.clear();
+                }),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search by file name, client name, or path…',
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // ===== Filters (enterprise) =====
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: isMobile ? 220 : 260,
+                    child: DropdownButtonFormField<_TypeFilter>(
+                      value: _typeFilter,
+                      isDense: true,
+                      decoration: const InputDecoration(
+                        labelText: 'File type',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: _TypeFilter.all,
+                          child: Text('All types'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.pdf,
+                          child: Text('PDF'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.doc,
+                          child: Text('Word'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.xls,
+                          child: Text('Excel / CSV'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.img,
+                          child: Text('Images'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.txt,
+                          child: Text('Text / Log'),
+                        ),
+                        DropdownMenuItem(
+                          value: _TypeFilter.other,
+                          child: Text('Other'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() {
+                          _typeFilter = v;
+                          _visibleCount = _pageSize;
+                          _selected.clear();
+                        });
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: isMobile ? 220 : 240,
+                    child: DropdownButtonFormField<_DateFilter>(
+                      value: _dateFilter,
+                      isDense: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Date range',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: _DateFilter.all,
+                          child: Text('All time'),
+                        ),
+                        DropdownMenuItem(
+                          value: _DateFilter.today,
+                          child: Text('Today'),
+                        ),
+                        DropdownMenuItem(
+                          value: _DateFilter.last7,
+                          child: Text('Last 7 days'),
+                        ),
+                        DropdownMenuItem(
+                          value: _DateFilter.last30,
+                          child: Text('Last 30 days'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() {
+                          _dateFilter = v;
+                          _visibleCount = _pageSize;
+                          _selected.clear();
+                        });
+                      },
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () {
+                            setState(() {
+                              _q = '';
+                              _searchCtrl.clear();
+                              _typeFilter = _TypeFilter.all;
+                              _dateFilter = _DateFilter.all;
+                              _sortField = _SortField.date;
+                              _sortAsc = false;
+                              _visibleCount = _pageSize;
+                              _selected.clear();
+                            });
+                          },
+                    icon: const Icon(Icons.filter_alt_off, size: 18),
+                    label: const Text('Clear'),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+
+              // ===== Table header + list =====
+              Expanded(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _uploadsStream,
+                  builder: (context, snap) {
+                    if (snap.hasError) {
+                      final msg = snap.error.toString();
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            msg.contains('permission-denied')
+                                ? 'You do not have permission to view these uploads.'
+                                : 'Failed to load uploads: $msg',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      );
+                    }
+
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (!snap.hasData) {
+                      return const Center(child: Text('No data.'));
+                    }
+
+                    final q = _q.trim().toLowerCase();
+                    final docs = snap.data!.docs;
+
+                    final all = docs.map((d) {
+                      final m = d.data();
+                      final name = _s(m['originalName']);
+                      final contentType = _s(m['contentType']);
+                      final storagePath = _s(m['storagePath']);
+
+                      final uploadedBy = m['uploadedBy'];
+                      final clientName = (uploadedBy is Map) ? _s(uploadedBy['name']) : '';
+                      final fallbackClient =
+                          _s(m['clientName']).isNotEmpty ? _s(m['clientName']) : '';
+
+                      final createdAt = _asDate(m['createdAt']);
+                      final sizeBytes = (m['sizeBytes'] is num) ? (m['sizeBytes'] as num).toInt() : 0;
+
+                      final requestedBy = _s(m['requestCreatedByName']);
+                      final companyName = _s(m['requestBusinessName']);
+                      final clientEmail = _s(m['requestClientEmail']);
+
+                      return _UploadDoc(
+                        id: d.id,
+                        docPath: d.reference.path,
+                        originalName: name,
+                        contentType: contentType,
+                        storagePath: storagePath,
+                        clientName: clientName.isNotEmpty
+                            ? clientName
+                            : (fallbackClient.isNotEmpty ? fallbackClient : '—'),
+                        requestedBy: requestedBy.isNotEmpty ? requestedBy : '—',
+                        companyName: companyName.isNotEmpty ? companyName : '—',
+                        clientEmail: clientEmail.isNotEmpty ? clientEmail : '—',
+                        when: createdAt,
+                        sizeBytes: sizeBytes,
+                        data: m,
+                      );
+                    }).toList();
+
+                    List<_UploadDoc> filtered = all.where((r) {
+                      if (q.isNotEmpty) {
+                        final hay = ('${r.originalName} ${r.storagePath} ${r.clientName} '
+                                '${r.requestedBy} ${r.companyName} ${r.clientEmail}')
+                            .toLowerCase();
+                        if (!hay.contains(q)) return false;
+                      }
+
+                      if (_typeFilter != _TypeFilter.all) {
+                        final inferred = _inferTypeFilter(r.originalName, r.contentType);
+                        if (inferred != _typeFilter) return false;
+                      }
+
+                      if (!_passesDateFilter(r.when)) return false;
+
+                      return true;
+                    }).toList();
+
+                    int cmpString(String a, String b) =>
+                        a.toLowerCase().compareTo(b.toLowerCase());
+                    int cmpInt(int a, int b) => a.compareTo(b);
+                    int cmpDate(DateTime? a, DateTime? b) {
+                      if (a == null && b == null) return 0;
+                      if (a == null) return -1;
+                      if (b == null) return 1;
+                      return a.compareTo(b);
+                    }
+
+                    filtered.sort((a, b) {
+                      int res;
+                      switch (_sortField) {
+                        case _SortField.name:
+                          res = cmpString(a.originalName, b.originalName);
+                          break;
+                        case _SortField.client:
+                          res = cmpString(a.clientName, b.clientName);
+                          break;
+                        case _SortField.size:
+                          res = cmpInt(a.sizeBytes, b.sizeBytes);
+                          break;
+                        case _SortField.date:
+                          res = cmpDate(a.when, b.when);
+                          break;
+                      }
+                      return _sortAsc ? res : -res;
+                    });
+
+                    final visible = filtered.take(_visibleCount).toList();
+
+                    final visibleIds = visible.map((e) => e.id).toSet();
+                    final allVisibleSelected =
+                        visible.isNotEmpty && _selected.containsAll(visibleIds);
+
+                    final selectedDocs =
+                        visible.where((e) => _selected.contains(e.id)).toList();
+                    _selectedDocsCache = selectedDocs;
+
+                    return Column(
+                      children: [
+                        Container(
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            border: Border(
+                              bottom: BorderSide(color: Colors.black.withOpacity(0.06)),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: allVisibleSelected,
+                                onChanged: _busy
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          if (v == true) {
+                                            _selected.addAll(visibleIds);
+                                          } else {
+                                            _selected.removeAll(visibleIds);
+                                          }
+                                        });
+                                      },
+                              ),
+                              const SizedBox(width: 4),
+
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => _toggleSort(_SortField.name),
+                                  child: Row(
+                                    children: [
+                                      const Text('File', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      const SizedBox(width: 6),
+                                      _SortIndicator(
+                                        active: _sortField == _SortField.name,
+                                        asc: _sortAsc,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              if (!isMobile)
+                                SizedBox(
+                                  width: 220,
+                                  child: InkWell(
+                                    onTap: () => _toggleSort(_SortField.client),
+                                    child: Row(
+                                      children: [
+                                        const Text('Client', style: TextStyle(fontWeight: FontWeight.w800)),
+                                        const SizedBox(width: 6),
+                                        _SortIndicator(
+                                          active: _sortField == _SortField.client,
+                                          asc: _sortAsc,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                              if (!isMobile)
+                                SizedBox(
+                                  width: 100,
+                                  child: InkWell(
+                                    onTap: () => _toggleSort(_SortField.size),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        const Text('Size', style: TextStyle(fontWeight: FontWeight.w800)),
+                                        const SizedBox(width: 6),
+                                        _SortIndicator(
+                                          active: _sortField == _SortField.size,
+                                          asc: _sortAsc,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                              SizedBox(
+                                width: isMobile ? 140 : 180,
+                                child: InkWell(
+                                  onTap: () => _toggleSort(_SortField.date),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      const Text('Uploaded', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      const SizedBox(width: 6),
+                                      _SortIndicator(
+                                        active: _sortField == _SortField.date,
+                                        asc: _sortAsc,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 6),
+
+                              if (_selected.isNotEmpty) ...[
+                                Text('${_selected.length} selected'),
+                                const SizedBox(width: 12),
+                                FilledButton.icon(
+                                  onPressed: (!isAdmin || _busy || _selectedDocsCache.isEmpty)
+                                      ? null
+                                      : () => _deleteSelectedAdmin(_selectedDocsCache),
+                                  icon: const Icon(Icons.delete_outline, size: 18),
+                                  label: Text('Delete (${_selected.length})'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: visible.length + 1,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1, color: Colors.black12),
+                            itemBuilder: (c, i) {
+                              if (i == visible.length) {
+                                if (_visibleCount >= filtered.length) {
+                                  return const SizedBox(height: 8);
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  child: Center(
+                                    child: OutlinedButton(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => setState(() {
+                                                _visibleCount =
+                                                    (_visibleCount + _pageSize).clamp(0, 500);
+                                              }),
+                                      child: Text(
+                                        'Load more (${filtered.length - visible.length} remaining)',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              final row = visible[i];
+                              final selected = _selected.contains(row.id);
+
+                              return _UploadRowEnhanced(
+                                id: row.id,
+                                docPath: row.docPath,
+                                data: row.data,
+                                selected: selected,
+                                isMobile: isMobile,
+                                clientName: row.clientName,
+                                requestedBy: row.requestedBy,
+                                companyName: row.companyName,
+                                clientEmail: row.clientEmail,
+                                formatWhen: (dt) => _fmt(context, dt),
+                                onSelect: (v) {
+                                  setState(() {
+                                    if (v) {
+                                      _selected.add(row.id);
+                                    } else {
+                                      _selected.remove(row.id);
+                                    }
+                                  });
+                                },
+                                busy: _busy,
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -874,7 +772,6 @@ class _UploadDoc {
   final String storagePath;
   final String clientName;
 
-  // ✅ NEW columns
   final String requestedBy;
   final String companyName;
   final String clientEmail;
@@ -940,10 +837,7 @@ _FileTypeMeta _fileMeta(String name, String type) {
       isImage: false,
     );
   }
-  if (n.endsWith('.xls') ||
-      n.endsWith('.xlsx') ||
-      n.endsWith('.csv') ||
-      t.contains('excel')) {
+  if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv') || t.contains('excel')) {
     return const _FileTypeMeta(
       icon: Icons.table_chart_outlined,
       color: Color(0xFF027A48),
@@ -1034,14 +928,10 @@ class _UploadRowEnhanced extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final name = _s(data['originalName']).isEmpty
-        ? 'Untitled'
-        : _s(data['originalName']);
+    final name = _s(data['originalName']).isEmpty ? 'Untitled' : _s(data['originalName']);
     final contentType = _s(data['contentType']);
     final storagePath = _s(data['storagePath']);
-    final sizeBytes = (data['sizeBytes'] is num)
-        ? (data['sizeBytes'] as num).toInt()
-        : 0;
+    final sizeBytes = (data['sizeBytes'] is num) ? (data['sizeBytes'] as num).toInt() : 0;
 
     final createdAt = data['createdAt'];
     DateTime? when;
@@ -1059,13 +949,8 @@ class _UploadRowEnhanced extends StatelessWidget {
               value: selected,
               onChanged: busy ? null : (v) => onSelect(v ?? false),
             ),
-
-            Tooltip(
-              message: meta.tooltip,
-              child: Icon(meta.icon, color: meta.color, size: 20),
-            ),
+            Tooltip(message: meta.tooltip, child: Icon(meta.icon, color: meta.color, size: 20)),
             const SizedBox(width: 6),
-
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -1074,22 +959,15 @@ class _UploadRowEnhanced extends StatelessWidget {
               ),
               child: Text(
                 meta.badge,
-                style: TextStyle(
-                  color: meta.color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(color: meta.color, fontSize: 11, fontWeight: FontWeight.w800),
               ),
             ),
             const SizedBox(width: 10),
 
-            // Main cell: filename + client name (always shown)
-            // Main cell: filename + metadata (enterprise-style)
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ✅ PRIMARY: File name
                   Text(
                     name,
                     maxLines: 1,
@@ -1099,10 +977,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                       color: const Color(0xFF101828),
                     ),
                   ),
-
                   const SizedBox(height: 4),
-
-                  // ✅ SECONDARY METADATA (enterprise-style)
                   Wrap(
                     spacing: 12,
                     runSpacing: 2,
@@ -1113,13 +988,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                       _MetaText('Upload Link Creator', requestedBy),
                     ],
                   ),
-
-                  // ✅ Optional image preview stays the same (paste your existing block here)
                   if (!isMobile && meta.isImage && storagePath.isNotEmpty)
                     FutureBuilder<String>(
-                      future: FirebaseStorage.instance
-                          .ref(storagePath)
-                          .getDownloadURL(),
+                      future: FirebaseStorage.instance.ref(storagePath).getDownloadURL(),
                       builder: (context, snap) {
                         if (!snap.hasData) return const SizedBox();
                         return Padding(
@@ -1140,11 +1011,10 @@ class _UploadRowEnhanced extends StatelessWidget {
               ),
             ),
 
-            // Client column (desktop/table)
             if (!isMobile) ...[
               const SizedBox(width: 10),
               SizedBox(
-                width: 220, // match your header width
+                width: 220,
                 child: Text(
                   clientName,
                   maxLines: 1,
@@ -1173,7 +1043,6 @@ class _UploadRowEnhanced extends StatelessWidget {
             ],
 
             const SizedBox(width: 10),
-
             SizedBox(
               width: isMobile ? 140 : 180,
               child: Text(
@@ -1188,23 +1057,13 @@ class _UploadRowEnhanced extends StatelessWidget {
 
             const SizedBox(width: 8),
 
-            // Row actions (copy download url, copy storage path)
             PopupMenuButton<String>(
               tooltip: 'Actions',
               itemBuilder: (c) => const [
                 PopupMenuItem(value: 'copyName', child: Text('Copy file name')),
-                PopupMenuItem(
-                  value: 'copyClient',
-                  child: Text('Copy client name'),
-                ),
-                PopupMenuItem(
-                  value: 'copyPath',
-                  child: Text('Copy storage path'),
-                ),
-                PopupMenuItem(
-                  value: 'open',
-                  child: Text('Open (download URL)'),
-                ),
+                PopupMenuItem(value: 'copyClient', child: Text('Copy client name')),
+                PopupMenuItem(value: 'copyPath', child: Text('Copy storage path')),
+                PopupMenuItem(value: 'open', child: Text('Open (download URL)')),
               ],
               onSelected: (v) async {
                 if (v == 'copyName') {
@@ -1233,9 +1092,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                 }
                 if (v == 'open') {
                   if (storagePath.isEmpty) return;
-                  final url = await FirebaseStorage.instance
-                      .ref(storagePath)
-                      .getDownloadURL();
+                  final url = await FirebaseStorage.instance.ref(storagePath).getDownloadURL();
                   final uri = Uri.parse(url);
                   await launchUrl(uri, webOnlyWindowName: '_blank');
                 }
