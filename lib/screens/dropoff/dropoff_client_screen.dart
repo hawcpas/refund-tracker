@@ -16,6 +16,13 @@ enum _UploadItemState { queued, uploading, success, failed }
 const String _kFirmLogoUrl =
     'https://portal.axumecpas.com/icons/aa_logo_imageicon_color.png';
 
+// -----------------------------
+// Brand colors (website palette)
+// -----------------------------
+const Color _kBrandBlue = Color(0xFF0032CC); // #0032cc
+const Color _kGray = Color(0xFF808080); // #808080
+const Color _kDarkGray = Color(0xFF424242); // #424242
+
 class DropoffClientScreen extends StatefulWidget {
   const DropoffClientScreen({super.key});
 
@@ -83,7 +90,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   }
 
   static const String _closedMsg =
-  'This upload link is no longer available. If you need to submit documents, please request a new link.';
+      'This upload link is no longer available. If you need to submit documents, please request a new link.';
 
   bool _isCompact(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
@@ -232,7 +239,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       if (user == null) {
-        throw Exception('Unable to start your upload session. Please refresh the page and try again.');
+        throw Exception(
+          'Unable to start your upload session. Please refresh the page and try again.',
+        );
       }
 
       final res = await _functions
@@ -680,7 +689,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          disabledForegroundColor: brand.withOpacity(0.55),
+          disabledForegroundColor: _kGray.withOpacity(0.85),
           disabledBackgroundColor: Colors.transparent,
         ),
       );
@@ -782,18 +791,15 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       canPop:
           false, // ✅ blocks back navigation (Android predictive back compliant)
       child: Scaffold(
-        backgroundColor: Colors.transparent, // ✅ allow gradient to show
+        // ✅ True page background (prevents white canvas)
+        backgroundColor: const Color(0xFFDCDCDC),
+
         body: Container(
+          // ✅ Entire screen painted light gray
           decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFF5F7FA), // subtle top tone
-                Color(0xFFF8FAFC), // slightly lighter bottom tone
-              ],
-            ),
+            color: Color(0xFFDCDCDC), // #dcdcdc
           ),
+
           child: SafeArea(
             child: Stack(
               children: [
@@ -820,7 +826,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
+                                color: Colors.black.withOpacity(0.10),
                                 blurRadius: 18,
                                 offset: const Offset(0, 10),
                               ),
@@ -843,7 +849,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           style: theme.textTheme.titleLarge
                                               ?.copyWith(
                                                 fontWeight: FontWeight.w800,
-                                                color: const Color(0xFF101828),
+                                                color: _kDarkGray,
                                               ),
                                         ),
                                         const SizedBox(height: 6),
@@ -851,7 +857,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           'Select files, review the list, remove any items, then upload when ready.',
                                           style: theme.textTheme.bodyMedium
                                               ?.copyWith(
-                                                color: const Color(0xFF475467),
+                                                color: _kGray,
                                                 height: 1.35,
                                                 fontWeight: FontWeight.w500,
                                               ),
@@ -859,7 +865,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                       ],
                                     ),
                                   ),
-
                                   const SizedBox(width: 10),
 
                                   // ✅ Right-side trust + status
@@ -877,7 +882,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                               const SizedBox(height: 12),
 
-                              // ✅ For / Requested by panel (already in your code)
+                              // ✅ For / Requested by panel
                               _BriefContextPanel(info: _info),
 
                               const SizedBox(height: 16),
@@ -897,7 +902,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                       'Validating link…',
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                            color: const Color(0xFF667085),
+                                            color: _kGray,
                                             fontWeight: FontWeight.w600,
                                           ),
                                     ),
@@ -984,7 +989,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                 const SizedBox(height: 12),
                               ],
 
-                              // ✅ Keep your existing addFilesBtn/uploadBtn (NO logic changes)
                               if (isCompact) ...[
                                 SizedBox(
                                   height: 48,
@@ -1028,14 +1032,14 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                               Text(
                                 'Files are transmitted over an encrypted connection.',
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF667085),
+                                  color: _kGray,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
 
                               const SizedBox(height: 18),
 
-                              // ✅ Legal footer inside the card (OTP-like)
+                              // ✅ Legal footer
                               const _DropoffLegalFooter(),
                             ],
                           ),
@@ -1043,12 +1047,12 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                         const SizedBox(height: 12),
 
-                        // ✅ Small label under card (OTP-like)
+                        // ✅ Footer label (still subtle on light gray)
                         Text(
                           'Axume & Associates CPAs — Upload Portal',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF667085),
+                            color: _kGray,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1255,7 +1259,7 @@ class _QueuedFilesCard extends StatelessWidget {
                       const Icon(
                         Icons.insert_drive_file_outlined,
                         size: 16,
-                        color: Color(0xFF475467),
+                        color: _kGray,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -1263,7 +1267,7 @@ class _QueuedFilesCard extends StatelessWidget {
                           f.name,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF475467),
+                            color: _kGray,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1438,7 +1442,7 @@ class _UploadingBanner extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelSmall?.copyWith(
-                color: const Color(0xFF475467),
+                color: _kDarkGray,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1663,7 +1667,7 @@ class _BriefContextPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(color: Colors.black.withOpacity(0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
