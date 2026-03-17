@@ -96,7 +96,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .get(const GetOptions(source: Source.server));
+          .get();
 
       final data = Map<String, dynamic>.from(doc.data() ?? {});
 

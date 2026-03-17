@@ -66,7 +66,7 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
     final snap = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .get(const GetOptions(source: Source.server));
+        .get();
 
     _role = (snap.data()?['role'] ?? '').toString().toLowerCase().trim();
     final isAdmin = _role == 'admin';

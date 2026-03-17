@@ -57,7 +57,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       final doc = await _db
           .collection('users')
           .doc(user.uid)
-          .get(const GetOptions(source: Source.server));
+          .get();
 
       final role = (doc.data()?['role'] ?? '').toString().toLowerCase().trim();
 

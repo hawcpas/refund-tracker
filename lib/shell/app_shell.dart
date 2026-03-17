@@ -25,7 +25,6 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   final _auth = AuthService();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  final _innerNavKey = GlobalKey<NavigatorState>();
 
   late String _currentRoute;
 
@@ -34,15 +33,6 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _currentRoute = widget.initialRoute;
   }
-
-  // Keeps _currentRoute synced when user presses back within shell
-  late final NavigatorObserver _observer = _ShellNavObserver(
-    onRouteChanged: (name) {
-      if (name == null || name.isEmpty) return;
-      if (!mounted) return;
-      setState(() => _currentRoute = name);
-    },
-  );
 
   String _titleFor(String route) {
     switch (route) {
@@ -108,11 +98,31 @@ class _AppShellState extends State<AppShell> {
 
     if (route == _currentRoute) return;
 
-    // Navigate within the *inner* navigator so we do NOT create a new shell
-    _innerNavKey.currentState?.pushNamed(route);
+    // ✅ instantly update highlight + title for snappy enterprise feel
+    setState(() => _currentRoute = route);
+
+    Navigator.of(context, rootNavigator: true).pushReplacementNamed(route);
   }
 
-  bool get _canPopInner => _innerNavKey.currentState?.canPop() == true;
+  Widget _buildContent() {
+    switch (_currentRoute) {
+      case '/shared-files':
+        return const SharedFilesScreen();
+      case '/resources':
+        return const ResourcesScreen();
+      case '/account-settings':
+        return const AccountSettingsScreen();
+      case '/dropoff-uploads':
+        return const DropoffUploadsScreen();
+      case '/view-dropoffs':
+        return const ViewDropoffsScreen();
+      case '/admin-users':
+        return const AdminUsersScreen();
+      case '/dashboard':
+      default:
+        return const DashboardScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,22 +133,14 @@ class _AppShellState extends State<AppShell> {
     // - On mobile: show back if inner stack can pop, else show menu
     // - On desktop: optional back if inner stack can pop
     Widget? leading;
+
     if (isMobileShell) {
       leading = IconButton(
-        icon: Icon(_canPopInner ? Icons.arrow_back : Icons.menu),
-        onPressed: () {
-          if (_canPopInner) {
-            _innerNavKey.currentState?.maybePop();
-          } else {
-            _scaffoldKey.currentState?.openDrawer();
-          }
-        },
+        icon: const Icon(Icons.menu),
+        onPressed: () => _scaffoldKey.currentState?.openDrawer(),
       );
-    } else if (_canPopInner) {
-      leading = IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => _innerNavKey.currentState?.maybePop(),
-      );
+    } else {
+      leading = null; // desktop doesn't need a leading button
     }
 
     return Scaffold(
@@ -175,73 +177,10 @@ class _AppShellState extends State<AppShell> {
           if (!isMobileShell)
             _SidebarNav(currentRoute: _currentRoute, onNavigate: _navigate),
 
-          Expanded(
-            child: Navigator(
-              key: _innerNavKey,
-              initialRoute: widget.initialRoute,
-              observers: [_observer],
-              onGenerateRoute: (settings) {
-                final name = settings.name ?? '/dashboard';
-
-                Widget page;
-                switch (name) {
-                  case '/shared-files':
-                    page = const SharedFilesScreen();
-                    break;
-                  case '/resources':
-                    page = const ResourcesScreen();
-                    break;
-                  case '/account-settings':
-                    page = const AccountSettingsScreen();
-                    break;
-                  case '/dropoff-uploads':
-                    page = const DropoffUploadsScreen();
-                    break;
-                  case '/view-dropoffs':
-                    page = const ViewDropoffsScreen();
-                    break;
-                  case '/admin-users':
-                    page = const AdminUsersScreen();
-                    break;
-                  case '/dashboard':
-                  default:
-                    page = const DashboardScreen();
-                }
-
-                return MaterialPageRoute(
-                  settings: settings,
-                  builder: (_) => page,
-                );
-              },
-            ),
-          ),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
-  }
-}
-
-/// Navigator observer to keep shell state aligned with inner navigation
-class _ShellNavObserver extends NavigatorObserver {
-  _ShellNavObserver({required this.onRouteChanged});
-  final void Function(String? name) onRouteChanged;
-
-  @override
-  void didPush(Route route, Route? previousRoute) {
-    onRouteChanged(route.settings.name);
-    super.didPush(route, previousRoute);
-  }
-
-  @override
-  void didPop(Route route, Route? previousRoute) {
-    onRouteChanged(previousRoute?.settings.name);
-    super.didPop(route, previousRoute);
-  }
-
-  @override
-  void didReplace({Route? newRoute, Route? oldRoute}) {
-    onRouteChanged(newRoute?.settings.name);
-    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
   }
 }
 
@@ -376,4 +315,11 @@ class _SidebarNav extends StatelessWidget {
       ),
     );
   }
+}
+
+void _navigate(BuildContext context, String route) {
+  final current = ModalRoute.of(context)?.settings.name;
+  if (current == route) return;
+
+  Navigator.of(context, rootNavigator: true).pushReplacementNamed(route);
 }

@@ -40,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .get(const GetOptions(source: Source.server));
+        .get();
 
     final data = doc.data() ?? {};
     final first = (data['firstName'] ?? '').toString().trim();

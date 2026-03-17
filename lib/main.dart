@@ -218,14 +218,16 @@ class _MyAppState extends State<MyApp> {
                       future: FirebaseFirestore.instance
                           .collection('users')
                           .doc(user.uid)
-                          .get(const GetOptions(source: Source.server)),
+                          .get(),
                       builder: (context, snap) {
-                        if (!snap.hasData) {
+                        if (snap.connectionState != ConnectionState.done) {
                           return const Scaffold(
                             body: Center(child: CircularProgressIndicator()),
                           );
                         }
-
+                        if (!snap.hasData) {
+                          return const AppShell(initialRoute: '/dashboard');
+                        }
                         final data = snap.data!.data() ?? {};
                         final role = (data['role'] ?? '')
                             .toString()
@@ -250,7 +252,7 @@ class _MyAppState extends State<MyApp> {
                       future: FirebaseFirestore.instance
                           .collection('users')
                           .doc(user.uid)
-                          .get(const GetOptions(source: Source.server)),
+                          .get(),
                       builder: (context, snap) {
                         if (!snap.hasData) {
                           return const Scaffold(
@@ -284,7 +286,7 @@ class _MyAppState extends State<MyApp> {
                       future: FirebaseFirestore.instance
                           .collection('users')
                           .doc(user.uid)
-                          .get(const GetOptions(source: Source.server)),
+                          .get(),
                       builder: (context, snap) {
                         if (!snap.hasData) {
                           return const Scaffold(
@@ -349,7 +351,7 @@ class _AuthGate extends StatelessWidget {
 
         // 🔐 OTP enforcement: check custom claim
         return FutureBuilder<IdTokenResult>(
-          future: user.getIdTokenResult(true),
+          future: user.getIdTokenResult(),
           builder: (context, tokenSnap) {
             if (tokenSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
