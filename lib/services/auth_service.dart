@@ -326,6 +326,8 @@ class AuthService {
 
       try {
         await sendLoginOtp();
+        // ✅ Pull latest claims (if backend cleared otp_verified on OTP send)
+        await user.getIdToken(true);
       } catch (e) {
         // ignore: avoid_print
         print('OTP SEND FAILED (non-blocking): $e');
@@ -509,10 +511,10 @@ class AuthService {
   /// This allows "no-password" client uploads while still giving request.auth != null
   /// for Firebase Storage rules.
   Future<User?> signInAnonymouslyIfNeeded() async {
-  // ❌ Anonymous auth disabled at Firebase level
-  // ✅ Fail fast and let caller handle unauthenticated state
-  return _auth.currentUser;
-}
+    // ❌ Anonymous auth disabled at Firebase level
+    // ✅ Fail fast and let caller handle unauthenticated state
+    return _auth.currentUser;
+  }
 
   /// Convenience helper
   bool get isAnonymous => false;

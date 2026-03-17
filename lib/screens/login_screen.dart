@@ -5,6 +5,7 @@ import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 import '../theme/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/post_login_route.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -177,10 +178,17 @@ class _LoginScreenState extends State<LoginScreen>
     final verified = user.emailVerified;
     if (!mounted) return;
 
-    Navigator.pushReplacementNamed(
-      context,
-      verified ? '/dashboard' : '/verify-email',
-    );
+    if (!verified) {
+  Navigator.pushReplacementNamed(context, '/verify-email');
+  return;
+}
+
+// ✅ Let AuthGate decide the final destination (OTP / deep link / dashboard)
+Navigator.pushReplacementNamed(
+  context,
+  pendingPostLoginRoute ?? '/dashboard',
+);
+pendingPostLoginRoute = null;
   }
 
   Widget _loginCard(ThemeData theme, bool showAuthError) {

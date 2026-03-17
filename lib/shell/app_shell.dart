@@ -9,8 +9,8 @@ import '../screens/dashboard_screen.dart';
 import '../screens/shared_files_screen.dart';
 import '../screens/resources_screen.dart';
 import '../screens/account_settings_screen.dart';
-import '../screens/dropoff_uploads_screen.dart';
-import '../screens/view_dropoff_screen.dart';
+import '../screens/file_box.dart';
+import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
 
 class AppShell extends StatefulWidget {
@@ -42,9 +42,9 @@ class _AppShellState extends State<AppShell> {
         return 'Websites & Resources';
       case '/account-settings':
         return 'Account Settings';
-      case '/dropoff-uploads':
+      case '/file-box':
         return 'File Box';
-      case '/view-dropoffs':
+      case '/generate-upload-link':
         return 'Client Upload Links';
       case '/admin-users':
         return 'Admin Console';
@@ -112,10 +112,10 @@ class _AppShellState extends State<AppShell> {
         return const ResourcesScreen();
       case '/account-settings':
         return const AccountSettingsScreen();
-      case '/dropoff-uploads':
-        return const DropoffUploadsScreen();
-      case '/view-dropoffs':
-        return const ViewDropoffsScreen();
+      case '/file-box':
+        return const FileBoxScreen();
+      case '/generate-upload-link':
+        return const GenerateUploadLinkScreen();
       case '/admin-users':
         return const AdminUsersScreen();
       case '/dashboard':
@@ -278,6 +278,20 @@ class _SidebarNav extends StatelessWidget {
             icon: Icons.dashboard_outlined,
             label: 'Dashboard',
             route: '/dashboard',
+          ),
+          const SizedBox(height: 4),
+
+          _item(
+            icon: Icons.folder_open_outlined,
+            label: 'File Box',
+            route: '/file-box',
+          ),
+          const SizedBox(height: 4),
+
+          _item(
+            icon: Icons.link_outlined,
+            label: 'Client Upload Links',
+            route: '/generate-upload-link',
           ),
           const SizedBox(height: 4),
 

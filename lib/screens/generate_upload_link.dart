@@ -104,14 +104,14 @@ enum _DropoffSortField {
   status,
 }
 
-class ViewDropoffsScreen extends StatefulWidget {
-  const ViewDropoffsScreen({super.key});
+class GenerateUploadLinkScreen extends StatefulWidget {
+  const GenerateUploadLinkScreen({super.key});
 
   @override
-  State<ViewDropoffsScreen> createState() => _ViewDropoffsScreenState();
+  State<GenerateUploadLinkScreen> createState() => _GenerateUploadLinkScreenState();
 }
 
-class _ViewDropoffsScreenState extends State<ViewDropoffsScreen> {
+class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
 

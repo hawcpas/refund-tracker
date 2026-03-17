@@ -408,7 +408,11 @@ exports.sendLoginOtp = onCall(
     }
 
     // ✅ Clear previous OTP trust
+    const user = await admin.auth().getUser(uid);
+    const existingClaims = user.customClaims || {};
+
     await admin.auth().setCustomUserClaims(uid, {
+      ...existingClaims,
       otp_verified: false,
     });
 

@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
-  const OtpVerifyScreen({super.key});
+  final String? nextRoute;
+  const OtpVerifyScreen({super.key, this.nextRoute});
 
   @override
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
@@ -47,15 +48,20 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     });
 
     try {
-      await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('verifyLoginOtp')
-          .call({'code': code});
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('verifyLoginOtp').call({'code': code});
 
       // 🔄 Refresh token to receive otp_verified claim
       await FirebaseAuth.instance.currentUser!.getIdToken(true);
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/dashboard');
+      Navigator.pushReplacementNamed(
+        context,
+        (widget.nextRoute != null && widget.nextRoute!.isNotEmpty)
+            ? widget.nextRoute!
+            : '/dashboard',
+      );
     } catch (_) {
       setState(() {
         _error = 'The verification code is invalid or has expired.';
@@ -79,9 +85,9 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     });
 
     try {
-      await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('sendLoginOtp')
-          .call();
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('sendLoginOtp').call();
 
       _startCooldown();
     } catch (_) {
@@ -161,6 +167,11 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                     controller: _controller,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
+                    onChanged: (_) {
+                      if (_error != null) {
+                        setState(() => _error = null);
+                      }
+                    },
                     decoration: const InputDecoration(
                       labelText: 'Verification code',
                       prefixIcon: Icon(Icons.lock_outline),
@@ -179,7 +190,9 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                   SizedBox(
                     height: 44,
                     child: FilledButton(
-                      onPressed: _loading ? null : _verify,
+                      onPressed: (_loading || _controller.text.length != 6)
+                          ? null
+                          : _verify,
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF0B1F33),
                         foregroundColor: Colors.white,
@@ -212,9 +225,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                         _remainingSeconds > 0
                             ? 'Resend code in $_remainingSeconds s'
                             : 'Resend verification code',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),

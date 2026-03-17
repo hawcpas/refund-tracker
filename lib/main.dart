@@ -17,13 +17,14 @@ import 'screens/resources_screen.dart';
 import 'screens/shared_files_screen.dart';
 import 'screens/dropoff/dropoff_client_screen.dart';
 import 'screens/dropoff/dropoff_success_screen.dart';
-import 'screens/view_dropoff_screen.dart';
+import 'screens/generate_upload_link.dart';
 import 'screens/auth_action_screen.dart';
-import 'screens/dropoff_uploads_screen.dart';
+import 'screens/file_box.dart';
 import 'screens/otp_verify_screen.dart';
 
 import 'services/auth_service.dart';
 import 'shell/app_shell.dart';
+import 'services/post_login_route.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -134,7 +135,7 @@ class _MyAppState extends State<MyApp> {
 
         // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
         // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public client-only)
-        if (route.startsWith('/dropoff') && route != '/dropoff-uploads') {
+        if (route.startsWith('/dropoff') && route != '/file-box') {
           return MaterialPageRoute(
             settings: settings,
             builder: (_) => route == '/dropoff/success'
@@ -179,6 +180,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (_) => const AppShell(initialRoute: '/dashboard'),
               ),
             );
@@ -187,6 +189,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (_) =>
                     const AppShell(initialRoute: '/account-settings'),
               ),
@@ -196,6 +199,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (_) => const AppShell(initialRoute: '/resources'),
               ),
             );
@@ -204,6 +208,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (_) => const AppShell(initialRoute: '/shared-files'),
               ),
             );
@@ -212,6 +217,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (user) =>
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                       // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
@@ -243,10 +249,11 @@ class _MyAppState extends State<MyApp> {
               ),
             );
 
-          case '/dropoff-uploads':
+          case '/file-box':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (user) =>
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                       future: FirebaseFirestore.instance
@@ -270,16 +277,17 @@ class _MyAppState extends State<MyApp> {
 
                         if (!hasDropoffAccess)
                           return const AppShell(initialRoute: '/dashboard');
-                        return const AppShell(initialRoute: '/dropoff-uploads');
+                        return const AppShell(initialRoute: '/file-box');
                       },
                     ),
               ),
             );
 
-          case '/view-dropoffs':
+          case '/generate-upload-link':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (user) =>
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                       // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
@@ -307,7 +315,9 @@ class _MyAppState extends State<MyApp> {
                         // No access → back to dashboard
                         if (!hasDropoffAccess)
                           return const AppShell(initialRoute: '/dashboard');
-                        return const AppShell(initialRoute: '/view-dropoffs');
+                        return const AppShell(
+                          initialRoute: '/generate-upload-link',
+                        );
                       },
                     ),
               ),
@@ -317,6 +327,7 @@ class _MyAppState extends State<MyApp> {
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
+                requestedRoute: route,
                 builder: (_) => const AppShell(initialRoute: '/dashboard'),
               ),
             );
@@ -332,7 +343,9 @@ class _MyAppState extends State<MyApp> {
 /// so authStateChanges() is the correct source of truth. [1](https://www.valimail.com/blog/understanding-email-authentication-headers/)[2](https://www.youtube.com/watch?v=S7LhAmuJGVA)
 class _AuthGate extends StatelessWidget {
   final Widget Function(User user) builder;
-  const _AuthGate({required this.builder});
+  final String requestedRoute;
+
+  const _AuthGate({required this.builder, required this.requestedRoute});
 
   @override
   Widget build(BuildContext context) {
@@ -363,7 +376,7 @@ class _AuthGate extends StatelessWidget {
             final otpOk = claims['otp_verified'] == true;
 
             if (!otpOk) {
-              return const OtpVerifyScreen();
+              return OtpVerifyScreen(nextRoute: requestedRoute);
             }
 
             return builder(user);
