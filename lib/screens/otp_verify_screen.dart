@@ -85,11 +85,35 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     });
 
     try {
-      await FirebaseFunctions.instanceFor(
+      final res = await FirebaseFunctions.instanceFor(
         region: 'us-central1',
       ).httpsCallable('sendLoginOtp').call();
 
-      _startCooldown();
+      final data = Map<String, dynamic>.from(res.data as Map);
+
+      final remaining = (data['remainingSeconds'] is num)
+          ? (data['remainingSeconds'] as num).toInt()
+          : _cooldownSeconds;
+
+      // ✅ Start countdown using server-provided remaining seconds
+      _startCooldown(remaining.clamp(0, _cooldownSeconds));
+
+      if (data['throttled'] == true) {
+        // Optional: show a friendly message
+        setState(() {
+          _error =
+              'Please wait $remaining seconds before requesting another code.';
+        });
+      } else {
+        // Optional: show success feedback
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('A new verification code has been sent.'),
+            ),
+          );
+        }
+      }
     } catch (_) {
       setState(() {
         _error = 'Unable to resend the code. Please try again shortly.';
@@ -101,20 +125,20 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     }
   }
 
-  void _startCooldown() {
+  void _startCooldown([int? seconds]) {
     _timer?.cancel();
-    setState(() => _remainingSeconds = _cooldownSeconds);
+
+    final start = (seconds ?? _cooldownSeconds).clamp(0, _cooldownSeconds);
+    setState(() => _remainingSeconds = start);
+
+    if (_remainingSeconds <= 0) return;
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_remainingSeconds <= 1) {
         timer.cancel();
-        if (mounted) {
-          setState(() => _remainingSeconds = 0);
-        }
+        if (mounted) setState(() => _remainingSeconds = 0);
       } else {
-        if (mounted) {
-          setState(() => _remainingSeconds--);
-        }
+        if (mounted) setState(() => _remainingSeconds--);
       }
     });
   }
@@ -268,13 +292,13 @@ class _ErrorBanner extends StatelessWidget {
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
-          SizedBox(width: 10),
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'The verification code is invalid or has expired.',
-              style: TextStyle(
+              message,
+              style: const TextStyle(
                 color: Color(0xFFB42318),
                 fontWeight: FontWeight.w600,
                 height: 1.3,

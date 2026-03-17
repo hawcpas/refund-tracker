@@ -395,15 +395,41 @@ exports.sendLoginOtp = onCall(
       throw new HttpsError("failed-precondition", "User has no email.");
     }
 
+    const OTP_TTL_MS = 5 * 60 * 1000;        // ✅ OTP validity stays 5 minutes
+    const RESEND_COOLDOWN_MS = 30 * 1000;    // ✅ resend throttle is 1 minute
+    const nowMs = Date.now();
+
     const ref = db.collection("auth_otps").doc(uid);
     const existing = await ref.get();
 
-    // ✅ If a valid OTP already exists, DO NOT regenerate
     if (existing.exists) {
-      const data = existing.data();
-      if (data?.expiresAt?.toDate() > new Date()) {
-        console.log("✅ Reusing existing OTP (not expired)");
-        return { ok: true, reused: true };
+      const data = existing.data() || {};
+      const exp = data.expiresAt?.toDate?.();
+
+      // If the current OTP is still valid…
+      if (exp && exp.getTime() > nowMs) {
+        const lastSentAtMs = Number(data.lastSentAtMs || 0);
+        const sinceLastSend = nowMs - lastSentAtMs;
+
+        // ✅ Throttle: block sending a NEW email/code until 60s passes
+        if (lastSentAtMs && sinceLastSend < RESEND_COOLDOWN_MS) {
+          const remainingSeconds = Math.max(
+            0,
+            Math.ceil((RESEND_COOLDOWN_MS - sinceLastSend) / 1000)
+          );
+
+          console.log("⏳ OTP resend throttled");
+          return {
+            ok: true,
+            throttled: true,
+            remainingSeconds,
+            // Helpful metadata for UI if you want it:
+            otpExpiresAt: exp.toISOString(),
+          };
+        }
+
+        // ✅ Cooldown passed → allow sending a NEW code email
+        // (We generate a new code because we only store a hash)
       }
     }
 
@@ -420,11 +446,12 @@ exports.sendLoginOtp = onCall(
 
     await ref.set({
       codeHash: hashOtp(code),
-      expiresAt: admin.firestore.Timestamp.fromDate(
-        new Date(Date.now() + 5 * 60 * 1000)
-      ),
+      expiresAt: admin.firestore.Timestamp.fromDate(new Date(nowMs + OTP_TTL_MS)),
       attempts: 0,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+
+      // ✅ NEW: used ONLY for resend throttling
+      lastSentAtMs: nowMs,
     });
 
     await sendAccountEmail({
@@ -436,7 +463,12 @@ exports.sendLoginOtp = onCall(
       }),
     });
 
-    return { ok: true, sent: true };
+    return {
+      ok: true,
+      sent: true,
+      remainingSeconds: 30,                 // next resend allowed after 60s
+      otpExpiresAt: new Date(nowMs + OTP_TTL_MS).toISOString(),
+    };
   }
 );
 
