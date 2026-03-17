@@ -13,14 +13,14 @@ enum _SortField { name, client, size, date }
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
 enum _DateFilter { all, today, last7, last30 }
 
-class DropoffUploadsScreen extends StatefulWidget {
-  const DropoffUploadsScreen({super.key});
+class FileBoxScreen extends StatefulWidget {
+  const FileBoxScreen({super.key});
 
   @override
-  State<DropoffUploadsScreen> createState() => _DropoffUploadsScreenState();
+  State<FileBoxScreen> createState() => _FileBoxScreenState();
 }
 
-class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
+class _FileBoxScreenState extends State<FileBoxScreen> {
   final _searchCtrl = TextEditingController();
   String _q = '';
 
@@ -256,7 +256,7 @@ class _DropoffUploadsScreenState extends State<DropoffUploadsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Client Uploaded Files',
+                          'File Box',
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w900,
                           ),

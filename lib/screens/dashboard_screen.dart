@@ -117,7 +117,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       subtitle: 'View and manage all uploaded files (newest first).',
                       icon: Icons.cloud_upload_outlined,
                       ctaLabel: 'Open file box',
-                      onOpen: () => Navigator.pushNamed(context, '/dropoff-uploads'),
+                      onOpen: () => Navigator.pushNamed(context, '/file-box'),
                     ),
                     const SizedBox(height: 28),
                     const _SectionLabel(
@@ -131,7 +131,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       subtitle: 'Create and manage secure upload links for clients.',
                       icon: Icons.link_outlined,
                       ctaLabel: 'Manage links',
-                      onOpen: () => Navigator.pushNamed(context, '/view-dropoffs'),
+                      onOpen: () => Navigator.pushNamed(context, '/generate-upload-link'),
                     ),
                   ] else ...[
                     const SizedBox(height: 8),
