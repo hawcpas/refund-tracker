@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/centered_section.dart';
-import 'package:flutter/services.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -25,26 +24,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   String get _userQuery => _userSearchCtrl.text.trim().toLowerCase();
 
   String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
-
-  PreferredSizeWidget _adminConsoleAppBar() {
-    return AppBar(
-      backgroundColor: Colors.black,
-      foregroundColor: Colors.white,
-      systemOverlayStyle: SystemUiOverlayStyle.light,
-      elevation: 2,
-      title: const Text(
-        'Admin Console',
-        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.2),
-      ),
-      actions: [
-        IconButton(
-          tooltip: 'Invite user',
-          icon: const Icon(Icons.person_add_alt_1),
-          onPressed: _busy ? null : _showInviteDialog,
-        ),
-      ],
-    );
-  }
 
   @override
   void initState() {
@@ -101,9 +80,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   // Cloud Function helpers
   // -------------------------
   HttpsCallable _callable(String name) {
-    return FirebaseFunctions.instanceFor(
-      region: 'us-central1',
-    ).httpsCallable(name);
+    return FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(name);
   }
 
   Future<void> _updateUser({
@@ -112,11 +89,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String role,
     required String status,
     required String reason,
-
-    // ✅ NEW
     required String firstName,
     required String lastName,
-
     Map<String, dynamic>? communications,
   }) async {
     setState(() => _busy = true);
@@ -127,22 +101,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         'role': role,
         'status': status,
         'reason': reason,
-
-        // ✅ NEW
         'firstName': firstName,
         'lastName': lastName,
       };
 
       if (communications != null) {
-        payload['communications'] = communications; // ✅ NEW
+        payload['communications'] = communications;
       }
 
       await _callable('updateUser').call(payload);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('User updated')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('User updated')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -160,15 +132,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   }) async {
     setState(() => _busy = true);
     try {
-      await _callable(
-        'setUserDisabled',
-      ).call({'uid': uid, 'disabled': disabled, 'reason': reason});
+      await _callable('setUserDisabled')
+          .call({'uid': uid, 'disabled': disabled, 'reason': reason});
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(disabled ? 'User deactivated' : 'User reactivated'),
-        ),
+        SnackBar(content: Text(disabled ? 'User deactivated' : 'User reactivated')),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -189,9 +158,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       await _callable('sendPasswordReset').call({'uid': uid, 'email': email});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Password reset sent to $email')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset sent to $email')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -210,9 +179,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       final email = (data['email'] ?? '').toString();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Invite resent to $email')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invite resent to $email')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -264,37 +233,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     required String currentEmail,
     required String currentRole,
     required String currentStatus,
-
-    // ✅ NEW
     required String currentFirstName,
     required String currentLastName,
     required String currentDisplayName,
-
     Map<String, dynamic>? currentCommunications,
   }) async {
     final firstNameCtrl = TextEditingController(text: currentFirstName);
     final lastNameCtrl = TextEditingController(text: currentLastName);
     final emailCtrl = TextEditingController(text: currentEmail);
 
-    String role = (currentRole.isEmpty ? 'associate' : currentRole)
-        .toLowerCase()
-        .trim();
-    String status = (currentStatus.isEmpty ? 'active' : currentStatus)
-        .toLowerCase()
-        .trim();
+    String role = (currentRole.isEmpty ? 'associate' : currentRole).toLowerCase().trim();
+    String status = (currentStatus.isEmpty ? 'active' : currentStatus).toLowerCase().trim();
 
     final reasonCtrl = TextEditingController();
 
-    // ✅ Prefill comms
     final comms = Map<String, dynamic>.from(currentCommunications ?? {});
-    final wildixCtrl = TextEditingController(
-      text: (comms['wildixExtension'] ?? '').toString(),
-    );
-
-    // ✅ One number for Clearfly SMS + eFax
-    final clearflyCtrl = TextEditingController(
-      text: (comms['clearflySmsNumber'] ?? '').toString(),
-    );
+    final wildixCtrl = TextEditingController(text: (comms['wildixExtension'] ?? '').toString());
+    final clearflyCtrl = TextEditingController(text: (comms['clearflySmsNumber'] ?? '').toString());
 
     final ok = await showDialog<bool>(
       context: context,
@@ -336,10 +291,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   prefixIcon: Icon(Icons.admin_panel_settings_outlined),
                 ),
                 items: const [
-                  DropdownMenuItem(
-                    value: 'associate',
-                    child: Text('Associate'),
-                  ),
+                  DropdownMenuItem(value: 'associate', child: Text('Associate')),
                   DropdownMenuItem(value: 'admin', child: Text('Admin')),
                 ],
                 onChanged: (v) => role = (v ?? 'associate'),
@@ -366,8 +318,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   prefixIcon: Icon(Icons.note_alt_outlined),
                 ),
               ),
-
-              // ✅ Communications section
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 12),
@@ -375,13 +325,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Communications',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                 ),
               ),
               const SizedBox(height: 12),
-
               TextField(
                 controller: wildixCtrl,
                 decoration: const InputDecoration(
@@ -390,7 +339,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-
               TextField(
                 controller: clearflyCtrl,
                 decoration: const InputDecoration(
@@ -418,13 +366,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
     final email = emailCtrl.text.trim().toLowerCase();
     if (email.isEmpty || !email.contains('@')) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter a valid email')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email')),
+      );
       return;
     }
 
-    // ✅ Normalize legacy statuses before saving
     status = status == 'inactive' ? 'disabled' : status;
 
     await _updateUser(
@@ -433,11 +380,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       role: role,
       status: status,
       reason: reasonCtrl.text.trim(),
-
-      // ✅ NEW
       firstName: firstNameCtrl.text.trim(),
       lastName: lastNameCtrl.text.trim(),
-
       communications: {
         'wildixExtension': wildixCtrl.text.trim(),
         'clearflySmsNumber': clearflyCtrl.text.trim(),
@@ -445,9 +389,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     );
   }
 
-  // -------------------------
-  // Existing functions
-  // -------------------------
   Future<void> _inviteUser({
     required String email,
     required String role,
@@ -468,9 +409,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       final invitedEmail = (data['email'] ?? email).toString();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('User created for $invitedEmail')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('User created for $invitedEmail')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -536,9 +477,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       await _callable('deleteUser').call({'uid': uid, 'email': email});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Deleted $label')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $label')),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -640,209 +581,235 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Content-only screen. AppShell provides AppBar + sidebar.
     if (_roleLoading) {
-      return Scaffold(
-        appBar: _adminConsoleAppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_roleError != null) {
-      return Scaffold(
-        appBar: _adminConsoleAppBar(),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 34),
-                const SizedBox(height: 10),
-                const Text('Could not load your admin role.'),
-                const SizedBox(height: 8),
-                Text(
-                  _roleError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.black54),
-                ),
-                const SizedBox(height: 14),
-                FilledButton(
-                  onPressed: _loadMyRole,
-                  child: const Text('Retry'),
-                ),
-              ],
-            ),
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 34),
+              const SizedBox(height: 10),
+              const Text('Could not load your admin role.'),
+              const SizedBox(height: 8),
+              Text(
+                _roleError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.black54),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: _loadMyRole,
+                child: const Text('Retry'),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    return Scaffold(
-      appBar: _adminConsoleAppBar(),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, pageConstraints) {
-                  final isDesktopWide = pageConstraints.maxWidth >= 1200;
+    if (_role != 'admin') {
+      return const Center(
+        child: Text('Admin access required.'),
+      );
+    }
 
-                  return CenteredSection(
-                    maxWidth: isDesktopWide ? 1600 : 1100,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isDesktopWide ? 24 : 16,
-                        vertical: 16,
-                      ),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isNarrow = constraints.maxWidth < 900;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: LayoutBuilder(
+            builder: (context, pageConstraints) {
+              final isDesktopWide = pageConstraints.maxWidth >= 1200;
 
-                          final inviteCard = Opacity(
-                            opacity: _busy ? 0.6 : 1,
-                            child: Card(
-                              color: const Color(0xFF1F2937),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: _busy ? null : _showInviteDialog,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        height: 42,
-                                        width: 42,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.10),
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                        child: const Icon(
-                                          Icons.person_add_alt_1,
-                                          color: Colors.white,
-                                          size: 22,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Invite a user',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 16,
-                                                letterSpacing: 0.1,
-                                              ),
-                                            ),
-                                            SizedBox(height: 6),
-                                            Text(
-                                              'Creates the Auth user + reset link + Firestore profile.',
-                                              style: TextStyle(
-                                                color: Color(0xFFCBD5E1),
-                                                fontWeight: FontWeight.w600,
-                                                height: 1.25,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Icon(
-                                        Icons.chevron_right,
-                                        color: Colors.white70,
-                                      ),
-                                    ],
+              return CenteredSection(
+                maxWidth: isDesktopWide ? 1600 : 1100,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktopWide ? 24 : 16,
+                    vertical: 16,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isNarrow = constraints.maxWidth < 900;
+
+                      // ✅ Enterprise header row inside content (keeps Invite easy to access)
+                      final topHeader = Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Admin Console',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.2,
                                   ),
+                            ),
+                          ),
+                          SizedBox(
+                            height: 40,
+                            child: FilledButton.icon(
+                              onPressed: _busy ? null : _showInviteDialog,
+                              icon: const Icon(Icons.person_add_alt_1, size: 18),
+                              label: const Text('Invite user'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF111827),
+                                foregroundColor: Colors.white,
+                                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                             ),
-                          );
+                          ),
+                        ],
+                      );
 
-                          final usersCard = LayoutBuilder(
-                            builder: (context, c) {
-                              // max height available for the users panel
-                              final maxH = c.maxHeight;
-
-                              return ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  // ✅ users panel will NOT grow taller than available space
-                                  maxHeight: maxH,
-                                ),
-                                child: Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: _UsersPane(
-                                    db: _db,
-                                    myUid: _myUid,
-                                    busy: _busy,
-                                    query: _userQuery,
-                                    searchCtrl: _userSearchCtrl,
-                                    onDeleteUser: _deleteUser,
-                                    onEditUser: _showEditUserDialog,
-                                    onResendInvite: _resendInvite,
-                                    onSendPasswordReset: _sendPasswordReset,
-                                    onSetDisabled: _setUserDisabled,
-                                    promptReason: _promptReason,
+                      final inviteCard = Opacity(
+                        opacity: _busy ? 0.6 : 1,
+                        child: Card(
+                          color: const Color(0xFF1F2937),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: _busy ? null : _showInviteDialog,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    height: 42,
+                                    width: 42,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.10),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.person_add_alt_1,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                          );
-
-                          if (isNarrow) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                inviteCard,
-                                const SizedBox(height: 12),
-
-                                // ✅ shrink when list is short, grow when list is long
-                                Flexible(fit: FlexFit.loose, child: usersCard),
-                              ],
-                            );
-                          }
-
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              SizedBox(
-                                width: isDesktopWide ? 420 : 360,
-                                child: Column(children: [inviteCard]),
+                                  const SizedBox(width: 12),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Invite a user',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 16,
+                                            letterSpacing: 0.1,
+                                          ),
+                                        ),
+                                        SizedBox(height: 6),
+                                        Text(
+                                          'Creates the Auth user + reset link + Firestore profile.',
+                                          style: TextStyle(
+                                            color: Color(0xFFCBD5E1),
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Icon(Icons.chevron_right, color: Colors.white70),
+                                ],
                               ),
-                              const SizedBox(width: 20),
-                              Flexible(fit: FlexFit.loose, child: usersCard),
-                            ],
+                            ),
+                          ),
+                        ),
+                      );
+
+                      final usersCard = LayoutBuilder(
+                        builder: (context, c) {
+                          final maxH = c.maxHeight;
+                          return ConstrainedBox(
+                            constraints: BoxConstraints(maxHeight: maxH),
+                            child: Card(
+                              clipBehavior: Clip.antiAlias,
+                              child: _UsersPane(
+                                db: _db,
+                                myUid: _myUid,
+                                busy: _busy,
+                                query: _userQuery,
+                                searchCtrl: _userSearchCtrl,
+                                onDeleteUser: _deleteUser,
+                                onEditUser: _showEditUserDialog,
+                                onResendInvite: _resendInvite,
+                                onSendPasswordReset: _sendPasswordReset,
+                                onSetDisabled: _setUserDisabled,
+                                promptReason: _promptReason,
+                              ),
+                            ),
                           );
                         },
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+                      );
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            topHeader,
+                            const SizedBox(height: 12),
+                            inviteCard,
+                            const SizedBox(height: 12),
+                            Flexible(fit: FlexFit.loose, child: usersCard),
+                          ],
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          topHeader,
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: isDesktopWide ? 420 : 360,
+                                  child: Column(children: [inviteCard]),
+                                ),
+                                const SizedBox(width: 20),
+                                Flexible(fit: FlexFit.loose, child: usersCard),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
           ),
-          if (_busy)
-            const Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: LinearProgressIndicator(minHeight: 2),
-            ),
-        ],
-      ),
+        ),
+        if (_busy)
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+      ],
     );
   }
 }
+
+// -------------------- Your helper widgets stay unchanged below --------------------
 
 class _SearchHeader extends StatelessWidget {
   final TextEditingController controller;
@@ -869,9 +836,7 @@ class _SearchHeader extends StatelessWidget {
         backgroundColor: theme.colorScheme.surface.withOpacity(0.4),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w800,
-          color: active
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
+          color: active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
         ),
       );
     }
@@ -939,6 +904,10 @@ class _SearchHeader extends StatelessWidget {
     );
   }
 }
+
+// NOTE: Keep your existing _UsersPane, _MetaChip, _StatusPill, _ErrorBox, _EmptyBox
+// exactly as they already are below this point.
+// (Your pasted code continues — do NOT change those.)
 
 class _UsersPane extends StatefulWidget {
   final FirebaseFirestore db;

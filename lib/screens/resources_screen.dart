@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../theme/app_colors.dart';
+import '../widgets/centered_section.dart';
 
 class ResourcesScreen extends StatelessWidget {
   const ResourcesScreen({super.key});
@@ -9,9 +11,9 @@ class ResourcesScreen extends StatelessWidget {
     final uri = Uri.parse(url);
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Could not open link')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open link')),
+      );
     }
   }
 
@@ -36,7 +38,6 @@ class ResourcesScreen extends StatelessWidget {
           ),
         ],
       ),
-
       _ResourceSection(
         title: 'Communication',
         description: 'Phone system and key communication portals.',
@@ -55,7 +56,6 @@ class ResourcesScreen extends StatelessWidget {
           ),
         ],
       ),
-
       _ResourceSection(
         title: 'File Transfer',
         description: 'Secure portals for exchanging client documents.',
@@ -75,11 +75,9 @@ class ResourcesScreen extends StatelessWidget {
           ),
         ],
       ),
-
       _ResourceSection(
         title: 'Security',
-        description:
-            'Tools to safely inspect suspicious links and verify email risk.',
+        description: 'Tools to safely inspect suspicious links and verify email risk.',
         items: const [
           _ResourceLink(
             title: 'Email Verifier (IPQualityScore)',
@@ -91,113 +89,98 @@ class ResourcesScreen extends StatelessWidget {
       ),
     ];
 
-    return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
-      appBar: AppBar(title: const Text('Websites & Resources')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-            children: [
-              // ---------- WHITE CONTENT SURFACE ----------
-              Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: contentWidth,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.black.withOpacity(0.05)),
+    // ✅ Content-only screen (AppShell provides AppBar + Sidebar)
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+      children: [
+        CenteredSection(
+          maxWidth: 1100,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: contentWidth,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.black.withOpacity(0.05)),
+                ),
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Firm-Related Websites and Useful Links',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF101828),
+                        letterSpacing: -0.2,
+                      ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Firm-Related Websites and Useful Links',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF101828),
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Curated tools and portals available to all signed-in users.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            height: 1.25,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Curated tools and portals available to all signed-in users.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF475467),
+                        height: 1.25,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
 
-                        // ---------- SECTIONS ----------
-                        ...sections.map(
-                          (s) => Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _SectionHeader(
-                                  title: s.title,
-                                  description: s.description,
-                                ),
-                                const SizedBox(height: 6),
-
-                                Padding(
-                                  padding: EdgeInsets.only(left: rowIndent),
-                                  child: Column(
-                                    children: [
-                                      for (
-                                        int i = 0;
-                                        i < s.items.length;
-                                        i++
-                                      ) ...[
-                                        _ResourceRow(
-                                          icon: s.items[i].icon,
-                                          title: s.items[i].title,
-                                          subtitle: s.items[i].subtitle,
-                                          onTap: () => _openLink(
-                                            context,
-                                            s.items[i].url,
-                                          ),
-                                        ),
-                                        if (i != s.items.length - 1)
-                                          Divider(
-                                            height: 1,
-                                            color: Colors.black.withOpacity(
-                                              0.06,
-                                            ),
-                                          ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
+                    // ---------- SECTIONS ----------
+                    ...sections.map(
+                      (s) => Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _SectionHeader(
+                              title: s.title,
+                              description: s.description,
                             ),
-                          ),
-                        ),
+                            const SizedBox(height: 6),
 
-                        const SizedBox(height: 6),
-                        Text(
-                          'Links open in your default browser.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppColors.lightGrey,
-                            fontWeight: FontWeight.w600,
-                          ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: rowIndent),
+                              child: Column(
+                                children: [
+                                  for (int i = 0; i < s.items.length; i++) ...[
+                                    _ResourceRow(
+                                      icon: s.items[i].icon,
+                                      title: s.items[i].title,
+                                      subtitle: s.items[i].subtitle,
+                                      onTap: () => _openLink(context, s.items[i].url),
+                                    ),
+                                    if (i != s.items.length - 1)
+                                      Divider(
+                                        height: 1,
+                                        color: Colors.black.withOpacity(0.06),
+                                      ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+
+                    const SizedBox(height: 6),
+                    Text(
+                      'Links open in your default browser.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.lightGrey,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

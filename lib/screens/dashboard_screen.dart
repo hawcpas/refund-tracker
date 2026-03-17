@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../theme/app_colors.dart';
-import '../services/auth_service.dart';
 import '../widgets/centered_section.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -14,9 +13,6 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final AuthService _auth = AuthService();
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
-
   bool _loadingProfile = true;
   bool _hasDropoffAccess = false;
 
@@ -53,8 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final name = ('$first $last').trim().isNotEmpty ? '$first $last' : display;
 
     final role = (data['role'] ?? '').toString().toLowerCase().trim();
-    final hasDropoffs =
-        role == 'admin' || (data['capabilities']?['dropoffs'] == true);
+    final hasDropoffs = role == 'admin' || (data['capabilities']?['dropoffs'] == true);
 
     final comms = Map<String, dynamic>.from(data['communications'] ?? {});
     final wildix = (comms['wildixExtension'] ?? '').toString().trim();
@@ -71,34 +66,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  Future<void> _logout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sign out'),
-        content: const Text(
-          'Are you sure you want to sign out of the firm portal?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sign out'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    await _auth.logout();
-    if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
-  }
-
   String _formatUsPhone10(String input) {
     final digits = input.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 10) return input.trim();
@@ -111,337 +78,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final theme = Theme.of(context);
 
     final isAdmin = !_loadingProfile && _role == 'admin';
-    final welcomeText = _fullName.isNotEmpty
-        ? 'Welcome back, $_fullName'
-        : 'Welcome back';
+    final welcomeText = _fullName.isNotEmpty ? 'Welcome back, $_fullName' : 'Welcome back';
 
-    // ✅ Mobile breakpoint for sidebar -> drawer
-    final isMobileShell = MediaQuery.of(context).size.width < 900;
-    final currentRoute = ModalRoute.of(context)?.settings.name ?? '/dashboard';
+    // ✅ Content-only page (AppShell provides the app bar + sidebar)
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+      children: [
+        CenteredSection(
+          maxWidth: 980,
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth;
+              final isMobile = w < 560;
 
-    void navigateTo(String route) async {
-      // Close drawer first (mobile)
-      if (_scaffoldKey.currentState?.isDrawerOpen == true) {
-        Navigator.pop(context);
-      }
-
-      // ✅ Special action: logout
-      if (route == '__logout__') {
-        await _logout();
-        return;
-      }
-
-      // If already on the route, do nothing
-      if (route == currentRoute) return;
-
-      Navigator.pushNamed(context, route);
-    }
-
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.pageBackgroundLight,
-
-      appBar: AppBar(
-        title: const Text('Dashboard'),
-        leading: isMobileShell
-            ? IconButton(
-                icon: const Icon(Icons.menu),
-                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              )
-            : null,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton.icon(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text('Sign out'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.brandBlue,
-                foregroundColor: Colors.white,
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.2,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-
-      // ✅ Drawer on mobile only
-      drawer: isMobileShell
-          ? Drawer(
-              child: SafeArea(
-                child: _SidebarNav(
-                  compact: false,
-                  currentRoute: currentRoute,
-                  onNavigate: navigateTo,
-                ),
-              ),
-            )
-          : null,
-
-      // ✅ Desktop: persistent sidebar + main content
-      body: Row(
-        children: [
-          if (!isMobileShell)
-            _SidebarNav(
-              compact: true,
-              currentRoute: currentRoute,
-              onNavigate: navigateTo,
-            ),
-
-          // ✅ MAIN CONTENT (always visible on desktop)
-          Expanded(
-            child: Scrollbar(
-              thumbVisibility: !isMobileShell,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CenteredSection(
-                    maxWidth: 980,
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final w = c.maxWidth;
-                        final isMobile = w < 560;
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _ContextHeader(
-                              loading: _loadingProfile,
-                              welcomeText: welcomeText,
-                              isAdmin: isAdmin,
-                              isMobile: isMobile,
-                              wildix: _wildixExt,
-                              clearfly: _clearflyNumber,
-                              onAdminTap: () =>
-                                  Navigator.pushNamed(context, '/admin-users'),
-                            ),
-                            const SizedBox(height: 18),
-
-                            if (_hasDropoffAccess) ...[
-                              const _SectionLabel(
-                                title: 'Incoming files',
-                                subtitle:
-                                    'All client-uploaded documents across all upload links.',
-                              ),
-                              const SizedBox(height: 12),
-                              _PrimaryFeatureCard(
-                                isMobile: isMobile,
-                                title: 'File Box',
-                                subtitle:
-                                    'View and manage all uploaded files (newest first).',
-                                icon: Icons.cloud_upload_outlined,
-                                ctaLabel: 'Open file box',
-                                onOpen: () => Navigator.pushNamed(
-                                  context,
-                                  '/dropoff-uploads',
-                                ),
-                              ),
-                              const SizedBox(height: 28),
-                              const _SectionLabel(
-                                title: 'Request files',
-                                subtitle:
-                                    'Create secure upload links for clients to submit documents.',
-                              ),
-                              const SizedBox(height: 12),
-                              _PrimaryFeatureCard(
-                                isMobile: isMobile,
-                                title: 'Generate Upload Links',
-                                subtitle:
-                                    'Create and manage secure upload links for clients.',
-                                icon: Icons.link_outlined,
-                                ctaLabel: 'Manage links',
-                                onOpen: () => Navigator.pushNamed(
-                                  context,
-                                  '/view-dropoffs',
-                                ),
-                              ),
-                            ] else ...[
-                              const SizedBox(height: 8),
-                              _SurfaceCard(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Access notice',
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w900,
-                                            color: const Color(0xFF101828),
-                                          ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'You currently do not have access to Client Upload Links. '
-                                      'If you believe this is incorrect, please contact an administrator.',
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: const Color(0xFF475467),
-                                            height: 1.35,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 22),
-                          ],
-                        );
-                      },
-                    ),
+                  _ContextHeader(
+                    loading: _loadingProfile,
+                    welcomeText: welcomeText,
+                    isAdmin: isAdmin,
+                    isMobile: isMobile,
+                    wildix: _wildixExt,
+                    clearfly: _clearflyNumber,
+                    onAdminTap: () => Navigator.pushNamed(context, '/admin-users'),
                   ),
+                  const SizedBox(height: 18),
+
+                  if (_hasDropoffAccess) ...[
+                    const _SectionLabel(
+                      title: 'Incoming files',
+                      subtitle: 'All client-uploaded documents across all upload links.',
+                    ),
+                    const SizedBox(height: 12),
+                    _PrimaryFeatureCard(
+                      isMobile: isMobile,
+                      title: 'File Box',
+                      subtitle: 'View and manage all uploaded files (newest first).',
+                      icon: Icons.cloud_upload_outlined,
+                      ctaLabel: 'Open file box',
+                      onOpen: () => Navigator.pushNamed(context, '/dropoff-uploads'),
+                    ),
+                    const SizedBox(height: 28),
+                    const _SectionLabel(
+                      title: 'Request files',
+                      subtitle: 'Create secure upload links for clients to submit documents.',
+                    ),
+                    const SizedBox(height: 12),
+                    _PrimaryFeatureCard(
+                      isMobile: isMobile,
+                      title: 'Generate Upload Links',
+                      subtitle: 'Create and manage secure upload links for clients.',
+                      icon: Icons.link_outlined,
+                      ctaLabel: 'Manage links',
+                      onOpen: () => Navigator.pushNamed(context, '/view-dropoffs'),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    _SurfaceCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Access notice',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF101828),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'You currently do not have access to Client Upload Links. '
+                            'If you believe this is incorrect, please contact an administrator.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF475467),
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
                 ],
-              ),
-            ),
+              );
+            },
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Sidebar Navigation (Enterprise, compact + tight)
-/// ============================
-class _SidebarNav extends StatelessWidget {
-  const _SidebarNav({
-    required this.currentRoute,
-    required this.onNavigate,
-    this.compact = true,
-  });
-
-  final String currentRoute;
-  final void Function(String route) onNavigate;
-  final bool compact;
-
-  Widget _item({
-    required IconData icon,
-    required String label,
-    required String route,
-    bool danger = false,
-  }) {
-    final isActive = currentRoute == route;
-
-    final Color baseText = danger
-        ? const Color(0xFFB42318)
-        : const Color(0xFF344054);
-    final Color baseIcon = danger
-        ? const Color(0xFFB42318)
-        : const Color(0xFF667085);
-
-    final Color activeText = danger
-        ? const Color(0xFFB42318)
-        : AppColors.brandBlue;
-    final Color activeIcon = danger
-        ? const Color(0xFFB42318)
-        : AppColors.brandBlue;
-
-    final Color bg = isActive
-        ? (danger
-              ? const Color(0xFFB42318).withOpacity(0.10)
-              : AppColors.brandBlue.withOpacity(0.12))
-        : (danger
-              ? const Color(0xFFB42318).withOpacity(0.06)
-              : Colors.transparent);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => onNavigate(route),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: isActive ? activeIcon : baseIcon),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                color: isActive ? activeText : baseText,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final width = compact ? 210.0 : double.infinity;
-
-    return Container(
-      width: width,
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          right: BorderSide(color: Colors.black.withOpacity(0.06)),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'NAVIGATION',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF98A2B3),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          _item(
-            icon: Icons.dashboard_outlined,
-            label: 'Dashboard',
-            route: '/dashboard',
-          ),
-          const SizedBox(height: 4),
-
-          _item(
-            icon: Icons.folder_shared_outlined,
-            label: 'Firm Documents',
-            route: '/shared-files',
-          ),
-          const SizedBox(height: 4),
-
-          _item(
-            icon: Icons.link_outlined,
-            label: 'Websites & Resources',
-            route: '/resources',
-          ),
-          const SizedBox(height: 4),
-
-          _item(
-            icon: Icons.person_outline,
-            label: 'Account Settings',
-            route: '/account-settings',
-          ),
-
-          const SizedBox(height: 6),
-
-          _item(
-            icon: Icons.logout,
-            label: 'Sign out',
-            route: '__logout__',
-            danger: true,
-          ),
-        ],
-      ),
+      ],
     );
   }
 }

@@ -1623,43 +1623,72 @@ exports.createDropoffRequest = onCall(
   }
 );
 
-exports.validateDropoffLink = onCall(
-  { region: "us-central1" },
-  async (request) => {
-    const { rid, token } = request.data || {};
-    if (!rid || !token) {
-      throw new HttpsError("invalid-argument", "rid and token required.");
-    }
-
-    const ref = admin.firestore().collection("dropoff_requests").doc(rid);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      throw new HttpsError("not-found", "Drop-off request not found.");
-    }
-
-    const doc = snap.data() || {};
-
-    // ✅ Validate token first (still an error if wrong)
-    if (sha256(token) !== doc.tokenHash) {
-      throw new HttpsError("permission-denied", "Invalid token.");
-    }
-
-    // ✅ Always stamp view time
-    await ref.set(
-      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-
-    // ✅ Always return status (open OR closed)
-    return {
-      ok: true,
-      requestId: rid,
-      clientName: doc.clientName || "",
-      message: doc.message || "",
-      status: doc.status || "open",
-    };
+exports.validateDropoffLink = onCall({ region: "us-central1" }, async (request) => {
+  const { rid, token } = request.data || {};
+  if (!rid || !token) {
+    throw new HttpsError("invalid-argument", "rid and token required.");
   }
-);
+
+  const ref = admin.firestore().collection("dropoff_requests").doc(rid);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "Drop-off request not found.");
+  }
+
+  const doc = snap.data() || {};
+
+  if (sha256(token) !== doc.tokenHash) {
+    throw new HttpsError("permission-denied", "Invalid token.");
+  }
+
+  // Stamp view
+  await ref.set(
+    { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+
+  const clientName = (doc.clientName || "").toString().trim();
+  const businessName = (doc.businessName || "").toString().trim();
+  const clientEmail = (doc.clientEmail || "").toString().trim();
+  const message = (doc.message || "").toString();
+  const status = (doc.status || "open").toString();
+
+  const createdByUid = (doc.createdByUid || "").toString().trim();
+  const createdByEmail = (doc.createdByEmail || "").toString().trim();
+
+  let requestedByName = "";
+  let requestedByEmail = createdByEmail;
+
+  if (createdByUid) {
+    try {
+      const uSnap = await admin.firestore().collection("users").doc(createdByUid).get();
+      const u = uSnap.data() || {};
+      const first = (u.firstName || "").toString().trim();
+      const last = (u.lastName || "").toString().trim();
+      const dn = (u.displayName || "").toString().trim();
+      requestedByName = (first || last) ? `${first} ${last}`.trim() : dn;
+      if (!requestedByEmail) requestedByEmail = (u.email || "").toString().trim();
+    } catch (_) { }
+  }
+
+  const clamp = (s, max) => (s || "").toString().trim().slice(0, max);
+
+  return {
+    ok: true,
+    requestId: rid,
+
+    // ✅ existing (do not break UI)
+    clientName: clamp(clientName, 120),
+    message: clamp(message, 4000),
+    status: clamp(status, 20),
+
+    // ✅ NEW (what your UI needs)
+    businessName: clamp(businessName, 160),
+    clientEmail: clamp(clientEmail, 160),
+    requestedByName: clamp(requestedByName, 120),
+    requestedByEmail: clamp(requestedByEmail, 160),
+  };
+});
 
 // getAdminDownloadUrl (admin-only)
 exports.getAdminDownloadUrl = onCall(

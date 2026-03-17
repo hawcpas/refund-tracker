@@ -23,6 +23,7 @@ import 'screens/dropoff_uploads_screen.dart';
 import 'screens/otp_verify_screen.dart';
 
 import 'services/auth_service.dart';
+import 'shell/app_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -177,29 +178,34 @@ class _MyAppState extends State<MyApp> {
           case '/dashboard':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) =>
-                  _AuthGate(builder: (_) => const DashboardScreen()),
+              builder: (_) => _AuthGate(
+                builder: (_) => const AppShell(initialRoute: '/dashboard'),
+              ),
             );
 
           case '/account-settings':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) =>
-                  _AuthGate(builder: (_) => const AccountSettingsScreen()),
+              builder: (_) => _AuthGate(
+                builder: (_) =>
+                    const AppShell(initialRoute: '/account-settings'),
+              ),
             );
 
           case '/resources':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) =>
-                  _AuthGate(builder: (_) => const ResourcesScreen()),
+              builder: (_) => _AuthGate(
+                builder: (_) => const AppShell(initialRoute: '/resources'),
+              ),
             );
 
           case '/shared-files':
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) =>
-                  _AuthGate(builder: (_) => const SharedFilesScreen()),
+              builder: (_) => _AuthGate(
+                builder: (_) => const AppShell(initialRoute: '/shared-files'),
+              ),
             );
 
           case '/admin-users':
@@ -227,8 +233,9 @@ class _MyAppState extends State<MyApp> {
                             .trim();
 
                         // Only admins can access admin USERS screen
-                        if (role != 'admin') return const DashboardScreen();
-                        return const AdminUsersScreen();
+                        if (role != 'admin')
+                          return const AppShell(initialRoute: '/dashboard');
+                        return const AppShell(initialRoute: '/admin-users');
                       },
                     ),
               ),
@@ -259,8 +266,9 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
 
-                        if (!hasDropoffAccess) return const DashboardScreen();
-                        return const DropoffUploadsScreen();
+                        if (!hasDropoffAccess)
+                          return const AppShell(initialRoute: '/dashboard');
+                        return const AppShell(initialRoute: '/dropoff-uploads');
                       },
                     ),
               ),
@@ -295,21 +303,20 @@ class _MyAppState extends State<MyApp> {
                             (data['capabilities']?['dropoffs'] == true);
 
                         // No access → back to dashboard
-                        if (!hasDropoffAccess) return const DashboardScreen();
-
-                        // Admins + Associates with capability land here
-                        return const ViewDropoffsScreen();
+                        if (!hasDropoffAccess)
+                          return const AppShell(initialRoute: '/dashboard');
+                        return const AppShell(initialRoute: '/view-dropoffs');
                       },
                     ),
               ),
             );
 
           default:
-            // Default protected landing
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) =>
-                  _AuthGate(builder: (_) => const DashboardScreen()),
+              builder: (_) => _AuthGate(
+                builder: (_) => const AppShell(initialRoute: '/dashboard'),
+              ),
             );
         }
       },
