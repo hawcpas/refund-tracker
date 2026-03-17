@@ -27,6 +27,21 @@ class _AppShellState extends State<AppShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   late String _currentRoute;
+  String? _dropoffDetailsId;
+
+  void _openDropoffDetails(String requestId) {
+    setState(() {
+      _dropoffDetailsId = requestId;
+      _currentRoute = '/dropoff-details';
+    });
+  }
+
+  void _closeDropoffDetails() {
+    setState(() {
+      _currentRoute = '/generate-upload-link';
+      _dropoffDetailsId = null;
+    });
+  }
 
   @override
   void initState() {
@@ -48,6 +63,8 @@ class _AppShellState extends State<AppShell> {
         return 'Client Upload Links';
       case '/admin-users':
         return 'Admin Console';
+      case '/dropoff-details':
+        return 'Upload Link Details';
       case '/dashboard':
       default:
         return 'Dashboard';
@@ -85,12 +102,10 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _navigate(String route) async {
-    // Close drawer first on mobile
     if (_scaffoldKey.currentState?.isDrawerOpen == true) {
       Navigator.pop(context);
     }
 
-    // Logout is an action, not a route
     if (route == '__logout__') {
       await _logout();
       return;
@@ -98,14 +113,17 @@ class _AppShellState extends State<AppShell> {
 
     if (route == _currentRoute) return;
 
-    // ✅ instantly update highlight + title for snappy enterprise feel
+    // ✅ Swap content only — do NOT touch Navigator
     setState(() => _currentRoute = route);
-
-    Navigator.of(context, rootNavigator: true).pushReplacementNamed(route);
   }
 
   Widget _buildContent() {
     switch (_currentRoute) {
+      case '/dropoff-details':
+        return DropoffDetailScreen(
+          requestId: _dropoffDetailsId!,
+          onBack: _closeDropoffDetails,
+        );
       case '/shared-files':
         return const SharedFilesScreen();
       case '/resources':
@@ -115,7 +133,7 @@ class _AppShellState extends State<AppShell> {
       case '/file-box':
         return const FileBoxScreen();
       case '/generate-upload-link':
-        return const GenerateUploadLinkScreen();
+        return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
         return const AdminUsersScreen();
       case '/dashboard':
@@ -136,11 +154,25 @@ class _AppShellState extends State<AppShell> {
 
     if (isMobileShell) {
       leading = IconButton(
-        icon: const Icon(Icons.menu),
-        onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        icon: Icon(
+          _currentRoute == '/dropoff-details' ? Icons.arrow_back : Icons.menu,
+        ),
+        onPressed: () {
+          if (_currentRoute == '/dropoff-details') {
+            _closeDropoffDetails();
+          } else {
+            _scaffoldKey.currentState?.openDrawer();
+          }
+        },
       );
     } else {
-      leading = null; // desktop doesn't need a leading button
+      // Optional: show back on desktop too
+      leading = _currentRoute == '/dropoff-details'
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: _closeDropoffDetails,
+            )
+          : null;
     }
 
     return Scaffold(
@@ -329,11 +361,4 @@ class _SidebarNav extends StatelessWidget {
       ),
     );
   }
-}
-
-void _navigate(BuildContext context, String route) {
-  final current = ModalRoute.of(context)?.settings.name;
-  if (current == route) return;
-
-  Navigator.of(context, rootNavigator: true).pushReplacementNamed(route);
 }

@@ -105,10 +105,13 @@ enum _DropoffSortField {
 }
 
 class GenerateUploadLinkScreen extends StatefulWidget {
-  const GenerateUploadLinkScreen({super.key});
+  final void Function(String requestId)? onOpenDetails;
+
+  const GenerateUploadLinkScreen({super.key, this.onOpenDetails});
 
   @override
-  State<GenerateUploadLinkScreen> createState() => _GenerateUploadLinkScreenState();
+  State<GenerateUploadLinkScreen> createState() =>
+      _GenerateUploadLinkScreenState();
 }
 
 class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
@@ -539,14 +542,18 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   db: _db,
                                   busy: _busy,
                                   onSelect: (rid) {
+                                    // ✅ Open detail INSIDE AppShell (keeps sidebar + AppBar)
+                                    if (widget.onOpenDetails != null) {
+                                      widget.onOpenDetails!(rid);
+                                      return;
+                                    }
+
+                                    // Fallback if used outside AppShell (optional safety)
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (_) => _DropoffDetailScreen(
-                                          requestId: rid,
-                                          onDownload: _downloadFile,
-                                          onDelete: _deleteDropoffRequest,
-                                        ),
+                                        builder: (_) =>
+                                            DropoffDetailScreen(requestId: rid),
                                       ),
                                     );
                                   },
@@ -1368,401 +1375,405 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
   }
 }
 
-class _DropoffDetailScreen extends StatelessWidget {
+class DropoffDetailScreen extends StatefulWidget {
   final String requestId;
+  final VoidCallback? onBack; // AppShell can provide this
 
-  final Future<void> Function({
+  const DropoffDetailScreen({super.key, required this.requestId, this.onBack});
+
+  @override
+  State<DropoffDetailScreen> createState() => _DropoffDetailScreenState();
+}
+
+class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
+  bool _busy = false;
+
+  Future<void> _downloadFile({
     required String storagePath,
     required String filename,
     String? contentType,
-  })
-  onDownload;
+  }) async {
+    setState(() => _busy = true);
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getDropoffDownloadUrl')
+          .call({
+            'storagePath': storagePath,
+            'filename': filename,
+            'contentType': (contentType ?? '').toString(),
+          });
 
-  final Future<void> Function(String requestId) onDelete;
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final url = (data['url'] ?? '').toString();
+      if (url.isEmpty) throw Exception('Could not generate download link.');
 
-  const _DropoffDetailScreen({
-    required this.requestId,
-    required this.onDownload,
-    required this.onDelete,
-  });
+      final uri = Uri.parse(url);
+
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Download ready'),
+          content: Text(filename),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await launchUrl(uri, webOnlyWindowName: '_self');
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Download'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteDropoffRequest(String requestId) async {
+    setState(() => _busy = true);
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('deleteDropoffRequest').call({'requestId': requestId});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Client upload link deleted.')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final db = FirebaseFirestore.instance;
     final theme = Theme.of(context);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Stack(
       children: [
-        CenteredSection(
-          maxWidth: 1100,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ✅ Page title (AppShell provides the top bar)
-              Text(
-                'Client Upload Link Details',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  color: const Color(0xFF101828),
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const SizedBox(height: 12),
+        ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            CenteredSection(
+              maxWidth: 1100,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ✅ Optional in-body back button (enterprise)
+                  if (widget.onBack != null) ...[
+                    TextButton.icon(
+                      onPressed: _busy ? null : widget.onBack,
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Back to Client Upload Links'),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
 
-              _WhiteCard(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: db
-                        .collection('dropoff_requests')
-                        .doc(requestId)
-                        .snapshots(),
-                    builder: (context, reqSnap) {
-                      if (reqSnap.hasError) {
-                        return Text(
-                          'Unable to load request details.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.red.shade700,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        );
-                      }
-                      if (!reqSnap.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 22),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
+                  Text(
+                    'Client Upload Link Details',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF101828),
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
 
-                      final reqData = reqSnap.data?.data() ?? {};
-                      final dropoffUrl = (reqData['url'] ?? '')
-                          .toString()
-                          .trim();
-                      final status = (reqData['status'] ?? 'open')
-                          .toString()
-                          .toLowerCase()
-                          .trim();
-                      final canDelete = status == 'open';
+                  _WhiteCard(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: db
+                            .collection('dropoff_requests')
+                            .doc(widget.requestId)
+                            .snapshots(),
+                        builder: (context, reqSnap) {
+                          if (!reqSnap.hasData) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 22),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
 
-                      final clientName = (reqData['clientName'] ?? '')
-                          .toString()
-                          .trim();
-                      final clientEmail = (reqData['clientEmail'] ?? '')
-                          .toString()
-                          .trim();
-                      final businessName = (reqData['businessName'] ?? '')
-                          .toString()
-                          .trim();
-                      final createdAt = reqData['createdAt'];
-                      final createdByUid = (reqData['createdByUid'] ?? '')
-                          .toString();
-                      final createdText = createdAt is Timestamp
-                          ? formatDateTimeCompact(createdAt.toDate())
-                          : '';
+                          final reqData = reqSnap.data?.data() ?? {};
+                          final dropoffUrl = (reqData['url'] ?? '')
+                              .toString()
+                              .trim();
+                          final status = (reqData['status'] ?? 'open')
+                              .toString()
+                              .toLowerCase()
+                              .trim();
+                          final canDelete = status == 'open';
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
+                          final clientName = (reqData['clientName'] ?? '')
+                              .toString()
+                              .trim();
+                          final clientEmail = (reqData['clientEmail'] ?? '')
+                              .toString()
+                              .trim();
+                          final businessName = (reqData['businessName'] ?? '')
+                              .toString()
+                              .trim();
+                          final createdAt = reqData['createdAt'];
+                          final createdByUid = (reqData['createdByUid'] ?? '')
+                              .toString();
+                          final createdText = createdAt is Timestamp
+                              ? formatDateTimeCompact(createdAt.toDate())
+                              : '';
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  'Upload Link Information',
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: const Color(0xFF101828),
-                                    height: 1.05,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                              ),
-                              _StatusPill(status: status),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Divider(
-                            color: Colors.black.withOpacity(0.06),
-                            height: 1,
-                          ),
-                          const SizedBox(height: 12),
-
-                          if (clientName.isNotEmpty ||
-                              businessName.isNotEmpty ||
-                              clientEmail.isNotEmpty ||
-                              createdText.isNotEmpty ||
-                              createdByUid.isNotEmpty)
-                            _WhiteInset(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (clientName.isNotEmpty)
-                                    _KeyValueRow(
-                                      label: 'Client',
-                                      value: clientName,
-                                    ),
-                                  if (businessName.isNotEmpty)
-                                    _KeyValueRow(
-                                      label: 'Business',
-                                      value: businessName,
-                                    ),
-                                  if (clientEmail.isNotEmpty)
-                                    _KeyValueRow(
-                                      label: 'Email',
-                                      value: clientEmail,
-                                    ),
-                                  if (createdText.isNotEmpty)
-                                    _KeyValueRow(
-                                      label: 'Created',
-                                      value: createdText,
-                                    ),
-                                  if (createdByUid.isNotEmpty)
-                                    FutureBuilder<String>(
-                                      future: _resolveCreatedByName(
-                                        createdByUid,
-                                      ),
-                                      builder: (context, snap) {
-                                        if (!snap.hasData) {
-                                          return const _KeyValueRow(
-                                            label: 'Created by',
-                                            value: 'Loading…',
-                                          );
-                                        }
-                                        return _KeyValueRow(
-                                          label: 'Created by',
-                                          value: snap.data!,
-                                        );
-                                      },
-                                    ),
-                                ],
-                              ),
-                            ),
-
-                          if (clientName.isNotEmpty ||
-                              clientEmail.isNotEmpty ||
-                              createdText.isNotEmpty)
-                            const SizedBox(height: 12),
-
-                          if (dropoffUrl.isNotEmpty) ...[
-                            _SectionHeader(
-                              title: 'Access link',
-                              subtitle:
-                                  'Share this link to allow clients to submit documents securely.',
-                            ),
-                            const SizedBox(height: 8),
-                            _WhiteInset(
-                              child: Row(
+                              Row(
                                 children: [
                                   Expanded(
-                                    child: SelectableText(
-                                      dropoffUrl,
-                                      style: theme.textTheme.bodySmall
+                                    child: Text(
+                                      'Upload Link Information',
+                                      style: theme.textTheme.titleLarge
                                           ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            color: const Color(0xFF475467),
-                                            height: 1.2,
+                                            fontWeight: FontWeight.w800,
+                                            color: const Color(0xFF101828),
                                           ),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Tooltip(
-                                    message: 'Copy link',
-                                    child: IconButton(
-                                      constraints:
-                                          const BoxConstraints.tightFor(
-                                            width: 36,
-                                            height: 36,
-                                          ),
-                                      icon: const Icon(Icons.copy, size: 18),
-                                      onPressed: () async {
-                                        await Clipboard.setData(
-                                          ClipboardData(text: dropoffUrl),
-                                        );
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Link copied to clipboard.',
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
+                                  _StatusPill(status: status),
                                 ],
                               ),
-                            ),
-                            const SizedBox(height: 14),
-                          ],
+                              const SizedBox(height: 10),
+                              Divider(
+                                color: Colors.black.withOpacity(0.06),
+                                height: 1,
+                              ),
+                              const SizedBox(height: 12),
 
-                          const _SectionHeader(title: 'Uploads'),
-                          const SizedBox(height: 8),
-
-                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                            stream: db
-                                .collection('dropoff_requests')
-                                .doc(requestId)
-                                .collection('files')
-                                .orderBy('createdAt', descending: true)
-                                .snapshots(),
-                            builder: (context, snap) {
-                              if (snap.hasError) {
-                                return const _InlineMessage(
-                                  text: 'Unable to load uploads.',
-                                  tone: _InlineTone.error,
-                                );
-                              }
-                              if (!snap.hasData) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                );
-                              }
-
-                              final docs = snap.data!.docs;
-                              if (docs.isEmpty) {
-                                return const _InlineMessage(
-                                  text: 'No uploads have been received.',
-                                  tone: _InlineTone.neutral,
-                                );
-                              }
-
-                              return _WhiteInset(
-                                padding: EdgeInsets.zero,
+                              _WhiteInset(
                                 child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    for (int i = 0; i < docs.length; i++) ...[
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                        ),
-                                        child: _FileRow(
-                                          data: docs[i].data(),
-                                          onDownload:
-                                              (path, name, contentType) =>
-                                                  onDownload(
-                                                    storagePath: path,
-                                                    filename: name,
-                                                    contentType: contentType,
-                                                  ),
-                                        ),
+                                    if (clientName.isNotEmpty)
+                                      _KeyValueRow(
+                                        label: 'Client',
+                                        value: clientName,
                                       ),
-                                      if (i != docs.length - 1)
-                                        Divider(
-                                          color: Colors.black.withOpacity(0.06),
-                                          height: 1,
+                                    if (businessName.isNotEmpty)
+                                      _KeyValueRow(
+                                        label: 'Business',
+                                        value: businessName,
+                                      ),
+                                    if (clientEmail.isNotEmpty)
+                                      _KeyValueRow(
+                                        label: 'Email',
+                                        value: clientEmail,
+                                      ),
+                                    if (createdText.isNotEmpty)
+                                      _KeyValueRow(
+                                        label: 'Created',
+                                        value: createdText,
+                                      ),
+                                    if (createdByUid.isNotEmpty)
+                                      FutureBuilder<String>(
+                                        future: _resolveCreatedByName(
+                                          createdByUid,
                                         ),
-                                    ],
+                                        builder: (context, snap) =>
+                                            _KeyValueRow(
+                                              label: 'Created by',
+                                              value: snap.data ?? 'Loading…',
+                                            ),
+                                      ),
                                   ],
                                 ),
-                              );
-                            },
-                          ),
+                              ),
 
-                          const SizedBox(height: 16),
+                              if (dropoffUrl.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                const _SectionHeader(
+                                  title: 'Access link',
+                                  subtitle:
+                                      'Share this link to allow clients to submit documents securely.',
+                                ),
+                                const SizedBox(height: 8),
+                                _WhiteInset(
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: SelectableText(dropoffUrl),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.copy, size: 18),
+                                        onPressed: () async {
+                                          await Clipboard.setData(
+                                            ClipboardData(text: dropoffUrl),
+                                          );
+                                          if (!context.mounted) return;
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Link copied to clipboard.',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
 
-                          if (canDelete) ...[
-                            Divider(
-                              color: Colors.black.withOpacity(0.06),
-                              height: 1,
-                            ),
-                            const SizedBox(height: 12),
+                              const SizedBox(height: 14),
+                              const _SectionHeader(title: 'Uploads'),
+                              const SizedBox(height: 8),
 
-                            const SizedBox(height: 10),
+                              StreamBuilder<
+                                QuerySnapshot<Map<String, dynamic>>
+                              >(
+                                stream: db
+                                    .collection('dropoff_requests')
+                                    .doc(widget.requestId)
+                                    .collection('files')
+                                    .orderBy('createdAt', descending: true)
+                                    .snapshots(),
+                                builder: (context, snap) {
+                                  if (!snap.hasData) {
+                                    return const Center(
+                                      child: CircularProgressIndicator(),
+                                    );
+                                  }
+                                  final docs = snap.data!.docs;
+                                  if (docs.isEmpty) {
+                                    return const _InlineMessage(
+                                      text: 'No uploads have been received.',
+                                      tone: _InlineTone.neutral,
+                                    );
+                                  }
 
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: IntrinsicWidth(
-                                child: SizedBox(
+                                  return _WhiteInset(
+                                    padding: EdgeInsets.zero,
+                                    child: Column(
+                                      children: [
+                                        for (
+                                          int i = 0;
+                                          i < docs.length;
+                                          i++
+                                        ) ...[
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                            ),
+                                            child: _FileRow(
+                                              data: docs[i].data(),
+                                              onDownload: (path, name, type) =>
+                                                  _downloadFile(
+                                                    storagePath: path,
+                                                    filename: name,
+                                                    contentType: type,
+                                                  ),
+                                            ),
+                                          ),
+                                          if (i != docs.length - 1)
+                                            Divider(
+                                              color: Colors.black.withOpacity(
+                                                0.06,
+                                              ),
+                                              height: 1,
+                                            ),
+                                        ],
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+
+                              if (canDelete) ...[
+                                const SizedBox(height: 16),
+                                Divider(
+                                  color: Colors.black.withOpacity(0.06),
+                                  height: 1,
+                                ),
+                                const SizedBox(height: 12),
+
+                                SizedBox(
                                   height: 44,
                                   child: OutlinedButton.icon(
                                     icon: const Icon(
                                       Icons.delete_outline,
                                       color: Colors.red,
                                     ),
-                                    label: const Text(
-                                      'Delete Upload Link',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                      side: const BorderSide(color: Colors.red),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                      ),
-                                    ),
-                                    onPressed: () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (ctx) => AlertDialog(
-                                          title: const Text('Delete request'),
-                                          content: const Text(
-                                            'Deleting this request will permanently remove all associated uploads. '
-                                            'This action is irreversible.',
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(ctx, false),
-                                              child: const Text('Cancel'),
-                                            ),
-                                            FilledButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(ctx, true),
-                                              child: const Text('Delete'),
-                                            ),
-                                          ],
-                                        ),
-                                      );
+                                    label: const Text('Delete Upload Link'),
+                                    onPressed: _busy
+                                        ? null
+                                        : () async {
+                                            final confirm = await showDialog<bool>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: const Text(
+                                                  'Delete request',
+                                                ),
+                                                content: const Text(
+                                                  'Deleting this request will permanently remove all associated uploads. '
+                                                  'This action is irreversible.',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          ctx,
+                                                          false,
+                                                        ),
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          ctx,
+                                                          true,
+                                                        ),
+                                                    child: const Text('Delete'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
 
-                                      if (confirm != true) return;
-                                      await onDelete(requestId);
-                                      if (!context.mounted) return;
-                                      Navigator.pop(context);
-                                    },
+                                            if (confirm != true) return;
+                                            await _deleteDropoffRequest(
+                                              widget.requestId,
+                                            );
+
+                                            // ✅ If inside AppShell, go back through callback
+                                            widget.onBack?.call();
+                                          },
                                   ),
                                 ),
-                              ),
-                            ),
-
-                            const SizedBox(height: 10),
-
-                            Text(
-                              'Deleted requests are permanently removed and cannot be recovered.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF667085),
-                                fontWeight: FontWeight.w600,
-                                height: 1.25,
-                              ),
-                            ),
-                          ],
-                        ],
-                      );
-                    },
+                              ],
+                            ],
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+
+        if (_busy)
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
       ],
     );
-  }
-
-  String _formatDate(DateTime dt) {
-    return '${dt.month.toString().padLeft(2, '0')}/'
-        '${dt.day.toString().padLeft(2, '0')}/'
-        '${dt.year}';
   }
 
   Future<String> _resolveCreatedByName(String uid) async {
@@ -1771,24 +1782,16 @@ class _DropoffDetailScreen extends StatelessWidget {
           .collection('users')
           .doc(uid)
           .get();
-
       final data = snap.data();
       if (data == null) return '—';
-
-      // Prefer full name if available
       final first = (data['firstName'] ?? '').toString().trim();
       final last = (data['lastName'] ?? '').toString().trim();
-      final fullName = ('$first $last').trim();
-
-      if (fullName.isNotEmpty) return fullName;
-
-      // Fallbacks
-      final displayName = (data['displayName'] ?? '').toString().trim();
-      if (displayName.isNotEmpty) return displayName;
-
+      final full = ('$first $last').trim();
+      if (full.isNotEmpty) return full;
+      final dn = (data['displayName'] ?? '').toString().trim();
+      if (dn.isNotEmpty) return dn;
       final email = (data['email'] ?? '').toString().trim();
       if (email.isNotEmpty) return email;
-
       return '—';
     } catch (_) {
       return '—';
