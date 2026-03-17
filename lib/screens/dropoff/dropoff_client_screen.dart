@@ -83,7 +83,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   }
 
   static const String _closedMsg =
-      'This secure upload request has been closed. If you need to submit files, please request a new link.';
+  'This upload link is no longer available. If you need to submit documents, please request a new link.';
 
   bool _isCompact(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
@@ -94,7 +94,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     if (e is FirebaseFunctionsException) {
       switch (e.code) {
         case 'failed-precondition':
-          return 'This secure upload request has been closed. If you need to submit files, please request a new link.';
+          return _closedMsg;
         case 'permission-denied':
           return 'You do not have permission to upload to this link.';
         case 'unauthenticated':
@@ -232,7 +232,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
 
       if (user == null) {
-        throw Exception('Could not start secure upload session.');
+        throw Exception('Unable to start your upload session. Please refresh the page and try again.');
       }
 
       final res = await _functions
@@ -839,7 +839,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Secure document upload',
+                                          'Upload documents',
                                           style: theme.textTheme.titleLarge
                                               ?.copyWith(
                                                 fontWeight: FontWeight.w800,
@@ -1026,7 +1026,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                               const SizedBox(height: 12),
                               Text(
-                                'Files are uploaded securely. You can add more files, remove items, then upload when ready.',
+                                'Files are transmitted over an encrypted connection.',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: const Color(0xFF667085),
                                   fontWeight: FontWeight.w600,
@@ -1045,7 +1045,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                         // ✅ Small label under card (OTP-like)
                         Text(
-                          'Axume & Associates CPAs – Secure Upload Portal',
+                          'Axume & Associates CPAs — Upload Portal',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: const Color(0xFF667085),
@@ -1097,7 +1097,7 @@ class _VerifiedLinkPill extends StatelessWidget {
 
     return const _Pill(
       icon: Icon(Icons.verified_user, size: 16),
-      text: 'Verified secure link',
+      text: 'Link verified',
       bg: Color(0xFFECFDF3),
       fg: Color(0xFF067647),
       border: Color(0xFFABEFC6),
@@ -1757,7 +1757,7 @@ class _DropoffBrandHeader extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Secure Upload Link',
+            'Axume & Associates CPAs — Secure Upload Link',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w900,
               color: const Color(0xFF101828),
