@@ -104,6 +104,8 @@ enum _DropoffSortField {
   status,
 }
 
+enum _LinksView { active, archived }
+
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
 
@@ -622,6 +624,8 @@ class _RequestsListState extends State<_RequestsList> {
   // Multi-select
   final Set<String> _selected = {};
 
+  _LinksView _view = _LinksView.active;
+
   // Sorting (local sort to avoid new indexes)
   _DropoffSortField _sortField = _DropoffSortField.createdAt;
   bool _sortAsc = false;
@@ -678,11 +682,24 @@ class _RequestsListState extends State<_RequestsList> {
 
     final uid = FirebaseAuth.instance.currentUser!.uid;
 
-    final query = widget.db
-        .collection('dropoff_requests')
-        .where('createdByUid', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
-        .limit(100);
+    final isArchivedView = _view == _LinksView.archived;
+
+    final Query<Map<String, dynamic>> query = isArchivedView
+        ? widget.db
+              .collection('dropoff_requests')
+              .where('createdByUid', isEqualTo: uid)
+              .where('status', isEqualTo: 'deleted')
+              .orderBy(
+                'deletedAt',
+                descending: true,
+              ) // best: shows recently archived first
+              .limit(100)
+        : widget.db
+              .collection('dropoff_requests')
+              .where('createdByUid', isEqualTo: uid)
+              .where('status', whereIn: ['open', 'closed'])
+              .orderBy('createdAt', descending: true)
+              .limit(100);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
@@ -706,6 +723,43 @@ class _RequestsListState extends State<_RequestsList> {
               fontWeight: FontWeight.w500,
             ),
           ),
+          const SizedBox(height: 12),
+
+          const SizedBox(height: 12),
+
+          // ✅ Active / Archived toggle (enterprise pill switch)
+          Wrap(
+            spacing: 10,
+            children: [
+              ChoiceChip(
+                label: const Text('Active'),
+                selected: _view == _LinksView.active,
+                onSelected: (v) {
+                  if (!v) return;
+                  setState(() {
+                    _view = _LinksView.active;
+                    _selected.clear();
+                    _q = '';
+                    _searchCtrl.clear();
+                  });
+                },
+              ),
+              ChoiceChip(
+                label: const Text('Archived'),
+                selected: _view == _LinksView.archived,
+                onSelected: (v) {
+                  if (!v) return;
+                  setState(() {
+                    _view = _LinksView.archived;
+                    _selected.clear();
+                    _q = '';
+                    _searchCtrl.clear();
+                  });
+                },
+              ),
+            ],
+          ),
+
           const SizedBox(height: 12),
 
           // Search bar
@@ -801,7 +855,7 @@ class _RequestsListState extends State<_RequestsList> {
               ),
               const Spacer(),
 
-              if (_selected.isNotEmpty) ...[
+              if (_view == _LinksView.active && _selected.isNotEmpty) ...[
                 Text(
                   '${_selected.length} selected',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -902,6 +956,7 @@ class _RequestsListState extends State<_RequestsList> {
                   final name = (data['clientName'] ?? '').toString();
                   final url = (data['url'] ?? '').toString();
                   final status = (data['status'] ?? 'open').toString();
+                  final isArchived = status.toLowerCase().trim() == 'deleted';
                   final businessName = (data['businessName'] ?? '').toString();
 
                   final fileCount = (data['fileCount'] is num)
@@ -1065,6 +1120,8 @@ class _RequestsListState extends State<_RequestsList> {
 
                           return _DenseRequestRow(
                             busy: widget.busy,
+                            archived:
+                                r.status.toLowerCase().trim() == 'deleted',
                             selected: selected,
                             onSelected: (v) {
                               setState(() {
@@ -1131,6 +1188,7 @@ class _DropoffRowModel {
 class _DenseRequestRow extends StatefulWidget {
   final bool busy;
   final bool selected;
+  final bool archived;
   final ValueChanged<bool> onSelected;
 
   final VoidCallback onTap;
@@ -1148,6 +1206,7 @@ class _DenseRequestRow extends StatefulWidget {
 
   const _DenseRequestRow({
     required this.busy,
+    required this.archived,
     required this.selected,
     required this.onSelected,
     required this.onTap,
@@ -1181,6 +1240,8 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
     final statusLower = widget.status.toLowerCase().trim();
     final isOpen = statusLower == 'open';
 
+    final isArchived = widget.archived;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -1203,7 +1264,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
               children: [
                 Checkbox(
                   value: widget.selected,
-                  onChanged: widget.busy
+                  onChanged: (widget.busy || isArchived)
                       ? null
                       : (v) => widget.onSelected(v ?? false),
                 ),
@@ -1314,7 +1375,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                     width: 34,
                     height: 34,
                   ),
-                  onPressed: widget.busy || widget.url.isEmpty
+                  onPressed: (widget.busy || isArchived || widget.url.isEmpty)
                       ? null
                       : () async {
                           await Clipboard.setData(
@@ -1358,10 +1419,13 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           value: 'view',
                           child: Text('View details'),
                         ),
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: Text(isOpen ? 'Disable link' : 'Enable link'),
-                        ),
+                        if (!isArchived)
+                          PopupMenuItem(
+                            value: 'toggle',
+                            child: Text(
+                              isOpen ? 'Disable link' : 'Enable link',
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -2153,6 +2217,8 @@ Color _statusAccent(String statusLower) {
       return Colors.green.shade700;
     case 'closed':
       return Colors.red.shade700;
+    case 'deleted':
+      return Colors.grey.shade600; // ✅ archived
     case 'expired':
       return Colors.red.shade900;
     default:

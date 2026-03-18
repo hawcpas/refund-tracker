@@ -2094,20 +2094,15 @@ exports.deleteDropoffRequest = onCall(
       throw new HttpsError("permission-denied", "Not allowed to delete this request.");
     }
 
-    // Delete storage files listed in subcollection
-    const filesSnap = await ref.collection("files").get();
-    for (const doc of filesSnap.docs) {
-      const path = doc.data().storagePath;
-      if (path) {
-        await bucket.file(path).delete().catch(() => { });
-      }
-    }
-
-    // Delete subcollection docs + request doc
-    const batch = db.batch();
-    filesSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(ref);
-    await batch.commit();
+    // ✅ Soft-delete the drop-off request (archive only)
+    await ref.set(
+      {
+        status: "deleted",
+        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedBy: auth.uid,
+      },
+      { merge: true }
+    );
 
     // Optional: audit log
     await db.collection("auditLogs").add({
