@@ -877,20 +877,20 @@ exports.finalizeDropoffUpload = onCall(
     const fileId = db.collection("_tmp").doc().id;
 
     await ref.collection("files").doc(fileId).set({
-      // existing fields
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       originalName: file.originalName || "",
       storagePath: file.storagePath || "",
       sizeBytes: file.sizeBytes || 0,
       contentType: file.contentType || "",
+
+      // ✅ REQUIRED so File Box query where deleted==false returns the doc
+      deleted: false,
+
       uploadedBy: { type: "client", name: requestClientName },
 
-      // existing visibility fields
       requestId: rid,
       requestCreatedByUid,
       requestCreatedByRole,
-
-      // ✅ NEW: columns for DropoffUploadsScreen
       requestCreatedByName: requestCreatedByName || "",
       requestCreatedByEmail: requestCreatedByEmail || "",
       requestBusinessName: requestBusinessName || "",
@@ -906,8 +906,115 @@ exports.finalizeDropoffUpload = onCall(
       },
       { merge: true }
     );
+    // ============================
+    // ✅ AUDIT: record client upload activity (append-only)
+    // ============================
+    try {
+      // Best-effort request context (privacy-safe)
+      const raw = request.rawRequest;
+      const ua = (raw && raw.headers && raw.headers["user-agent"]) ? String(raw.headers["user-agent"]) : "";
+      const xff = (raw && raw.headers && raw.headers["x-forwarded-for"]) ? String(raw.headers["x-forwarded-for"]) : "";
+      const ip = (xff.split(",")[0] || (raw && raw.ip) || "").toString().trim();
+      const ipHash = ip ? sha256(ip) : "";
 
+      await db.collection("file_activity").add({
+        // Identifiers
+        fileId,
+        requestId: rid,
+        fileDocPath: `dropoff_requests/${rid}/files/${fileId}`,
+
+        // What happened
+        action: "upload", // upload | view | download
+        occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+
+        // Actor (client-only for this event)
+        actorType: "client",
+        actorUid: null,
+        actorName: requestClientName || "Client",
+        actorEmail: requestClientEmail || "",
+
+        // Context (helps UI + rules)
+        requestCreatedByUid: requestCreatedByUid || "",
+        requestCreatedByRole: requestCreatedByRole || "unknown",
+        requestCreatedByName: requestCreatedByName || "",
+        requestBusinessName: requestBusinessName || "",
+
+        // File snapshot (useful for audits/reports)
+        originalName: file.originalName || "",
+        storagePath: file.storagePath || "",
+        sizeBytes: file.sizeBytes || 0,
+        contentType: file.contentType || "",
+
+        // Privacy-safe telemetry (optional but useful)
+        ipHash,
+        userAgent: ua,
+      });
+    } catch (e) {
+      console.error("file_activity upload log failed (non-blocking):", e);
+    }
     return { ok: true, fileId };
+  }
+);
+
+// ============================
+// file_activity -> denormalize last activity onto file metadata doc
+// ============================
+exports.syncFileLastActivity = onDocumentCreated(
+  {
+    region: "us-central1",
+    document: "file_activity/{eventId}",
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const e = snap.data() || {};
+    const requestId = String(e.requestId || "").trim();
+    const fileId = String(e.fileId || "").trim();
+    if (!requestId || !fileId) return;
+
+    const action = String(e.action || "").toLowerCase().trim();
+    const actorName = String(e.actorName || "").trim();
+    const actorType = String(e.actorType || "").toLowerCase().trim();
+    const surface = String(e.surface || "").toLowerCase().trim();
+
+    // occurredAt is serverTimestamp; at trigger time it should usually be a Timestamp
+    const occurredAt =
+      e.occurredAt && typeof e.occurredAt.toMillis === "function"
+        ? e.occurredAt
+        : admin.firestore.Timestamp.now();
+
+    const fileRef = db
+      .collection("dropoff_requests")
+      .doc(requestId)
+      .collection("files")
+      .doc(fileId);
+
+    await db.runTransaction(async (tx) => {
+      const fileSnap = await tx.get(fileRef);
+      if (!fileSnap.exists) return;
+
+      const cur = fileSnap.data() || {};
+      const curTs = cur.lastActivityAt;
+      const curMs = curTs && typeof curTs.toMillis === "function" ? curTs.toMillis() : 0;
+      const newMs = occurredAt.toMillis();
+
+      // Only update if this event is newer than what we already stored
+      if (newMs >= curMs) {
+        tx.set(
+          fileRef,
+          {
+            lastActivityAt: occurredAt,
+            lastActivityAction: action || "unknown",
+            lastActivityActorName: actorName || "—",
+            lastActivityActorType: actorType || "unknown",
+            lastActivitySurface: surface || null,
+            lastActivityEventId: snap.id,
+          },
+          { merge: true }
+        );
+      }
+    });
   }
 );
 
@@ -1780,6 +1887,62 @@ exports.getAdminDownloadUrl = onCall(
   }
 );
 
+exports.softDeleteUploadFile = onCall(
+  { region: "us-central1" },
+  async ({ auth, data }) => {
+    if (!auth) {
+      throw new HttpsError("unauthenticated", "Sign-in required.");
+    }
+
+    const docPath = String(data?.docPath || "").trim();
+    if (!docPath) {
+      throw new HttpsError("invalid-argument", "docPath is required.");
+    }
+
+    const fileRef = admin.firestore().doc(docPath);
+    const snap = await fileRef.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "File not found.");
+    }
+
+    const file = snap.data();
+    const requestId = file.requestId;
+    const storagePath = file.storagePath || "";
+
+    // Optional: delete storage object
+    if (storagePath) {
+      try {
+        await admin.storage().bucket().file(storagePath).delete();
+      } catch (_) {
+        // ignore if already gone
+      }
+    }
+
+    await fileRef.set(
+      {
+        deleted: true,
+        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+        deletedByUid: auth.uid,
+        deletedByRole: auth.token?.role || "unknown",
+      },
+      { merge: true }
+    );
+
+    // ✅ Audit log
+    await admin.firestore().collection("file_activity").add({
+      action: "delete",
+      requestId,
+      fileId: fileRef.id,
+      actorUid: auth.uid,
+      actorType: auth.token?.role || "unknown",
+      actorEmail: auth.token?.email || "",
+      occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true };
+  }
+);
+
 exports.getDropoffDownloadUrl = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -1794,6 +1957,10 @@ exports.getDropoffDownloadUrl = onCall(
     const rawFilename = (data?.filename ?? "").toString().trim();
     const contentType = (data?.contentType ?? "").toString().trim();
 
+    // ✅ NEW: optionally supplied by the app for stronger validation
+    const requestIdFromData = (data?.requestId ?? "").toString().trim();
+    const fileIdFromData = (data?.fileId ?? "").toString().trim();
+
     if (!storagePath || !rawFilename) {
       throw new HttpsError(
         "invalid-argument",
@@ -1801,12 +1968,20 @@ exports.getDropoffDownloadUrl = onCall(
       );
     }
 
-    // ✅ Extract requestId from: dropoffs/{requestId}/...
+    // ✅ Extract requestId from: dropoff_uploads/{requestId}/...
     const parts = storagePath.split("/");
-    const requestId = parts.length >= 2 ? parts[1] : null;
+    const requestIdFromPath = parts.length >= 2 ? parts[1] : "";
+
+    // Prefer explicit requestId if provided; otherwise use path-derived
+    const requestId = requestIdFromData || requestIdFromPath;
 
     if (!requestId) {
       throw new HttpsError("invalid-argument", "Invalid storage path.");
+    }
+
+    // ✅ NEW: if both are present they must match (prevents cross-request abuse)
+    if (requestIdFromData && requestIdFromPath && requestIdFromData !== requestIdFromPath) {
+      throw new HttpsError("invalid-argument", "requestId mismatch.");
     }
 
     // ✅ Load dropoff request
@@ -1842,6 +2017,44 @@ exports.getDropoffDownloadUrl = onCall(
       );
     }
 
+    // ============================
+    // ✅ NEW: Server-side "deleted" guard (enterprise-grade)
+    // ============================
+    // If the caller provides fileId, verify metadata and block deleted files.
+    if (fileIdFromData) {
+      const fileSnap = await admin
+        .firestore()
+        .collection("dropoff_requests")
+        .doc(requestId)
+        .collection("files")
+        .doc(fileIdFromData)
+        .get();
+
+      if (!fileSnap.exists) {
+        throw new HttpsError("not-found", "File metadata not found.");
+      }
+
+      const fileMeta = fileSnap.data() || {};
+
+      // If file is marked deleted -> block download immediately
+      if (fileMeta.deleted === true) {
+        throw new HttpsError(
+          "failed-precondition",
+          "This file was deleted and is no longer available for download."
+        );
+      }
+
+      // Optional hardening: ensure the storagePath matches the file record
+      const metaPath = (fileMeta.storagePath || "").toString().trim();
+      if (metaPath && metaPath !== storagePath) {
+        throw new HttpsError(
+          "invalid-argument",
+          "storagePath does not match the file record."
+        );
+      }
+    }
+
+    // ✅ Generate signed URL
     const safeName = safeFilename(rawFilename);
     const bucket = admin.storage().bucket();
     const file = bucket.file(storagePath);
@@ -1864,6 +2077,80 @@ exports.getDropoffDownloadUrl = onCall(
     return { ok: true, url };
   }
 );
+
+// ============================
+// logFileActivity (admin OR owner) — append-only audit trail
+// action: 'view' (details/history), 'download' (optional later)
+// ============================
+exports.logFileActivity = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    // Must have dropoff access capability (same gate as dropoff module)
+    await assertDropoffAccess(auth.uid);
+
+    const requestId = (data?.requestId || "").toString().trim();
+    const fileId = (data?.fileId || "").toString().trim();
+    const action = (data?.action || "view").toString().toLowerCase().trim(); // view | download
+    const surface = (data?.surface || "").toString().toLowerCase().trim();   // details | history
+
+    if (!requestId || !fileId) {
+      throw new HttpsError("invalid-argument", "requestId and fileId are required.");
+    }
+    if (!["view", "download"].includes(action)) {
+      throw new HttpsError("invalid-argument", "action must be 'view' or 'download'.");
+    }
+
+    // Load dropoff request
+    const db = admin.firestore();
+    const reqSnap = await db.collection("dropoff_requests").doc(requestId).get();
+    if (!reqSnap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+    const req = reqSnap.data() || {};
+    const ownerUid = (req.createdByUid || "").toString().trim();
+
+    // Determine caller role
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = (caller.role || "").toString().toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isOwner = ownerUid && ownerUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to view activity for this request.");
+    }
+
+    // Actor display info
+    const first = (caller.firstName || "").toString().trim();
+    const last = (caller.lastName || "").toString().trim();
+    const dn = (caller.displayName || "").toString().trim();
+    const actorName = (first || last) ? `${first} ${last}`.trim() : dn;
+    const actorEmail = (caller.email || auth.token?.email || "").toString().trim();
+
+    // Append-only event
+    await db.collection("file_activity").add({
+      requestId,
+      fileId,
+      action,
+      surface: surface || null,
+
+      actorType: role || "unknown", // admin | associate | unknown
+      actorUid: auth.uid,
+      actorName: actorName || actorEmail || "—",
+      actorEmail: actorEmail || "",
+
+      // Useful context (helps filtering / reporting)
+      requestCreatedByUid: ownerUid || "",
+      requestCreatedByRole: (req.createdByRole || '').toString().toLowerCase(),
+      occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true };
+  }
+);
+
 
 // ============================
 // deleteDropoffUploadsBatch (admin-only)
