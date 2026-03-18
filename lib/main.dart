@@ -362,9 +362,9 @@ class _AuthGate extends StatelessWidget {
         if (user == null) return const LoginScreen();
         if (!user.emailVerified) return const VerifyEmailScreen();
 
-        // 🔐 OTP enforcement: check custom claim
         return FutureBuilder<IdTokenResult>(
-          future: user.getIdTokenResult(),
+          // 🔐 CRITICAL: force refresh so OTP claim is authoritative
+          future: user.getIdTokenResult(true),
           builder: (context, tokenSnap) {
             if (tokenSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -373,12 +373,21 @@ class _AuthGate extends StatelessWidget {
             }
 
             final claims = tokenSnap.data?.claims ?? {};
-            final otpOk = claims['otp_verified'] == true;
+            final otpVerified = claims['otp_verified'] == true;
 
-            if (!otpOk) {
-              return OtpVerifyScreen(nextRoute: requestedRoute);
+            // ✅ If someone deep-links to an admin route before OTP is verified,
+            // force the post-OTP route to a safe destination.
+            final isProtected = requestedRoute.startsWith('/admin');
+            final safeRoute = (isProtected && !otpVerified)
+                ? '/dashboard'
+                : requestedRoute;
+
+            // ✅ HARD STOP: never render protected UI until OTP verified
+            if (!otpVerified) {
+              return OtpVerifyScreen(nextRoute: safeRoute);
             }
 
+            // ✅ OTP verified → allow the requested screen
             return builder(user);
           },
         );

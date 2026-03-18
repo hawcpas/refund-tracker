@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/services.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String? nextRoute;
@@ -21,10 +22,27 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   static const int _cooldownSeconds = 60;
   int _remainingSeconds = 0;
   Timer? _timer;
+  VoidCallback? _textListener;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _textListener = () {
+      if (!mounted) return;
+      // Rebuild so the button enabled state updates immediately on iOS
+      setState(() {});
+    };
+
+    _controller.addListener(_textListener!);
+  }
 
   @override
   void dispose() {
     _timer?.cancel();
+    if (_textListener != null) {
+      _controller.removeListener(_textListener!);
+    }
     _controller.dispose();
     super.dispose();
   }
@@ -191,6 +209,14 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                     controller: _controller,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
+
+                    autofillHints: const [AutofillHints.oneTimeCode],
+
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+
                     onChanged: (_) {
                       if (_error != null) {
                         setState(() => _error = null);
