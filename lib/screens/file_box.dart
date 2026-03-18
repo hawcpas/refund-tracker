@@ -75,12 +75,14 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     _uploadsStream = isAdmin
         ? FirebaseFirestore.instance
               .collectionGroup('files')
+              .where('deleted', isEqualTo: false) // ✅ HIDE deleted at source
               .orderBy('createdAt', descending: true)
               .limit(500)
               .snapshots()
         : FirebaseFirestore.instance
               .collectionGroup('files')
               .where('requestCreatedByRole', isEqualTo: 'associate')
+              .where('deleted', isEqualTo: false) // ✅ HIDE deleted at source
               .orderBy('createdAt', descending: true)
               .limit(500)
               .snapshots();
@@ -155,6 +157,8 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     required String storagePath,
     required String filename,
     String? contentType,
+    String? requestId,
+    String? fileId,
   }) async {
     if (storagePath.trim().isEmpty) return;
 
@@ -168,6 +172,8 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
             'storagePath': storagePath,
             'filename': filename,
             'contentType': (contentType ?? '').toString(),
+            'requestId': (requestId ?? '').toString(),
+            'fileId': (fileId ?? '').toString(),
           });
 
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -224,6 +230,179 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _logFileView({
+    required _UploadDoc doc,
+    required String surface, // 'details' or 'history'
+  }) async {
+    try {
+      final requestId = (doc.data['requestId'] ?? '').toString().trim();
+      if (requestId.isEmpty) return;
+
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('logFileActivity').call({
+        'requestId': requestId,
+        'fileId': doc.id,
+        'action': 'view',
+        'surface': surface,
+      });
+    } catch (_) {
+      // Best-effort only: never block UI for logging
+    }
+  }
+
+  Future<void> _showActivityHistoryDialog({required _UploadDoc doc}) async {
+    if (_role != 'admin') return;
+    await _logFileView(doc: doc, surface: 'history');
+    final m = doc.data;
+    final requestId = (m['requestId'] ?? '').toString().trim();
+
+    // Query: events for this file (requires an index: fileId + occurredAt)
+    final q = FirebaseFirestore.instance
+        .collection('file_activity')
+        .where('fileId', isEqualTo: doc.id)
+        .where('requestId', isEqualTo: requestId)
+        .orderBy('occurredAt', descending: true)
+        .limit(50);
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Activity history'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 420),
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: q.snapshots(),
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return Text(
+                  snap.error.toString(),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFFB42318),
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              }
+              if (!snap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs = snap.data!.docs;
+              if (docs.isEmpty) {
+                return const Text(
+                  'No activity has occurred since this file was uploaded.',
+                  style: TextStyle(
+                    color: Color(0xFF667085),
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              }
+
+              IconData iconFor(String a) {
+                switch (a) {
+                  case 'upload':
+                    return Icons.file_upload_outlined;
+                  case 'view':
+                    return Icons.visibility_outlined;
+                  case 'download':
+                    return Icons.download_outlined;
+                  default:
+                    return Icons.info_outline;
+                }
+              }
+
+              String labelFor(String a) {
+                switch (a) {
+                  case 'upload':
+                    return 'Uploaded';
+                  case 'view':
+                    return 'Viewed';
+                  case 'download':
+                    return 'Downloaded';
+                  default:
+                    return a;
+                }
+              }
+
+              String actorFor(Map<String, dynamic> e) {
+                final type = (e['actorType'] ?? '').toString().trim();
+                final name = (e['actorName'] ?? '').toString().trim();
+                final email = (e['actorEmail'] ?? '').toString().trim();
+                final who = name.isNotEmpty
+                    ? name
+                    : (email.isNotEmpty ? email : '—');
+                if (type.isEmpty) return who;
+                // Enterprise label: "Client — John Doe" / "Associate — Jane"
+                return '${type[0].toUpperCase()}${type.substring(1)} — $who';
+              }
+
+              return ListView.separated(
+                itemCount: docs.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (c, i) {
+                  final e = docs[i].data();
+                  final action = (e['action'] ?? '').toString().trim();
+                  final at = _tsToDate(e['occurredAt']);
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(iconFor(action), color: const Color(0xFF475467)),
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                labelFor(action),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                actorFor(e),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF667085),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                at == null ? '—' : _fmt(context, at),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF667085),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _deleteSelectedAdmin(List<_UploadDoc> selectedDocs) async {
@@ -316,6 +495,97 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     );
   }
 
+  String _formatSizeBytes(int bytes) {
+    if (bytes <= 0) return '—';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  DateTime? _tsToDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    return null;
+  }
+
+  Future<void> _showUploadDetailsDialog({required _UploadDoc doc}) async {
+    await _logFileView(doc: doc, surface: 'details');
+    final m = doc.data;
+
+    final fileName = (m['originalName'] ?? doc.originalName).toString().trim();
+    final contentType = (m['contentType'] ?? doc.contentType).toString().trim();
+    final sizeBytes = (m['sizeBytes'] is num)
+        ? (m['sizeBytes'] as num).toInt()
+        : doc.sizeBytes;
+
+    final uploadedAt = _tsToDate(m['createdAt']) ?? doc.when;
+
+    final clientName = (m['requestClientName'] ?? doc.clientName)
+        .toString()
+        .trim();
+    final clientEmail = (m['requestClientEmail'] ?? doc.clientEmail)
+        .toString()
+        .trim();
+    final businessName = (m['requestBusinessName'] ?? doc.companyName)
+        .toString()
+        .trim();
+
+    final requestedBy = (m['requestCreatedByName'] ?? doc.requestedBy)
+        .toString()
+        .trim();
+    final requestedByEmail = (m['requestCreatedByEmail'] ?? '')
+        .toString()
+        .trim();
+
+    final requestId = (m['requestId'] ?? '').toString().trim();
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Upload details'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DetailRow(label: 'File name', value: fileName),
+                _DetailRow(
+                  label: 'Type',
+                  value: contentType.isEmpty ? '—' : contentType,
+                ),
+                _DetailRow(label: 'Size', value: _formatSizeBytes(sizeBytes)),
+                _DetailRow(
+                  label: 'Uploaded',
+                  value: uploadedAt == null ? '—' : _fmt(context, uploadedAt),
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                _DetailRow(label: 'Client', value: clientName),
+                _DetailRow(label: 'Client email', value: clientEmail),
+                _DetailRow(label: 'Business', value: businessName),
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                _DetailRow(label: 'Link creator', value: requestedBy),
+                if (requestedByEmail.isNotEmpty)
+                  _DetailRow(label: 'Creator email', value: requestedByEmail),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _dateChip(String label, _DateFilter value) {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
@@ -373,7 +643,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           isAdmin
                               ? 'All uploads across all client upload links.'
@@ -701,6 +971,9 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                     }).toList();
 
                     List<_UploadDoc> filtered = all.where((r) {
+                      // ✅ Hide deleted items from File Box entirely
+                      if (r.data['deleted'] == true) return false;
+
                       if (q.isNotEmpty) {
                         final hay =
                             ('${r.originalName} ${r.storagePath} ${r.clientName} '
@@ -951,10 +1224,15 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                 data: row.data,
                                 selected: selected,
                                 isMobile: isMobile,
+                                isAdmin: isAdmin,
                                 clientName: row.clientName,
                                 requestedBy: row.requestedBy,
                                 companyName: row.companyName,
                                 clientEmail: row.clientEmail,
+                                onShowDetails: () =>
+                                    _showUploadDetailsDialog(doc: row),
+                                onShowHistory: () =>
+                                    _showActivityHistoryDialog(doc: row),
 
                                 formatWhen: (dt) => _fmt(context, dt),
                                 onSelect: (v) {
@@ -972,6 +1250,9 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                   storagePath: path,
                                   filename: name,
                                   contentType: type,
+                                  requestId: (row.data['requestId'] ?? '')
+                                      .toString(),
+                                  fileId: row.id,
                                 ),
                               );
                             },
@@ -985,6 +1266,47 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Small, consistent label/value row for dialogs
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF667085),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF101828),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1022,7 +1344,7 @@ class _MetaText extends StatelessWidget {
     final v = value.trim().isEmpty ? '—' : value.trim();
 
     return Text(
-      '$label: $v',
+      label.trim().isEmpty ? v : '$label: $v',
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: theme.textTheme.labelSmall?.copyWith(
@@ -1165,6 +1487,7 @@ class _UploadRowEnhanced extends StatelessWidget {
   final bool selected;
   final bool isMobile;
   final bool busy;
+  final bool isAdmin;
   final String clientName;
   final String Function(DateTime dt) formatWhen;
   final String requestedBy;
@@ -1173,6 +1496,8 @@ class _UploadRowEnhanced extends StatelessWidget {
   final ValueChanged<bool> onSelect;
   final void Function(String storagePath, String filename, String? contentType)
   onDownload;
+  final VoidCallback onShowDetails;
+  final VoidCallback onShowHistory;
 
   const _UploadRowEnhanced({
     required this.id,
@@ -1188,7 +1513,12 @@ class _UploadRowEnhanced extends StatelessWidget {
     required this.companyName,
     required this.clientEmail,
     required this.onDownload,
+    required this.onShowDetails,
+    required this.onShowHistory,
+    required this.isAdmin,
   });
+
+  static const bool _showImagePreview = false; // ✅ compact file box
 
   String _s(dynamic v) => (v ?? '').toString().trim();
 
@@ -1199,6 +1529,13 @@ class _UploadRowEnhanced extends StatelessWidget {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
+  String _formatDateDMY(DateTime dt) {
+    final d = dt.day.toString().padLeft(2, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final y = dt.year.toString();
+    return '$d-$m-$y';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1206,6 +1543,7 @@ class _UploadRowEnhanced extends StatelessWidget {
     final name = _s(data['originalName']).isEmpty
         ? 'Untitled'
         : _s(data['originalName']);
+    final isDeleted = data['deleted'] == true;
     final contentType = _s(data['contentType']);
     final storagePath = _s(data['storagePath']);
     final sizeBytes = (data['sizeBytes'] is num)
@@ -1213,6 +1551,7 @@ class _UploadRowEnhanced extends StatelessWidget {
         : 0;
 
     final createdAt = data['createdAt'];
+
     DateTime? when;
     if (createdAt is Timestamp) when = createdAt.toDate();
 
@@ -1220,212 +1559,283 @@ class _UploadRowEnhanced extends StatelessWidget {
 
     return InkWell(
       onTap: busy ? null : () => onSelect(!selected),
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: isMobile ? 6 : 8),
-        child: Row(
-          children: [
-            Checkbox(
-              value: selected,
-              onChanged: busy ? null : (v) => onSelect(v ?? false),
-            ),
-            Tooltip(
-              message: meta.tooltip,
-              child: Icon(meta.icon, color: meta.color, size: 20),
-            ),
-            const SizedBox(width: 6),
-            if (!isMobile)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: meta.color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        child: SizedBox(
+          height: isMobile ? 56 : 66, // ✅ denser rows
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              vertical: 4,
+            ), // ✅ less vertical spacing
+            child: Row(
+              children: [
+                Checkbox(
+                  value: selected,
+                  onChanged: busy ? null : (v) => onSelect(v ?? false),
                 ),
-                child: Text(
-                  meta.badge,
-                  style: TextStyle(
-                    color: meta.color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                Tooltip(
+                  message: meta.tooltip,
+                  child: Icon(meta.icon, color: meta.color, size: 20),
+                ),
+                const SizedBox(width: 6),
+                if (!isMobile)
+                  SizedBox(
+                    width: 42, // ✅ reserved space prevents horizontal jitter
+                    child: meta.badge.isEmpty
+                        ? const SizedBox()
+                        : Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: meta.color.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              meta.badge,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: meta.color,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
                   ),
-                ),
-              ),
-            const SizedBox(width: 10),
+                const SizedBox(width: 10),
 
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF101828),
-                    ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isDeleted ? '$name (Deleted)' : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: isDeleted
+                              ? const Color(0xFFB42318)
+                              : const Color(0xFF101828),
+                          decoration: isDeleted
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      if (isMobile)
+                        Text(
+                          [
+                            if (clientName.isNotEmpty) clientName,
+                            if (when != null) _formatDateDMY(when),
+                          ].join(' • '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 1,
+                          children: [
+                            _MetaText('', clientName),
+                            _MetaText('', clientEmail),
+                            _MetaText('', companyName),
+                            _MetaText('Link Creator', requestedBy),
+                            _MetaText(
+                              'Uploaded',
+                              when == null ? '—' : _formatDateDMY(when),
+                            ),
+                          ],
+                        ),
+
+                      if (_showImagePreview &&
+                          !isMobile &&
+                          meta.isImage &&
+                          storagePath.isNotEmpty)
+                        SizedBox(
+                          height: 62, // ✅ height + top padding
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: FutureBuilder<String>(
+                              future: FirebaseStorage.instance
+                                  .ref(storagePath)
+                                  .getDownloadURL(),
+                              builder: (context, snap) {
+                                if (!snap.hasData) {
+                                  return const SizedBox(height: 56, width: 80);
+                                }
+
+                                return ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Image.network(
+                                    snap.data!,
+                                    height: 56,
+                                    width: 80,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const SizedBox(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  if (isMobile)
-                    Text(
-                      [
-                        if (clientName.isNotEmpty) clientName,
-                        if (when != null) formatWhen(when),
-                      ].join(' • '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(
+                ),
+
+                if (!isMobile) ...[
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 100,
+                    child: Text(
+                      _formatSize(sizeBytes),
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
                         fontWeight: FontWeight.w600,
                       ),
-                    )
-                  else
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 2,
-                      children: [
-                        _MetaText('Client', clientName),
-                        _MetaText('Email', clientEmail),
-                        _MetaText('Company', companyName),
-                        _MetaText('Upload Link Creator', requestedBy),
-                      ],
                     ),
-                  if (!isMobile && meta.isImage && storagePath.isNotEmpty)
-                    FutureBuilder<String>(
-                      future: FirebaseStorage.instance
-                          .ref(storagePath)
-                          .getDownloadURL(),
-                      builder: (context, snap) {
-                        if (!snap.hasData) return const SizedBox();
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
-                              snap.data!,
-                              height: 56,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const SizedBox(),
+                  ),
+                ],
+
+                if (!isMobile) ...[
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 180,
+                    child: Text(
+                      when != null ? formatWhen(when!) : '',
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(width: 8),
+
+                PopupMenuButton<String>(
+                  tooltip: 'File actions',
+                  itemBuilder: (c) => [
+                    const PopupMenuItem(
+                      value: 'download',
+                      child: Text('Download'),
+                    ),
+                    const PopupMenuDivider(),
+
+                    const PopupMenuItem(
+                      value: 'copyName',
+                      child: Text('Copy file name'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'copyClient',
+                      child: Text('Copy client name'),
+                    ),
+                    const PopupMenuDivider(),
+
+                    const PopupMenuItem(
+                      value: 'details',
+                      child: Text('View upload details'),
+                    ),
+
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text(
+                        'Delete file',
+                        style: TextStyle(color: Color(0xFFB42318)),
+                      ),
+                    ),
+
+                    if (isAdmin)
+                      const PopupMenuItem(
+                        value: 'history',
+                        child: Text('View activity history'),
+                      ),
+                  ],
+                  onSelected: (v) async {
+                    switch (v) {
+                      case 'download':
+                        if (busy) return;
+                        if (storagePath.isEmpty) return;
+                        onDownload(storagePath, name, contentType);
+                        break;
+                      case 'copyName':
+                        await Clipboard.setData(ClipboardData(text: name));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('File name copied')),
+                          );
+                        }
+                        break;
+
+                      case 'copyClient':
+                        await Clipboard.setData(
+                          ClipboardData(text: clientName),
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Client name copied')),
+                          );
+                        }
+                        break;
+
+                      case 'details':
+                        onShowDetails();
+                        break;
+
+                      case 'delete':
+                        if (busy) return;
+
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Delete file'),
+                            content: Text(
+                              'Delete "$name"? The upload link will remain active, but this file will be marked as deleted.',
                             ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
                           ),
                         );
-                      },
-                    ),
-                ],
-              ),
-            ),
 
-            if (!isMobile) ...[
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 100,
-                child: Text(
-                  _formatSize(sizeBytes),
-                  textAlign: TextAlign.right,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+                        if (confirm != true) return;
 
-            if (!isMobile) ...[
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 180,
-                child: Text(
-                  when != null ? formatWhen(when!) : '',
-                  textAlign: TextAlign.right,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+                        await FirebaseFunctions.instanceFor(
+                          region: 'us-central1',
+                        ).httpsCallable('softDeleteUploadFile').call({
+                          'docPath': docPath,
+                        });
 
-            const SizedBox(width: 8),
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('File deleted')),
+                          );
+                        }
+                        break;
 
-            PopupMenuButton<String>(
-              tooltip: 'File actions',
-              itemBuilder: (c) => const [
-                PopupMenuItem(value: 'download', child: Text('Download')),
-                PopupMenuDivider(),
-
-                PopupMenuItem(value: 'copyName', child: Text('Copy file name')),
-                PopupMenuItem(
-                  value: 'copyClient',
-                  child: Text('Copy client name'),
-                ),
-                PopupMenuDivider(),
-
-                PopupMenuItem(
-                  value: 'details',
-                  child: Text('View upload details'),
-                ),
-
-                // 🔒 Future-ready (can be disabled later)
-                PopupMenuItem(
-                  value: 'history',
-                  child: Text('View activity history'),
+                      case 'history':
+                        onShowHistory();
+                        break;
+                    }
+                  },
                 ),
               ],
-              onSelected: (v) async {
-                switch (v) {
-                  case 'download':
-                    if (busy) return;
-                    if (storagePath.isEmpty) return;
-                    onDownload(storagePath, name, contentType);
-                    break;
-                  case 'copyName':
-                    await Clipboard.setData(ClipboardData(text: name));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('File name copied')),
-                      );
-                    }
-                    break;
-
-                  case 'copyClient':
-                    await Clipboard.setData(ClipboardData(text: clientName));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Client name copied')),
-                      );
-                    }
-                    break;
-
-                  case 'details':
-                    // ✅ Stub for now — opens dialog later
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Upload details'),
-                        content: const Text(
-                          'Detailed upload metadata and access history will appear here.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Close'),
-                          ),
-                        ],
-                      ),
-                    );
-                    break;
-
-                  case 'history':
-                    // ✅ Placeholder for audit log UI
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Activity history coming soon'),
-                      ),
-                    );
-                    break;
-                }
-              },
             ),
-          ],
+          ),
         ),
       ),
     );

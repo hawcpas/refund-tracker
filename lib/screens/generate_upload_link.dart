@@ -397,6 +397,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     required String storagePath,
     required String filename,
     String? contentType,
+    required String requestId,
+    required String fileId,
   }) async {
     setState(() => _busy = true);
     try {
@@ -406,6 +408,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
             'storagePath': storagePath,
             'filename': filename,
             'contentType': (contentType ?? '').toString(),
+            'requestId': requestId,
+            'fileId': fileId,
           });
 
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -1407,10 +1411,38 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           widget.onTap();
                           return;
                         }
+
                         if (value == 'toggle') {
                           await widget.onToggleStatus(
                             isOpen ? 'closed' : 'open',
                           );
+                          return;
+                        }
+
+                        if (value == 'delete') {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Delete upload link'),
+                              content: const Text(
+                                'This will permanently remove the upload link and all associated uploads.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirm != true) return;
+
+                          await widget.onToggleStatus('deleted');
                           return;
                         }
                       },
@@ -1426,6 +1458,14 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                               isOpen ? 'Disable link' : 'Enable link',
                             ),
                           ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Text(
+                            'Delete link',
+                            style: TextStyle(color: Color(0xFFB42318)),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1456,6 +1496,8 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
     required String storagePath,
     required String filename,
     String? contentType,
+    required String requestId,
+    required String fileId,
   }) async {
     setState(() => _busy = true);
     try {
@@ -1465,6 +1507,8 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
             'storagePath': storagePath,
             'filename': filename,
             'contentType': (contentType ?? '').toString(),
+            'requestId': requestId,
+            'fileId': fileId,
           });
 
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -1607,6 +1651,35 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                     ),
                                   ),
                                   _StatusPill(status: status),
+                                  const SizedBox(width: 12),
+                                  if (status == 'open' || status == 'closed')
+                                    SizedBox(
+                                      height: 32,
+                                      child: OutlinedButton(
+                                        onPressed: _busy
+                                            ? null
+                                            : () async {
+                                                await FirebaseFunctions.instanceFor(
+                                                      region: 'us-central1',
+                                                    )
+                                                    .httpsCallable(
+                                                      'setDropoffStatus',
+                                                    )
+                                                    .call({
+                                                      'requestId':
+                                                          widget.requestId,
+                                                      'status': status == 'open'
+                                                          ? 'closed'
+                                                          : 'open',
+                                                    });
+                                              },
+                                        child: Text(
+                                          status == 'open'
+                                              ? 'Disable link'
+                                              : 'Enable link',
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 10),
@@ -1734,11 +1807,21 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                             ),
                                             child: _FileRow(
                                               data: docs[i].data(),
-                                              onDownload: (path, name, type) =>
-                                                  _downloadFile(
+                                              requestId: widget.requestId,
+                                              fileId: docs[i].id,
+                                              onDownload:
+                                                  (
+                                                    path,
+                                                    name,
+                                                    type,
+                                                    requestId,
+                                                    fileId,
+                                                  ) => _downloadFile(
                                                     storagePath: path,
                                                     filename: name,
                                                     contentType: type,
+                                                    requestId: requestId,
+                                                    fileId: fileId,
                                                   ),
                                             ),
                                           ),
@@ -1757,21 +1840,24 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                               ),
 
                               if (canDelete) ...[
-                                const SizedBox(height: 16),
-                                Divider(
-                                  color: Colors.black.withOpacity(0.06),
-                                  height: 1,
-                                ),
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 20),
+                                Divider(color: Colors.black.withOpacity(0.06)),
+                                const SizedBox(height: 8),
 
-                                SizedBox(
-                                  height: 44,
-                                  child: OutlinedButton.icon(
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
                                     icon: const Icon(
                                       Icons.delete_outline,
-                                      color: Colors.red,
+                                      size: 18,
                                     ),
-                                    label: const Text('Delete Upload Link'),
+                                    label: const Text('Delete upload link'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFFB42318),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                                     onPressed: _busy
                                         ? null
                                         : () async {
@@ -1779,11 +1865,10 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                               context: context,
                                               builder: (ctx) => AlertDialog(
                                                 title: const Text(
-                                                  'Delete request',
+                                                  'Delete upload link',
                                                 ),
                                                 content: const Text(
-                                                  'Deleting this request will permanently remove all associated uploads. '
-                                                  'This action is irreversible.',
+                                                  'This will permanently remove the upload link and all associated uploads. This action cannot be undone.',
                                                 ),
                                                 actions: [
                                                   TextButton(
@@ -1795,6 +1880,13 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                                     child: const Text('Cancel'),
                                                   ),
                                                   FilledButton(
+                                                    style:
+                                                        FilledButton.styleFrom(
+                                                          backgroundColor:
+                                                              const Color(
+                                                                0xFFB42318,
+                                                              ),
+                                                        ),
                                                     onPressed: () =>
                                                         Navigator.pop(
                                                           ctx,
@@ -1807,11 +1899,10 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                             );
 
                                             if (confirm != true) return;
+
                                             await _deleteDropoffRequest(
                                               widget.requestId,
                                             );
-
-                                            // ✅ If inside AppShell, go back through callback
                                             widget.onBack?.call();
                                           },
                                   ),
@@ -1993,10 +2084,27 @@ class _WhiteInset extends StatelessWidget {
 
 class _FileRow extends StatefulWidget {
   final Map<String, dynamic> data;
-  final void Function(String storagePath, String filename, String? contentType)
+
+  // ✅ REQUIRED for server-side enforcement
+  final String requestId;
+  final String fileId;
+
+  // ✅ UPDATED callback signature (5 args)
+  final void Function(
+    String storagePath,
+    String filename,
+    String? contentType,
+    String requestId,
+    String fileId,
+  )
   onDownload;
 
-  const _FileRow({required this.data, required this.onDownload});
+  const _FileRow({
+    required this.data,
+    required this.requestId,
+    required this.fileId,
+    required this.onDownload,
+  });
 
   @override
   State<_FileRow> createState() => _FileRowState();
@@ -2010,6 +2118,7 @@ class _FileRowState extends State<_FileRow> {
     final theme = Theme.of(context);
 
     final name = (widget.data['originalName'] ?? 'Untitled').toString();
+    final isDeleted = widget.data['deleted'] == true;
     final path = (widget.data['storagePath'] ?? '').toString();
     final contentType = (widget.data['contentType'] ?? '').toString();
     final size = (widget.data['sizeBytes'] is num)
@@ -2023,11 +2132,21 @@ class _FileRowState extends State<_FileRow> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: InkWell(
-        onTap: path.isEmpty
+        onTap: (isDeleted || path.isEmpty)
             ? null
-            : () => widget.onDownload(path, name, contentType),
-        hoverColor: Colors.black.withOpacity(0.03),
-        splashColor: Colors.black.withOpacity(0.02),
+            : () => widget.onDownload(
+                path,
+                name,
+                contentType,
+                widget.requestId,
+                widget.fileId,
+              ),
+        hoverColor: isDeleted
+            ? Colors.transparent
+            : Colors.black.withOpacity(0.03),
+        splashColor: isDeleted
+            ? Colors.transparent
+            : Colors.black.withOpacity(0.02),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
@@ -2041,16 +2160,37 @@ class _FileRowState extends State<_FileRow> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.brandBlue,
-                        decoration: _hovered ? TextDecoration.underline : null,
-                      ),
+                    Row(
+                      children: [
+                        if (isDeleted)
+                          const Icon(
+                            Icons.delete_outline,
+                            size: 16,
+                            color: Color(0xFFB42318),
+                          ),
+                        if (isDeleted) const SizedBox(width: 6),
+
+                        Expanded(
+                          child: Text(
+                            isDeleted ? '$name (Deleted)' : name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: isDeleted
+                                  ? const Color(0xFFB42318)
+                                  : AppColors.brandBlue,
+                              decoration: isDeleted
+                                  ? TextDecoration.lineThrough
+                                  : (_hovered
+                                        ? TextDecoration.underline
+                                        : null),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+
                     if (uploadedAt != null) ...[
                       const SizedBox(height: 2),
                       Text(
@@ -2064,6 +2204,18 @@ class _FileRowState extends State<_FileRow> {
                         ),
                       ),
                     ],
+
+                    if (isDeleted)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          'Deleted — This file was removed',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFFB42318),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -2084,7 +2236,9 @@ class _FileRowState extends State<_FileRow> {
               Icon(
                 Icons.download,
                 size: 18,
-                color: AppColors.brandBlue.withOpacity(_hovered ? 0.75 : 0.55),
+                color: isDeleted
+                    ? const Color(0xFF98A2B3) // disabled gray
+                    : AppColors.brandBlue.withOpacity(_hovered ? 0.75 : 0.55),
               ),
             ],
           ),
