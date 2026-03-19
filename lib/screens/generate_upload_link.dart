@@ -108,8 +108,13 @@ enum _LinksView { active, archived }
 
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
+  final VoidCallback? onCreate;
 
-  const GenerateUploadLinkScreen({super.key, this.onOpenDetails});
+  const GenerateUploadLinkScreen({
+    super.key,
+    this.onOpenDetails,
+    this.onCreate,
+  });
 
   @override
   State<GenerateUploadLinkScreen> createState() =>
@@ -130,154 +135,6 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
   HttpsCallable get _setDropoffStatusCallable =>
       _functions.httpsCallable('setDropoffStatus');
-
-  Future<void> _showCreateDialog() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final businessCtrl = TextEditingController();
-    final msgCtrl = TextEditingController();
-
-    bool isValidEmail(String v) {
-      // simple + safe
-      final s = v.trim();
-      if (s.isEmpty) return true;
-      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(s);
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create client upload link'),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              TextField(
-                controller: firstCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'First name',
-                  prefixIcon: Icon(Icons.person_outline),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Last name',
-                  prefixIcon: Icon(Icons.badge_outlined),
-                ),
-              ),
-
-              // ✅ NEW: Business name (optional)
-              const SizedBox(height: 12),
-              TextField(
-                controller: businessCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Business name (optional)',
-                  prefixIcon: Icon(Icons.business_outlined),
-                ),
-              ),
-
-              // ✅ NEW: Client email (optional)
-              const SizedBox(height: 12),
-              TextField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Client email (optional)',
-                  prefixIcon: Icon(Icons.alternate_email),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-              TextField(
-                controller: msgCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Message / Instructions (optional)',
-                  prefixIcon: Icon(Icons.note_alt_outlined),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) return;
-
-    final firstName = firstCtrl.text.trim();
-    final lastName = lastCtrl.text.trim();
-    final clientEmail = emailCtrl.text.trim();
-    final businessName = businessCtrl.text.trim();
-    final msg = msgCtrl.text.trim();
-
-    if (firstName.isEmpty || lastName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter first and last name.')),
-      );
-      return;
-    }
-
-    if (!isValidEmail(clientEmail)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid client email address.')),
-      );
-      return;
-    }
-
-    setState(() => _busy = true);
-    try {
-      final res = await _callable('createDropoffRequest').call({
-        'firstName': firstName,
-        'lastName': lastName,
-        'message': msg,
-        // ✅ NEW fields passed to server (optional)
-        'clientEmail': clientEmail,
-        'businessName': businessName,
-      });
-
-      final data = Map<String, dynamic>.from(res.data as Map);
-      final url = (data['url'] ?? '').toString();
-
-      if (url.isNotEmpty) {
-        await Clipboard.setData(ClipboardData(text: url));
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            url.isNotEmpty
-                ? 'Client upload link created and copied to clipboard.'
-                : 'Client upload link created.',
-          ),
-        ),
-      );
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: ${e.code} ${e.message ?? ''}')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
 
   Future<void> _setDropoffStatus(String requestId, String status) async {
     setState(() => _busy = true);
@@ -516,7 +373,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                           SizedBox(
                             height: 40,
                             child: FilledButton.icon(
-                              onPressed: _busy ? null : _showCreateDialog,
+                              onPressed: widget.onCreate,
                               icon: const Icon(Icons.add_link, size: 18),
                               label: const Text('Create link'),
                               style: FilledButton.styleFrom(
@@ -574,7 +431,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                 flex: 2,
                                 child: _WhiteCard(
                                   child: _HelpPanel(
-                                    onCreate: _busy ? null : _showCreateDialog,
+                                    onCreate: _busy ? null : widget.onCreate,
                                   ),
                                 ),
                               ),
@@ -2395,4 +2252,12 @@ class _WhiteCard extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class _MessageTemplate {
+  final String id;
+  final String title;
+  final String body;
+
+  _MessageTemplate({required this.id, required this.title, required this.body});
 }

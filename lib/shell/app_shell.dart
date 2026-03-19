@@ -12,6 +12,7 @@ import '../screens/account_settings_screen.dart';
 import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
+import '../screens/create_upload_link_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialRoute = '/dashboard'});
@@ -36,6 +37,18 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  void _openCreateUploadLink() {
+    setState(() {
+      _currentRoute = '/create-upload-link';
+    });
+  }
+
+  void _closeCreateUploadLink() {
+    setState(() {
+      _currentRoute = '/generate-upload-link';
+    });
+  }
+
   void _closeDropoffDetails() {
     setState(() {
       _currentRoute = '/generate-upload-link';
@@ -53,6 +66,8 @@ class _AppShellState extends State<AppShell> {
     switch (route) {
       case '/shared-files':
         return 'Firm Documents';
+      case '/create-upload-link':
+        return 'Create Client Upload Link';
       case '/resources':
         return 'Websites & Resources';
       case '/account-settings':
@@ -133,7 +148,14 @@ class _AppShellState extends State<AppShell> {
       case '/file-box':
         return const FileBoxScreen();
       case '/generate-upload-link':
-        return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
+        return GenerateUploadLinkScreen(
+          onOpenDetails: _openDropoffDetails,
+          onCreate: _openCreateUploadLink,
+        );
+      case '/create-upload-link':
+        return CreateUploadLinkScreen(
+          onCancel: () => _navigate('/generate-upload-link'),
+        );
       case '/admin-users':
         return const AdminUsersScreen();
       case '/dashboard':
@@ -152,25 +174,30 @@ class _AppShellState extends State<AppShell> {
     // - On desktop: optional back if inner stack can pop
     Widget? leading;
 
+    final isBackRoute =
+        _currentRoute == '/dropoff-details' ||
+        _currentRoute == '/create-upload-link';
+
     if (isMobileShell) {
       leading = IconButton(
-        icon: Icon(
-          _currentRoute == '/dropoff-details' ? Icons.arrow_back : Icons.menu,
-        ),
+        icon: Icon(isBackRoute ? Icons.arrow_back : Icons.menu),
         onPressed: () {
           if (_currentRoute == '/dropoff-details') {
             _closeDropoffDetails();
+          } else if (_currentRoute == '/create-upload-link') {
+            _closeCreateUploadLink();
           } else {
             _scaffoldKey.currentState?.openDrawer();
           }
         },
       );
     } else {
-      // Optional: show back on desktop too
-      leading = _currentRoute == '/dropoff-details'
+      leading = isBackRoute
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: _closeDropoffDetails,
+              onPressed: _currentRoute == '/dropoff-details'
+                  ? _closeDropoffDetails
+                  : _closeCreateUploadLink,
             )
           : null;
     }

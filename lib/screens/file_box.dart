@@ -8,7 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../widgets/centered_section.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-enum _SortField { name, client, size, date }
+enum _SortField { name, size, date }
 
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
 
@@ -1011,9 +1011,6 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         case _SortField.name:
                           res = cmpString(a.originalName, b.originalName);
                           break;
-                        case _SortField.client:
-                          res = cmpString(a.clientName, b.clientName);
-                          break;
                         case _SortField.size:
                           res = cmpInt(a.sizeBytes, b.sizeBytes);
                           break;
@@ -1087,30 +1084,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                 ),
                               ),
 
-                              if (!isMobile)
-                                SizedBox(
-                                  width: 220,
-                                  child: InkWell(
-                                    onTap: () => _toggleSort(_SortField.client),
-                                    child: Row(
-                                      children: [
-                                        const Text(
-                                          'Client',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        _SortIndicator(
-                                          active:
-                                              _sortField == _SortField.client,
-                                          asc: _sortAsc,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-
+                             
                               if (!isMobile)
                                 SizedBox(
                                   width: 100,
@@ -1529,11 +1503,11 @@ class _UploadRowEnhanced extends StatelessWidget {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  String _formatDateDMY(DateTime dt) {
-    final d = dt.day.toString().padLeft(2, '0');
+  String _formatDateMDY(DateTime dt) {
     final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
     final y = dt.year.toString();
-    return '$d-$m-$y';
+    return '$m-$d-$y • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -1625,10 +1599,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                       const SizedBox(height: 2),
                       if (isMobile)
                         Text(
-                          [
-                            if (clientName.isNotEmpty) clientName,
-                            if (when != null) _formatDateDMY(when),
-                          ].join(' • '),
+                          clientName.isNotEmpty ? clientName : '—',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelSmall?.copyWith(
@@ -1641,14 +1612,22 @@ class _UploadRowEnhanced extends StatelessWidget {
                           spacing: 10,
                           runSpacing: 1,
                           children: [
-                            _MetaText('', clientName),
-                            _MetaText('', clientEmail),
-                            _MetaText('', companyName),
-                            _MetaText('Link Creator', requestedBy),
-                            _MetaText(
-                              'Uploaded',
-                              when == null ? '—' : _formatDateDMY(when),
-                            ),
+                            if (clientName.isNotEmpty)
+                              Text(
+                                clientName,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            if (companyName.isNotEmpty)
+                              Text(
+                                companyName,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                           ],
                         ),
 
