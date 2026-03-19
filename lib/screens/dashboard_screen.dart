@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../theme/app_colors.dart';
-import '../widgets/centered_section.dart';
+import '../widgets/page_scaffold.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -49,7 +49,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final name = ('$first $last').trim().isNotEmpty ? '$first $last' : display;
 
     final role = (data['role'] ?? '').toString().toLowerCase().trim();
-    final hasDropoffs = role == 'admin' || (data['capabilities']?['dropoffs'] == true);
+    final hasDropoffs =
+        role == 'admin' || (data['capabilities']?['dropoffs'] == true);
 
     final comms = Map<String, dynamic>.from(data['communications'] ?? {});
     final wildix = (comms['wildixExtension'] ?? '').toString().trim();
@@ -78,20 +79,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final theme = Theme.of(context);
 
     final isAdmin = !_loadingProfile && _role == 'admin';
-    final welcomeText = _fullName.isNotEmpty ? 'Welcome back, $_fullName' : 'Welcome back';
+    final welcomeText = _fullName.isNotEmpty
+        ? 'Welcome back, $_fullName'
+        : 'Welcome back';
 
     // ✅ Content-only page (AppShell provides the app bar + sidebar)
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-      children: [
-        CenteredSection(
-          maxWidth: 980,
-          child: LayoutBuilder(
-            builder: (context, c) {
-              final w = c.maxWidth;
-              final isMobile = w < 560;
+    return PageScaffold(
+      title: 'Dashboard',
+      subtitle: 'Overview and quick access to firm tools.',
+      hideHeader: true,
+      wrapInCard: false, // ✅ THIS IS THE KEY
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final w = c.maxWidth;
+          final isMobile = w < 560;
 
-              return Column(
+          final isAdmin = !_loadingProfile && _role == 'admin';
+          final welcomeText = _fullName.isNotEmpty
+              ? 'Welcome back, $_fullName'
+              : 'Welcome back';
+
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 900, // dashboard content width inside the rail
+              ),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _ContextHeader(
@@ -101,20 +115,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     isMobile: isMobile,
                     wildix: _wildixExt,
                     clearfly: _clearflyNumber,
-                    onAdminTap: () => Navigator.pushNamed(context, '/admin-users'),
+                    onAdminTap: () =>
+                        Navigator.pushNamed(context, '/admin-users'),
                   ),
                   const SizedBox(height: 18),
 
                   if (_hasDropoffAccess) ...[
                     const _SectionLabel(
                       title: 'Incoming files',
-                      subtitle: 'All client-uploaded documents across all upload links.',
+                      subtitle:
+                          'All client-uploaded documents across all upload links.',
                     ),
                     const SizedBox(height: 12),
                     _PrimaryFeatureCard(
                       isMobile: isMobile,
                       title: 'File Box',
-                      subtitle: 'View and manage all uploaded files (newest first).',
+                      subtitle:
+                          'View and manage all uploaded files (newest first).',
                       icon: Icons.cloud_upload_outlined,
                       ctaLabel: 'Open file box',
                       onOpen: () => Navigator.pushNamed(context, '/file-box'),
@@ -122,16 +139,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 28),
                     const _SectionLabel(
                       title: 'Request files',
-                      subtitle: 'Create secure upload links for clients to submit documents.',
+                      subtitle:
+                          'Create secure upload links for clients to submit documents.',
                     ),
                     const SizedBox(height: 12),
                     _PrimaryFeatureCard(
                       isMobile: isMobile,
                       title: 'Generate Upload Links',
-                      subtitle: 'Create and manage secure upload links for clients.',
+                      subtitle:
+                          'Create and manage secure upload links for clients.',
                       icon: Icons.link_outlined,
                       ctaLabel: 'Manage links',
-                      onOpen: () => Navigator.pushNamed(context, '/generate-upload-link'),
+                      onOpen: () =>
+                          Navigator.pushNamed(context, '/generate-upload-link'),
                     ),
                   ] else ...[
                     const SizedBox(height: 8),
@@ -162,11 +182,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                   const SizedBox(height: 22),
                 ],
-              );
-            },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.black.withOpacity(0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.brandBlue),
+          const SizedBox(width: 6),
+          Text(
+            '$label:',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: const Color(0xFF667085),
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 4),
+          Text(
+            value,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: const Color(0xFF101828),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -445,7 +513,7 @@ class _SurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
