@@ -61,6 +61,18 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     return !_uploading;
   }
 
+  bool get _allFilesSucceeded {
+    if (_queuedFiles.isEmpty) return false;
+    for (final f in _queuedFiles) {
+      final s = _fileState[_fileKey(f)];
+      if (s != _UploadItemState.success) return false;
+    }
+    return true;
+  }
+
+  bool _notifyingRequester = false;
+  bool _requesterNotified = false;
+
   String? _error;
   String? _success;
   Map<String, dynamic>? _info;
@@ -137,13 +149,13 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   // -----------------------------
 
   void _dismissCompletionNote() {
-    if (_showCompletionNote) {
-      _showCompletionNote = false;
-    }
+    if (!mounted || !_showCompletionNote) return;
+    setState(() => _showCompletionNote = false);
   }
 
   void _markCompletionNoteVisible() {
-    _showCompletionNote = true;
+    if (!mounted || _showCompletionNote) return;
+    setState(() => _showCompletionNote = true);
   }
 
   Map<String, String> _extractDropoffParams() {
@@ -570,32 +582,47 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
       if (!mounted) return;
 
+      // ✅ STEP 3 — SHOW COMPLETION BANNER IMMEDIATELY
+      if (uploadedNames.isNotEmpty) {
+        setState(() {
+          _showCompletionNote = true; // ✅ THIS was missing
+          _notifyingRequester = true; // ✅ start "Notifying…" state
+          _requesterNotified = false;
+          _success = null;
+        });
+      }
       // ✅ Send ONE summary email (server-side), after all uploads complete
       try {
         if (uploadedNames.isNotEmpty) {
-          final res = await _functions
+          await _functions
               .httpsCallable('notifyDropoffBatchUpload')
               .call({'rid': _rid, 'token': _token, 'files': uploadedNames})
               .timeout(const Duration(seconds: 20));
 
-          if (kDebugMode) {
-            print('notifyDropoffBatchUpload result: ${res.data}');
+          if (mounted) {
+            setState(() {
+              _notifyingRequester = false;
+              _requesterNotified = true;
+            });
           }
         }
       } catch (e) {
         if (kDebugMode) {
-          // ignore: avoid_print
           print('Batch email notify failed: $e');
         }
-        // ✅ Non-fatal: uploads still succeeded
+
+        // Non-fatal: uploads still succeeded
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Upload completed, but email notification failed: $e',
-              ),
-            ),
-          );
+          setState(() {
+            _notifyingRequester = false;
+            _requesterNotified = false;
+          });
+
+          // Optional: remove SnackBar if you don't want clients to ever see email errors
+          // (recommended for client-facing UX)
+          // ScaffoldMessenger.of(context).showSnackBar(
+          //   SnackBar(content: Text('Upload completed. Notification will be sent shortly.')),
+          // );
         }
       }
       // ✅ Send ONE summary email (server-side), after all uploads complete
@@ -646,12 +673,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       setState(() {
         _addRecentUploads(uploadedNames);
 
-        // ✅ show inline completion note after a successful batch
-        if (uploadedNames.isNotEmpty) {
-          _markCompletionNoteVisible();
-        }
+        // ✅ DO NOT show completion note here anymore
+        // It is now shown immediately after uploads succeed (Step 3)
 
-        // Optional: stop using the old banner text (recommended)
         _success = null;
       });
     } catch (e) {
@@ -1032,7 +1056,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                 // ✅ Inline enterprise completion message
                                 if (_showCompletionNote &&
-                                    _allUploadsComplete) ...[
+                                    _allFilesSucceeded) ...[
                                   const SizedBox(height: 12),
                                   Container(
                                     padding: const EdgeInsets.all(12),
@@ -1075,7 +1099,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          'The requesting party has been notified.',
+                                          _notifyingRequester
+                                              ? 'Notifying the requesting party…'
+                                              : (_requesterNotified
+                                                    ? 'The requesting party has been notified.'
+                                                    : 'Upload complete. The requesting party will be notified shortly.'),
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                                 color: _kGray,
