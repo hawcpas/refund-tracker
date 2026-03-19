@@ -2241,8 +2241,6 @@ exports.deleteDropoffUploadsBatch = onCall(
       // Delete files
       for (const it of items) {
         const docPath = (it?.docPath || "").toString().trim();
-        const storagePath = (it?.storagePath || "").toString().trim();
-
         if (!docPath) continue;
 
         // Extract requestId from:
@@ -2253,10 +2251,28 @@ exports.deleteDropoffUploadsBatch = onCall(
           affectedRequestIds.add(parts[idx + 1]);
         }
 
-        await db.doc(docPath).delete().catch(() => { });
+        const fileRef = db.doc(docPath);
+        const snap = await fileRef.get();
+        if (!snap.exists) continue;
+
+        const file = snap.data() || {};
+        const storagePath = (file.storagePath || "").toString().trim();
+
+        // ✅ Delete storage object ONLY (safe, non‑blocking)
         if (storagePath) {
           await bucket.file(storagePath).delete().catch(() => { });
         }
+
+        // ✅ SOFT DELETE metadata (this preserves Upload Link history)
+        await fileRef.set(
+          {
+            deleted: true,
+            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+            deletedByUid: auth.uid,
+            deletedByRole: 'admin',
+          },
+          { merge: true }
+        );
       }
 
       // ✅ Recalculate counters per request
