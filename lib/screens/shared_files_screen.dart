@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
-import '../widgets/centered_section.dart';
+import '../widgets/page_scaffold.dart';
 
 class SharedFilesScreen extends StatelessWidget {
   const SharedFilesScreen({super.key});
@@ -12,9 +12,9 @@ class SharedFilesScreen extends StatelessWidget {
     final uri = Uri.parse(url);
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open file')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open file')));
     }
   }
 
@@ -23,98 +23,72 @@ class SharedFilesScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     // ✅ Content-only screen (AppShell provides the AppBar + Sidebar)
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-      children: [
-        CenteredSection(
-          maxWidth: 1100,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.black.withOpacity(0.05)),
-            ),
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Shared Firm Documents',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: const Color(0xFF101828),
+    return PageScaffold(
+      title: 'Shared Firm Documents',
+      subtitle: 'Files available to everyone in the app.',
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: 900,
+          ), // calm enterprise width
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('shared_files')
+                .where('visible', isEqualTo: true)
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Failed to load files.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFFB42318),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Files available to everyone in the app.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF475467),
-                    height: 1.25,
+                );
+              }
+
+              if (!snap.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final docs = snap.data!.docs;
+              if (docs.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'No shared files yet.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF475467),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 14),
+                );
+              }
 
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('shared_files')
-                      .where('visible', isEqualTo: true)
-                      .orderBy('createdAt', descending: true)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    if (snap.hasError) {
-                      return Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          'Failed to load files.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFFB42318),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      );
-                    }
-
-                    if (!snap.hasData) {
-                      return const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-
-                    final docs = snap.data!.docs;
-                    if (docs.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          'No shared files yet.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children: [
-                        for (int i = 0; i < docs.length; i++) ...[
-                          _SharedFileRow(
-                            data: docs[i].data() as Map<String, dynamic>,
-                            onTap: (url) => _openFile(context, url),
-                          ),
-                          if (i != docs.length - 1)
-                            Divider(color: Colors.black.withOpacity(0.06)),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
+              return Column(
+                children: [
+                  for (int i = 0; i < docs.length; i++) ...[
+                    _SharedFileRow(
+                      data: docs[i].data() as Map<String, dynamic>,
+                      onTap: (url) => _openFile(context, url),
+                    ),
+                    if (i != docs.length - 1)
+                      Divider(color: Colors.black.withOpacity(0.06)),
+                  ],
+                ],
+              );
+            },
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -217,9 +191,15 @@ class _SharedFileRowState extends State<_SharedFileRow> {
     if (rawName.isNotEmpty) return rawName;
 
     // 2) if you store a storage path in Firestore, prefer that
-    final rawPath = (data['storagePath'] ?? data['path'] ?? '').toString().trim();
+    final rawPath = (data['storagePath'] ?? data['path'] ?? '')
+        .toString()
+        .trim();
     if (rawPath.isNotEmpty) {
-      final last = rawPath.split('/').where((p) => p.isNotEmpty).toList().lastOrNull;
+      final last = rawPath
+          .split('/')
+          .where((p) => p.isNotEmpty)
+          .toList()
+          .lastOrNull;
       if (last != null && last.isNotEmpty) return last;
     }
 
@@ -239,7 +219,11 @@ class _SharedFileRowState extends State<_SharedFileRow> {
     if (oIndex != -1 && oIndex + 1 < segments.length) {
       final encodedFullPath = segments[oIndex + 1];
       final decodedFullPath = Uri.decodeComponent(encodedFullPath);
-      final last = decodedFullPath.split('/').where((p) => p.isNotEmpty).toList().lastOrNull;
+      final last = decodedFullPath
+          .split('/')
+          .where((p) => p.isNotEmpty)
+          .toList()
+          .lastOrNull;
       if (last != null && last.isNotEmpty) return last;
     }
 

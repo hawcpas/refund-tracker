@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
-import '../widgets/centered_section.dart';
+
+import '../widgets/page_scaffold.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -43,7 +44,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   static const double _maxWidth = 980;
   static const double _formWidth = 720;
 
-  static const double _outerPad = 18;
   static const double _sectionGap = 18;
 
   static const double _btnW = 180;
@@ -134,8 +134,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       if (firstName.isEmpty && lastName.isEmpty && displayName.isNotEmpty) {
         final parts = displayName.split(RegExp(r'\s+'));
         firstNameController.text = parts.isNotEmpty ? parts.first : '';
-        lastNameController.text =
-            parts.length > 1 ? parts.sublist(1).join(' ') : '';
+        lastNameController.text = parts.length > 1
+            ? parts.sublist(1).join(' ')
+            : '';
       } else {
         firstNameController.text = firstName;
         lastNameController.text = lastName;
@@ -164,56 +165,60 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   Widget _errorBanner(ThemeData theme, String msg) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.red.withOpacity(0.20)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                msg,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFFB42318),
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-              ),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.red.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.red.withOpacity(0.20)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFFB42318),
+              fontWeight: FontWeight.w700,
+              height: 1.3,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   Widget _successBanner(ThemeData theme, String msg) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.green.withOpacity(0.25)),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.green.withOpacity(0.10),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.green.withOpacity(0.25)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.check_circle_outline,
+          color: Colors.green.shade800,
+          size: 18,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.check_circle_outline, color: Colors.green.shade800, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                msg,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.green.shade800,
-                  fontWeight: FontWeight.w800,
-                  height: 1.3,
-                ),
-              ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.green.shade800,
+              fontWeight: FontWeight.w800,
+              height: 1.3,
             ),
-          ],
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   Widget _primaryButton({
     required String label,
@@ -229,7 +234,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           backgroundColor: AppColors.brandBlue,
           foregroundColor: AppColors.cardBackground,
           textStyle: const TextStyle(fontWeight: FontWeight.w900),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         child: loading
             ? const SizedBox(
@@ -296,7 +303,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         final pending = updates['pendingEmail'];
         _success = pending != null
             ? 'Name/phone updated. Verification email sent to $pending. '
-                'Your login email will update after verification.'
+                  'Your login email will update after verification.'
             : 'Profile updated successfully.';
 
         _profileChanged = true;
@@ -326,7 +333,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       return;
     }
     if (newPass.length < 6) {
-      _setBanner(error: 'New password must be at least 6 characters.', success: null);
+      _setBanner(
+        error: 'New password must be at least 6 characters.',
+        success: null,
+      );
       return;
     }
     if (newPass != confirmPass) {
@@ -343,10 +353,16 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     try {
       final email = user.email;
       if (email == null || email.isEmpty) {
-        throw FirebaseAuthException(code: 'no-email', message: 'No email found for current user.');
+        throw FirebaseAuthException(
+          code: 'no-email',
+          message: 'No email found for current user.',
+        );
       }
 
-      final credential = EmailAuthProvider.credential(email: email, password: currentPass);
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPass,
+      );
       await user.reauthenticateWithCredential(credential);
 
       final code = await _auth.updatePassword(newPass);
@@ -367,7 +383,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
       if (code == 'requires-recent-login') {
         _setBanner(
-          error: 'For security reasons, please log in again to change your password.',
+          error:
+              'For security reasons, please log in again to change your password.',
           success: null,
         );
         await _auth.logout();
@@ -388,7 +405,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
       if (e.code == 'requires-recent-login') {
         _setBanner(
-          error: 'For security reasons, please log in again to change your password.',
+          error:
+              'For security reasons, please log in again to change your password.',
           success: null,
         );
         await _auth.logout();
@@ -401,7 +419,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() => _savingPassword = false);
-      _setBanner(error: 'Could not update password. Please try again.', success: null);
+      _setBanner(
+        error: 'Could not update password. Please try again.',
+        success: null,
+      );
     }
   }
 
@@ -422,7 +443,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         overlayColor: WidgetStateProperty.all(Colors.transparent),
         dividerColor: Colors.black.withOpacity(0.10),
         tabs: const [
-          Tab(icon: Icon(Icons.person_outline, size: 18), text: 'Personal Information'),
+          Tab(
+            icon: Icon(Icons.person_outline, size: 18),
+            text: 'Personal Information',
+          ),
           Tab(icon: Icon(Icons.lock_outline, size: 18), text: 'Password'),
         ],
       ),
@@ -457,7 +481,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           controller: firstNameController,
           enabled: _isAdmin,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'First name' : 'First name (request an admin to change)',
+            labelText: _isAdmin
+                ? 'First name'
+                : 'First name (request an admin to change)',
             prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
@@ -466,7 +492,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           controller: lastNameController,
           enabled: _isAdmin,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Last name' : 'Last name (request an admin to change)',
+            labelText: _isAdmin
+                ? 'Last name'
+                : 'Last name (request an admin to change)',
             prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
@@ -476,7 +504,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           enabled: _isAdmin,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            labelText: _isAdmin ? 'Email' : 'Email (request an admin to change)',
+            labelText: _isAdmin
+                ? 'Email'
+                : 'Email (request an admin to change)',
             prefixIcon: const Icon(Icons.mail_outline),
           ),
         ),
@@ -548,114 +578,74 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+Widget build(BuildContext context) {
+  final theme = Theme.of(context);
 
-    final localTheme = theme.copyWith(
-      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-        filled: true,
-        fillColor: const Color(0xFFF4F7FF),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: AppColors.brandBlue.withOpacity(0.28),
-            width: 1.2,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.brandBlue, width: 2.0),
+  final localTheme = theme.copyWith(
+    inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+      filled: true,
+      fillColor: const Color(0xFFF4F7FF),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: AppColors.brandBlue.withOpacity(0.28),
+          width: 1.2,
         ),
       ),
-    );
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.brandBlue, width: 2.0),
+      ),
+    ),
+  );
 
-    // ✅ Content-only screen (AppShell provides AppBar + Sidebar)
-    // We still return _profileChanged if somebody awaits a pop result.
-    return PopScope(
-      canPop: true,
-      onPopInvoked: (didPop) {
-        // no-op: AppShell handles chrome; returning value occurs via maybePop result when awaited
-      },
-      child: Theme(
-        data: localTheme,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(_outerPad),
-                children: [
-                  CenteredSection(
-                    maxWidth: _maxWidth,
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardBackground,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.black.withOpacity(0.06)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
-                            blurRadius: 14,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: _formWidth),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (_error != null) ...[
-                                _errorBanner(theme, _error!),
-                                const SizedBox(height: _sectionGap),
-                              ],
-                              if (_success != null) ...[
-                                _successBanner(theme, _success!),
-                                const SizedBox(height: _sectionGap),
-                              ],
-                              Text(
-                                "Account Settings",
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  color: const Color(0xFF101828),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                "Update your personal details and password.",
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF475467),
-                                  height: 1.25,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              Divider(color: Colors.black.withOpacity(0.07)),
-                              const SizedBox(height: 12),
+  return PopScope(
+    canPop: true,
+    onPopInvoked: (didPop) {
+      // no-op: AppShell handles chrome
+    },
+    child: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : PageScaffold(
+            title: 'Account Settings',
+            subtitle: 'Update your personal details and password.',
+            child: Theme(
+              data: localTheme, // ✅ affects only the form controls
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720), // form rail inside card
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_error != null) ...[
+                        _errorBanner(Theme.of(context), _error!),
+                        const SizedBox(height: _sectionGap),
+                      ],
+                      if (_success != null) ...[
+                        _successBanner(Theme.of(context), _success!),
+                        const SizedBox(height: _sectionGap),
+                      ],
 
-                              _tabsBar(theme),
-                              const SizedBox(height: 16),
+                      _tabsBar(Theme.of(context)),
+                      const SizedBox(height: 16),
 
-                              // ✅ NO SLIDE: IndexedStack swaps instantly
-                              SizedBox(
-                                height: 420,
-                                child: IndexedStack(
-                                  index: _tabController.index,
-                                  children: [
-                                    _personalInfoPanel(theme),
-                                    _passwordPanel(theme),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                      SizedBox(
+                        height: 420,
+                        child: IndexedStack(
+                          index: _tabController.index,
+                          children: [
+                            _personalInfoPanel(Theme.of(context)),
+                            _passwordPanel(Theme.of(context)),
+                          ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-      ),
-    );
-  }
+            ),
+          ),
+  );
+}
 }
