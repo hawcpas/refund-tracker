@@ -327,7 +327,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     setState(() {
       _dismissCompletionNote();
-      _resetCompletedSessionIfNeeded(); // ✅ clears prior completed session UI
+      //_resetCompletedSessionIfNeeded(); // ✅ clears prior completed session UI
       _error = null;
       _success = null;
     });
@@ -374,7 +374,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     setState(() {
       _dismissCompletionNote();
-      _resetCompletedSessionIfNeeded(); // ✅ clears prior completed session UI
+      //_resetCompletedSessionIfNeeded(); // ✅ clears prior completed session UI
       _error = null;
       _success = null;
     });
@@ -988,18 +988,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                 const SizedBox(height: 12),
                               ],
                               */
-                              if (_recentUploads.isNotEmpty) ...[
-                                _RecentUploadsCard(
-                                  fileNames: _recentUploads,
-                                  onClear: () {
-                                    setState(() {
-                                      _recentUploads.clear();
-                                      _success = null;
-                                    });
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                              ],
 
                               if ((_info?['message'] ?? '')
                                   .toString()

@@ -789,7 +789,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                           final storagePath = _s(m['storagePath']);
 
                           final uploadedBy = m['uploadedBy'];
-                          final clientName = uploadedBy is Map
+                          final clientName = (uploadedBy is Map)
                               ? _s(uploadedBy['name'])
                               : '';
                           final fallbackClient = _s(m['clientName']).isNotEmpty
@@ -832,6 +832,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         }).toList();
 
                         List<_UploadDoc> filtered = all.where((r) {
+                          // ✅ Hide deleted items from File Box entirely
                           if (r.data['deleted'] == true) return false;
 
                           if (q.isNotEmpty) {
@@ -882,6 +883,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         });
 
                         final visible = filtered.take(_visibleCount).toList();
+
                         final visibleIds = visible.map((e) => e.id).toSet();
                         final allVisibleSelected =
                             visible.isNotEmpty &&
@@ -894,6 +896,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
                         return Column(
                           children: [
+                            // ===== Table header =====
                             Container(
                               height: 44,
                               padding: const EdgeInsets.symmetric(
@@ -924,6 +927,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                           },
                                   ),
                                   const SizedBox(width: 4),
+
                                   Expanded(
                                     child: InkWell(
                                       onTap: () => _toggleSort(_SortField.name),
@@ -945,9 +949,90 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                       ),
                                     ),
                                   ),
+
+                                  if (!isMobile)
+                                    SizedBox(
+                                      width: 100,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _toggleSort(_SortField.size),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            const Text(
+                                              'Size',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            _SortIndicator(
+                                              active:
+                                                  _sortField == _SortField.size,
+                                              asc: _sortAsc,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                  if (!isMobile)
+                                    SizedBox(
+                                      width: isMobile ? 140 : 180,
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _toggleSort(_SortField.date),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            const Text(
+                                              'Uploaded',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            _SortIndicator(
+                                              active:
+                                                  _sortField == _SortField.date,
+                                              asc: _sortAsc,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                  const SizedBox(width: 6),
+
+                                  // ✅ Bulk actions (restored)
+                                  if (_selected.isNotEmpty) ...[
+                                    Text('${_selected.length} selected'),
+                                    const SizedBox(width: 12),
+                                    FilledButton.icon(
+                                      onPressed:
+                                          (!isAdmin ||
+                                              _busy ||
+                                              _selectedDocsCache.isEmpty)
+                                          ? null
+                                          : () => _deleteSelectedAdmin(
+                                              _selectedDocsCache,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        'Delete (${_selected.length})',
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
+
+                            // ===== Rows =====
                             Expanded(
                               child: ListView.separated(
                                 itemCount: visible.length + 1,

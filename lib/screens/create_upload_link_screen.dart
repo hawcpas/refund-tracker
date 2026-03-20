@@ -23,11 +23,35 @@ class _CreateUploadLinkScreenState extends State<CreateUploadLinkScreen> {
   final emailCtrl = TextEditingController();
   final msgCtrl = TextEditingController();
 
+  final _firstFocus = FocusNode();
+  final _lastFocus = FocusNode();
+  final _businessFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _messageFocus = FocusNode();
+  final _submitFocus = FocusNode();
+
   bool _busy = false;
 
   final List<String> businessNames = [];
   final List<String> clientEmails = [];
   final List<_MessageTemplate> messageTemplates = [];
+
+  @override
+  void dispose() {
+    _firstFocus.dispose();
+    _lastFocus.dispose();
+    _businessFocus.dispose();
+    _emailFocus.dispose();
+    _messageFocus.dispose();
+    _submitFocus.dispose();
+
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    businessCtrl.dispose();
+    emailCtrl.dispose();
+    msgCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -126,222 +150,268 @@ class _CreateUploadLinkScreenState extends State<CreateUploadLinkScreen> {
 
     return Stack(
       children: [
-        ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            CenteredSection(
-              maxWidth: 900,
-              child: Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.black.withOpacity(0.06)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 14,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 720;
+        Focus(
+          canRequestFocus: false,
+          skipTraversal: true, // ✅ prevents TAB from landing on the scroll view
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              CenteredSection(
+                maxWidth: 900,
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.black.withOpacity(0.06)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 14,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isWide = constraints.maxWidth >= 720;
 
-                    Widget field(Widget child) => ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 340),
-                      child: child,
-                    );
+                      Widget field(Widget child) => ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 340),
+                        child: child,
+                      );
 
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ===== Header =====
-                        Text(
-                          'Create Client Upload Link',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: const Color(0xFF101828),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Generate a secure upload link for a client to submit documents.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475467),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-
-                        const SizedBox(height: 18),
-                        Divider(color: Colors.black.withOpacity(0.08)),
-                        const SizedBox(height: 18),
-
-                        // ===== Client Info =====
-                        _Section('Client information'),
-
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 12,
+                      return FocusTraversalGroup(
+                        policy: OrderedTraversalPolicy(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            field(
-                              TextField(
-                                controller: firstCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'First name',
-                                ),
+                            // ===== Header =====
+                            Text(
+                              'Create Client Upload Link',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: const Color(0xFF101828),
                               ),
                             ),
-                            field(
-                              TextField(
-                                controller: lastCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'Last name',
-                                ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Generate a secure upload link for a client to submit documents.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475467),
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
-                        ),
 
-                        const SizedBox(height: 14),
+                            const SizedBox(height: 18),
+                            Divider(color: Colors.black.withOpacity(0.08)),
+                            const SizedBox(height: 18),
 
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 12,
-                          children: [
-                            field(
-                              Autocomplete<String>(
-                                optionsBuilder: (value) {
-                                  final q = value.text.toLowerCase();
-                                  if (q.isEmpty)
-                                    return const Iterable<String>.empty();
-                                  return businessNames.where(
-                                    (b) => b.toLowerCase().contains(q),
-                                  );
-                                },
-                                onSelected: (v) => businessCtrl.text = v,
-                                fieldViewBuilder: (_, ctrl, focusNode, __) {
-                                  ctrl.addListener(
-                                    () => businessCtrl.text = ctrl.text,
-                                  );
-                                  return TextField(
-                                    controller: ctrl,
-                                    focusNode: focusNode,
+                            // ===== Client Info =====
+                            _Section('Client information'),
+
+                            Wrap(
+                              spacing: 16,
+                              runSpacing: 12,
+                              children: [
+                                field(
+                                  TextField(
+                                    controller: firstCtrl,
+                                    focusNode: _firstFocus,
+                                    textInputAction: TextInputAction.next,
+                                    onEditingComplete: () => FocusScope.of(
+                                      context,
+                                    ).requestFocus(_lastFocus),
                                     decoration: const InputDecoration(
-                                      labelText: 'Business name (optional)',
+                                      labelText: 'First name',
                                     ),
-                                  );
-                                },
-                              ),
-                            ),
-                            field(
-                              Autocomplete<String>(
-                                optionsBuilder: (value) {
-                                  final q = value.text.toLowerCase();
-                                  if (q.length < 3)
-                                    return const Iterable<String>.empty();
-                                  return clientEmails.where(
-                                    (e) => e.toLowerCase().contains(q),
-                                  );
-                                },
-                                onSelected: (v) => emailCtrl.text = v,
-                                fieldViewBuilder: (_, ctrl, focusNode, __) {
-                                  ctrl.addListener(
-                                    () => emailCtrl.text = ctrl.text,
-                                  );
-                                  return TextField(
-                                    controller: ctrl,
-                                    focusNode: focusNode,
-                                    keyboardType: TextInputType.emailAddress,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Client email (optional)',
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // ===== Message =====
-                        _Section('Client message'),
-
-                        field(
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                              labelText: 'Message template',
-                            ),
-                            items: messageTemplates
-                                .map(
-                                  (t) => DropdownMenuItem(
-                                    value: t.id,
-                                    child: Text(t.title),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (id) {
-                              final t = messageTemplates.firstWhere(
-                                (e) => e.id == id,
-                              );
-                              msgCtrl.text = t.body;
-                            },
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
-                          child: TextField(
-                            controller: msgCtrl,
-                            maxLines: 6,
-                            decoration: const InputDecoration(
-                              labelText: 'Message',
-                              alignLabelWithHint: true,
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 28),
-                        Divider(color: Colors.black.withOpacity(0.08)),
-                        const SizedBox(height: 16),
-
-                        // ===== Actions =====
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            OutlinedButton(
-                              onPressed: widget.onCancel,
-                              child: const Text('Cancel'),
-                            ),
-                            const SizedBox(width: 12),
-                            SizedBox(
-                              height: 44,
-                              child: FilledButton(
-                                onPressed: _busy ? null : _create,
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
-                                child: const Text('Create link'),
+                                field(
+                                  TextField(
+                                    controller: lastCtrl,
+                                    focusNode: _lastFocus,
+                                    textInputAction: TextInputAction.next,
+                                    onEditingComplete: () => FocusScope.of(
+                                      context,
+                                    ).requestFocus(_businessFocus),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Last name',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 14),
+
+                            Wrap(
+                              spacing: 16,
+                              runSpacing: 12,
+                              children: [
+                                field(
+                                  Autocomplete<String>(
+                                    optionsBuilder: (value) {
+                                      final q = value.text.toLowerCase();
+                                      if (q.isEmpty)
+                                        return const Iterable<String>.empty();
+                                      return businessNames.where(
+                                        (b) => b.toLowerCase().contains(q),
+                                      );
+                                    },
+                                    onSelected: (v) {
+                                      businessCtrl.text = v;
+                                      FocusScope.of(
+                                        context,
+                                      ).requestFocus(_emailFocus);
+                                    },
+                                    fieldViewBuilder: (_, ctrl, focusNode, __) {
+                                      ctrl.addListener(
+                                        () => businessCtrl.text = ctrl.text,
+                                      );
+
+                                      return TextField(
+                                        controller: ctrl,
+                                        focusNode:
+                                            _businessFocus, // ✅ OVERRIDE focus
+                                        textInputAction: TextInputAction.next,
+                                        onEditingComplete: () => FocusScope.of(
+                                          context,
+                                        ).requestFocus(_emailFocus),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Business name (optional)',
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                field(
+                                  Autocomplete<String>(
+                                    optionsBuilder: (value) {
+                                      final q = value.text.toLowerCase();
+                                      if (q.length < 3)
+                                        return const Iterable<String>.empty();
+                                      return clientEmails.where(
+                                        (e) => e.toLowerCase().contains(q),
+                                      );
+                                    },
+                                    onSelected: (v) {
+                                      emailCtrl.text = v;
+                                      FocusScope.of(
+                                        context,
+                                      ).requestFocus(_messageFocus);
+                                    },
+                                    fieldViewBuilder: (_, ctrl, focusNode, __) {
+                                      ctrl.addListener(
+                                        () => emailCtrl.text = ctrl.text,
+                                      );
+
+                                      return TextField(
+                                        controller: ctrl,
+                                        focusNode:
+                                            _emailFocus, // ✅ OVERRIDE focus
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        textInputAction: TextInputAction.next,
+                                        onEditingComplete: () => FocusScope.of(
+                                          context,
+                                        ).requestFocus(_messageFocus),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Client email (optional)',
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // ===== Message =====
+                            _Section('Client message'),
+
+                            field(
+                              DropdownButtonFormField<String>(
+                                decoration: const InputDecoration(
+                                  labelText: 'Message template',
+                                ),
+                                items: messageTemplates
+                                    .map(
+                                      (t) => DropdownMenuItem(
+                                        value: t.id,
+                                        child: Text(t.title),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (id) {
+                                  final t = messageTemplates.firstWhere(
+                                    (e) => e.id == id,
+                                  );
+                                  msgCtrl.text = t.body;
+                                },
                               ),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 560),
+                              child: TextField(
+                                controller: msgCtrl,
+                                focusNode: _messageFocus,
+                                maxLines: 6,
+                                textInputAction: TextInputAction.done,
+                                onEditingComplete: () => FocusScope.of(
+                                  context,
+                                ).requestFocus(_submitFocus),
+                                decoration: const InputDecoration(
+                                  labelText: 'Message',
+                                  alignLabelWithHint: true,
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 28),
+                            Divider(color: Colors.black.withOpacity(0.08)),
+                            const SizedBox(height: 16),
+
+                            // ===== Actions =====
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                OutlinedButton(
+                                  onPressed: widget.onCancel,
+                                  child: const Text('Cancel'),
+                                ),
+                                const SizedBox(width: 12),
+                                SizedBox(
+                                  height: 44,
+                                  child: FilledButton(
+                                    focusNode: _submitFocus, // ✅ ADD THIS LINE
+                                    onPressed: _busy ? null : _create,
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 24,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    child: const Text('Create link'),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         if (_busy)
           const Positioned(
