@@ -9,14 +9,16 @@ const {
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const archiver = require("archiver");
 const functions = require("firebase-functions");
 
+// ✅ ADD THESE THREE LINES HERE
+const os = require("os");
+const path = require("path");
+const fs = require("fs");
 
 admin.initializeApp();
 const db = admin.firestore();
-
-
-admin.initializeApp();
 
 // ============================
 // Secrets
@@ -2079,6 +2081,295 @@ exports.getDropoffDownloadUrl = onCall(
 );
 
 // ============================
+// getDropoffZipDownloadUrl (admin OR owner)
+// Creates a ZIP in Cloud Storage and returns a signed download URL
+// ============================
+
+/*
+exports.getDropoffZipDownloadUrl = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    // Same gate as your dropoff module
+    await assertDropoffAccess(auth.uid);
+
+    const requestId = String(data?.requestId || "").trim();
+    const fileIds = Array.isArray(data?.fileIds) ? data.fileIds : [];
+
+    if (!requestId) {
+      throw new HttpsError("invalid-argument", "requestId is required.");
+    }
+    if (!Array.isArray(fileIds) || fileIds.length < 2) {
+      throw new HttpsError(
+        "invalid-argument",
+        "fileIds must be an array with at least 2 items."
+      );
+    }
+
+    const db = admin.firestore();
+
+    // Load dropoff request
+    const reqSnap = await db.collection("dropoff_requests").doc(requestId).get();
+    if (!reqSnap.exists) {
+      throw new HttpsError("not-found", "Drop-off request not found.");
+    }
+    const req = reqSnap.data() || {};
+    const ownerUid = String(req.createdByUid || "").trim();
+
+    // Determine caller role (admin/owner enforcement like your single-file download)
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const role = String(callerSnap.data()?.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isOwner = ownerUid && ownerUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError(
+        "permission-denied",
+        "Not allowed to download files for this request."
+      );
+    }
+
+    // Fetch file metadata docs and build list of eligible files
+    const filesCol = db
+      .collection("dropoff_requests")
+      .doc(requestId)
+      .collection("files");
+
+    const wanted = fileIds.map((x) => String(x || "").trim()).filter(Boolean);
+
+    // Limit for safety (enterprise guardrail)
+    const MAX_FILES = 75;
+    if (wanted.length > MAX_FILES) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Too many files selected. Max is ${MAX_FILES}.`
+      );
+    }
+
+    const metas = [];
+    const seenNames = new Set();
+
+    for (const fid of wanted) {
+      const snap = await filesCol.doc(fid).get();
+      if (!snap.exists) continue;
+      const m = snap.data() || {};
+
+      // Enforce not deleted (same as your single-file guard)
+      if (m.deleted === true) continue;
+
+      const storagePath = String(m.storagePath || "").trim();
+      if (!storagePath) continue;
+
+      // Create a safe, unique filename inside the zip
+      let name = safeFilename(String(m.originalName || `file-${fid}`));
+      if (!name) name = `file-${fid}`;
+
+      // Avoid collisions
+      if (seenNames.has(name)) {
+        const dot = name.lastIndexOf(".");
+        const base = dot > 0 ? name.slice(0, dot) : name;
+        const ext = dot > 0 ? name.slice(dot) : "";
+        let n = 2;
+        while (seenNames.has(`${base} (${n})${ext}`)) n++;
+        name = `${base} (${n})${ext}`;
+      }
+      seenNames.add(name);
+
+      metas.push({ fid, storagePath, name });
+    }
+
+    if (metas.length < 2) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Not enough eligible files to zip (files may be deleted or unavailable)."
+      );
+    }
+
+    // Write zip to Cloud Storage
+    const bucket = admin.storage().bucket();
+    const ts = Date.now();
+    const zipObjectPath = `bulk_zips/${requestId}/${auth.uid}/${ts}.zip`;
+    const zipFile = bucket.file(zipObjectPath);
+
+    const zipWriteStream = zipFile.createWriteStream({
+      resumable: false,
+      contentType: "application/zip",
+      metadata: {
+        cacheControl: "private, max-age=0, no-transform",
+      },
+    });
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+
+    // Pipe archive into the storage write stream
+    archive.pipe(zipWriteStream);
+
+    // Append each file as a stream
+    for (const f of metas) {
+      const src = bucket.file(f.storagePath).createReadStream();
+      archive.append(src, { name: f.name });
+    }
+
+    // Finalize the zip
+    await new Promise((resolve, reject) => {
+      zipWriteStream.on("finish", resolve);
+      zipWriteStream.on("error", reject);
+      archive.on("error", reject);
+      archive.finalize();
+    });
+
+    // Create a signed URL (short-lived like your single-file)
+    const safeZipName = safeFilename(
+      `Dropoff_${requestId}_${new Date(ts).toISOString().slice(0, 10)}.zip`
+    );
+
+    const [url] = await zipFile.getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 5 * 60 * 1000,
+      responseDisposition:
+        `attachment; filename="${safeZipName}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(safeZipName)}`,
+      responseType: "application/zip",
+    });
+
+    return {
+      ok: true,
+      url,
+      zipObjectPath,
+      fileCount: metas.length,
+      skipped: wanted.length - metas.length,
+    };
+  }
+);
+*/
+
+exports.getDropoffZipDownloadUrl = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated");
+
+      await assertDropoffAccess(auth.uid);
+
+      const requestId = String(data?.requestId || "").trim();
+      const fileIds = Array.isArray(data?.fileIds) ? data.fileIds : [];
+
+      if (!requestId || fileIds.length === 0) {
+        throw new HttpsError(
+          "invalid-argument",
+          "requestId and fileIds[] are required."
+        );
+      }
+
+      // ✅ Verify dropoff
+      const reqRef = db.collection("dropoff_requests").doc(requestId);
+      const reqSnap = await reqRef.get();
+      if (!reqSnap.exists) {
+        throw new HttpsError("not-found", "Drop-off request not found.");
+      }
+
+      const filesSnap = await reqRef
+        .collection("files")
+        .where(admin.firestore.FieldPath.documentId(), "in", fileIds)
+        .get();
+
+      console.log("ZIP FILE METADATA LOADED", {
+        requestId,
+        requestedFileIds: fileIds.length,
+        foundFiles: filesSnap.size,
+      });
+
+      if (filesSnap.empty) {
+        throw new HttpsError("not-found", "No files found.");
+      }
+
+      // ✅ Prepare temp ZIP
+      const bucket = admin.storage().bucket();
+      const tmpDir = os.tmpdir();
+      const zipPath = path.join(tmpDir, `dropoff_${requestId}.zip`);
+      const output = fs.createWriteStream(zipPath);
+      const archive = archiver("zip", { zlib: { level: 9 } });
+
+      archive.on("warning", (w) => {
+        console.warn("⚠️ ZIP warning:", w);
+      });
+
+      archive.on("error", (e) => {
+        console.error("❌ ZIP archiver error:", e);
+        throw e;
+      });
+
+      archive.pipe(output);
+
+      for (const doc of filesSnap.docs) {
+        const f = doc.data();
+        if (f.deleted === true) continue;
+        if (!f.storagePath) continue;
+
+        const file = bucket.file(f.storagePath);
+        archive.append(file.createReadStream(), {
+          name: safeFilename(f.originalName || doc.id),
+        });
+      }
+
+      await archive.finalize();
+
+      await new Promise((res) => output.on("close", res));
+
+      // ✅ Upload ZIP
+      const zipStoragePath = `tmp/zips/${requestId}_${Date.now()}.zip`;
+      console.log("ZIP CREATED LOCALLY", {
+        zipPath,
+      });
+      await bucket.upload(zipPath, {
+        destination: zipStoragePath,
+        contentType: "application/zip",
+      });
+
+      // ✅ Signed URL
+      const [url] = await bucket.file(zipStoragePath).getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 5 * 60 * 1000,
+        responseDisposition: 'attachment; filename="uploads.zip"',
+      });
+
+      return {
+        ok: true,
+        url,
+        fileCount: filesSnap.size,
+      };
+    } catch (err) {
+      console.error("❌ ZIP GENERATION FAILED", {
+        message: err?.message,
+        stack: err?.stack,
+        name: err?.name,
+        code: err?.code,
+      });
+
+      // If this was already a structured HttpsError, pass it through
+      if (err instanceof HttpsError) {
+        throw err;
+      }
+
+      // Otherwise expose the REAL cause (enterprise-safe)
+      throw new HttpsError(
+        "internal",
+        "ZIP generation failed.",
+        {
+          cause: err?.message || String(err),
+        }
+      );
+    }
+
+  }
+);
+
+// ============================
 // logFileActivity (admin OR owner) — append-only audit trail
 // action: 'view' (details/history), 'download' (optional later)
 // ============================
@@ -2417,6 +2708,92 @@ exports.deleteDropoffRequest = onCall(
     });
 
     return { ok: true };
+  }
+);
+
+// purgeDropoffRequest (admin OR owner) — PERMANENT delete
+exports.purgeDropoffRequest = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const requestId = (data?.requestId || "").toString().trim();
+    if (!requestId) throw new HttpsError("invalid-argument", "requestId required.");
+
+    const ref = db.collection("dropoff_requests").doc(requestId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Drop-off request not found.");
+
+    const doc = snap.data() || {};
+    const createdByUid = (doc.createdByUid || "").toString().trim();
+    const status = (doc.status || "").toString().toLowerCase().trim();
+
+    // Safety rail: only allow purging archived links
+    if (status !== "deleted") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Only archived links can be permanently deleted."
+      );
+    }
+
+    // Enforce owner/admin (same pattern as deleteDropoffRequest)
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const callerRole = ((callerSnap.data()?.role || "") + "").toLowerCase().trim();
+    const isAdmin = callerRole === "admin";
+    const isOwner = createdByUid && createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to purge this request.");
+    }
+
+    const bucket = admin.storage().bucket();
+
+    // 1) Delete Storage objects referenced by files subcollection
+    const filesRef = ref.collection("files");
+    const filesSnap = await filesRef.get();
+
+    let deletedStorage = 0;
+    for (const d of filesSnap.docs) {
+      const f = d.data() || {};
+      const storagePath = (f.storagePath || "").toString().trim();
+      if (storagePath) {
+        try {
+          await bucket.file(storagePath).delete();
+          deletedStorage++;
+        } catch (_) {
+          // ignore if already gone
+        }
+      }
+    }
+
+    // 2) Delete files subcollection docs in batches
+    const BATCH_SIZE = 400;
+    const fileDocs = filesSnap.docs;
+    for (let i = 0; i < fileDocs.length; i += BATCH_SIZE) {
+      const batch = db.batch();
+      for (const d of fileDocs.slice(i, i + BATCH_SIZE)) {
+        batch.delete(d.ref);
+      }
+      await batch.commit();
+    }
+
+    // 3) Delete the dropoff request doc itself
+    await ref.delete();
+
+    // Optional: audit
+    await db.collection("auditLogs").add({
+      type: "dropoff_purged",
+      requestId,
+      deletedStorage,
+      actorUid: auth.uid,
+      actorRole: callerRole || null,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, requestId, deletedStorage };
   }
 );
 

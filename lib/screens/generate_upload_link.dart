@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
@@ -125,7 +126,16 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  static _LinksView _lastView = _LinksView.active;
+  late _LinksView _view;
+
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _view = _lastView; // ✅ restore last selected tab
+  }
 
   HttpsCallable _callable(String name) => _functions.httpsCallable(name);
 
@@ -135,6 +145,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
   HttpsCallable get _setDropoffStatusCallable =>
       _functions.httpsCallable('setDropoffStatus');
+
+  HttpsCallable get _purgeDropoffCallable =>
+      _functions.httpsCallable('purgeDropoffRequest');
 
   Future<void> _setDropoffStatus(String requestId, String status) async {
     setState(() => _busy = true);
@@ -172,6 +185,30 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     }
   }
 
+  Future<void> _purgeDropoffRequest(String requestId) async {
+    setState(() => _busy = true);
+    try {
+      await _purgeDropoffCallable.call({'requestId': requestId});
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Archived link permanently deleted.')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Permanent delete failed')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Permanent delete failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _deleteDropoffRequest(String requestId) async {
     setState(() => _busy = true);
     try {
@@ -197,7 +234,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   }
 
   /// Bulk delete: uses same callable, but holds busy state once (enterprise feel)
-  Future<void> _bulkDeleteDropoffRequests(List<String> requestIds) async {
+  Future<void> _bulkDeleteDropoffRequests(
+    List<String> requestIds, {
+    required bool isArchived,
+  }) async {
     if (requestIds.isEmpty) return;
 
     final confirm = await showDialog<bool>(
@@ -205,7 +245,11 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete selected links'),
         content: Text(
-          'Delete ${requestIds.length} client upload link(s)? This will permanently remove the request and all associated uploads.',
+          isArchived
+              ? 'Permanently delete ${requestIds.length} archived upload link(s)? '
+                    'This action cannot be undone.'
+              : 'Delete ${requestIds.length} client upload link(s)? '
+                    'This will remove the request and all associated uploads.',
         ),
         actions: [
           TextButton(
@@ -226,12 +270,22 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     try {
       // Execute sequentially (safer for rate limits + audit readability)
       for (final id in requestIds) {
-        await _deleteDropoffCallable.call({'requestId': id});
+        if (isArchived) {
+          await _purgeDropoffCallable.call({'requestId': id});
+        } else {
+          await _deleteDropoffCallable.call({'requestId': id});
+        }
       }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Deleted ${requestIds.length} link(s).')),
+        SnackBar(
+          content: Text(
+            isArchived
+                ? 'Permanently deleted ${requestIds.length} archived link(s).'
+                : 'Archived ${requestIds.length} link(s).',
+          ),
+        ),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -404,14 +458,23 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                 child: _RequestsList(
                                   db: _db,
                                   busy: _busy,
+
+                                  // ✅ REQUIRED: pass current view
+                                  view: _view,
+
+                                  // ✅ ADD THIS EXACT BLOCK
+                                  onViewChanged: (v) => setState(() {
+                                    _view = v;
+                                    _lastView =
+                                        v; // ✅ persists across screen rebuilds
+                                  }),
+
                                   onSelect: (rid) {
-                                    // ✅ Open detail INSIDE AppShell (keeps sidebar + AppBar)
                                     if (widget.onOpenDetails != null) {
                                       widget.onOpenDetails!(rid);
                                       return;
                                     }
 
-                                    // Fallback if used outside AppShell (optional safety)
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -422,6 +485,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   },
                                   onSetStatus: _setDropoffStatus,
                                   onBulkDelete: _bulkDeleteDropoffRequests,
+                                  onArchive: _deleteDropoffRequest,
+                                  onPurge: _purgeDropoffRequest,
                                 ),
                               ),
                             ),
@@ -462,16 +527,30 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 class _RequestsList extends StatefulWidget {
   final FirebaseFirestore db;
   final bool busy;
+  final _LinksView view;
+  final ValueChanged<_LinksView> onViewChanged;
   final void Function(String requestId) onSelect;
   final Future<void> Function(String requestId, String status) onSetStatus;
-  final Future<void> Function(List<String> requestIds) onBulkDelete;
+  final Future<void> Function(
+    List<String> requestIds, {
+    required bool isArchived,
+  })
+  onBulkDelete;
+  final Future<void> Function(String requestId) onArchive;
+  final Future<void> Function(String requestId) onPurge;
 
   const _RequestsList({
     required this.db,
     required this.busy,
+    required this.view,
+    required this.onViewChanged,
     required this.onSelect,
     required this.onSetStatus,
     required this.onBulkDelete,
+
+    // ✅ ADD THESE
+    required this.onArchive,
+    required this.onPurge,
   });
 
   @override
@@ -484,8 +563,6 @@ class _RequestsListState extends State<_RequestsList> {
 
   // Multi-select
   final Set<String> _selected = {};
-
-  _LinksView _view = _LinksView.active;
 
   // Sorting (local sort to avoid new indexes)
   _DropoffSortField _sortField = _DropoffSortField.createdAt;
@@ -543,7 +620,7 @@ class _RequestsListState extends State<_RequestsList> {
 
     final uid = FirebaseAuth.instance.currentUser!.uid;
 
-    final isArchivedView = _view == _LinksView.archived;
+    final isArchivedView = widget.view == _LinksView.archived;
 
     final Query<Map<String, dynamic>> query = isArchivedView
         ? widget.db
@@ -594,11 +671,11 @@ class _RequestsListState extends State<_RequestsList> {
             children: [
               ChoiceChip(
                 label: const Text('Active'),
-                selected: _view == _LinksView.active,
+                selected: widget.view == _LinksView.active,
                 onSelected: (v) {
                   if (!v) return;
+                  widget.onViewChanged(_LinksView.active);
                   setState(() {
-                    _view = _LinksView.active;
                     _selected.clear();
                     _q = '';
                     _searchCtrl.clear();
@@ -607,11 +684,11 @@ class _RequestsListState extends State<_RequestsList> {
               ),
               ChoiceChip(
                 label: const Text('Archived'),
-                selected: _view == _LinksView.archived,
+                selected: widget.view == _LinksView.archived,
                 onSelected: (v) {
                   if (!v) return;
+                  widget.onViewChanged(_LinksView.archived);
                   setState(() {
-                    _view = _LinksView.archived;
                     _selected.clear();
                     _q = '';
                     _searchCtrl.clear();
@@ -716,7 +793,7 @@ class _RequestsListState extends State<_RequestsList> {
               ),
               const Spacer(),
 
-              if (_view == _LinksView.active && _selected.isNotEmpty) ...[
+              if (_selected.isNotEmpty) ...[
                 Text(
                   '${_selected.length} selected',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -736,7 +813,10 @@ class _RequestsListState extends State<_RequestsList> {
                             if (ids.isEmpty) return;
 
                             // Run delete (shows confirm dialog in parent)
-                            await widget.onBulkDelete(ids);
+                            await widget.onBulkDelete(
+                              ids,
+                              isArchived: widget.view == _LinksView.archived,
+                            );
 
                             // Clear selection after delete (prevents “nothing happened” feeling)
                             if (!mounted) return;
@@ -752,7 +832,11 @@ class _RequestsListState extends State<_RequestsList> {
                             );
                           },
                     icon: const Icon(Icons.delete_outline, size: 18),
-                    label: Text('Delete (${_selected.length})'),
+                    label: Text(
+                      widget.view == _LinksView.archived
+                          ? 'Delete permanently (${_selected.length})'
+                          : 'Delete (${_selected.length})',
+                    ),
                   ),
                 ),
               ],
@@ -979,10 +1063,12 @@ class _RequestsListState extends State<_RequestsList> {
                               ? _formatDate(r.lastUploadedAt!)
                               : '';
 
+                          final rowIsArchived =
+                              r.status.toLowerCase().trim() == 'deleted';
+
                           return _DenseRequestRow(
                             busy: widget.busy,
-                            archived:
-                                r.status.toLowerCase().trim() == 'deleted',
+                            archived: rowIsArchived,
                             selected: selected,
                             onSelected: (v) {
                               setState(() {
@@ -1005,8 +1091,19 @@ class _RequestsListState extends State<_RequestsList> {
                             lastUploadText: lastUploadText,
                             url: r.url,
                             status: r.status,
+
                             onToggleStatus: (nextStatus) =>
                                 widget.onSetStatus(r.id, nextStatus),
+
+                            // ✅ ADD THESE TWO
+                            requestId: r.id,
+                            onDelete: (isArchived) async {
+                              if (isArchived) {
+                                await widget.onPurge(r.id);
+                              } else {
+                                await widget.onArchive(r.id);
+                              }
+                            },
                           );
                         },
                       ),
@@ -1062,6 +1159,8 @@ class _DenseRequestRow extends StatefulWidget {
   final String lastUploadText;
   final String url;
   final String status;
+  final String requestId;
+  final Future<void> Function(bool isArchived) onDelete;
 
   final Future<void> Function(String nextStatus) onToggleStatus;
 
@@ -1081,6 +1180,8 @@ class _DenseRequestRow extends StatefulWidget {
     required this.url,
     required this.status,
     required this.onToggleStatus,
+    required this.requestId,
+    required this.onDelete,
   });
 
   @override
@@ -1125,10 +1226,11 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
               children: [
                 Checkbox(
                   value: widget.selected,
-                  onChanged: (widget.busy || isArchived)
+                  onChanged: widget.busy
                       ? null
                       : (v) => widget.onSelected(v ?? false),
                 ),
+                const SizedBox(width: 12),
 
                 // Status dot
                 Container(
@@ -1299,7 +1401,8 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
 
                           if (confirm != true) return;
 
-                          await widget.onToggleStatus('deleted');
+                          // If already archived → permanently delete, else archive
+                          await widget.onDelete(isArchived);
                           return;
                         }
                       },
@@ -1346,8 +1449,24 @@ class DropoffDetailScreen extends StatefulWidget {
   State<DropoffDetailScreen> createState() => _DropoffDetailScreenState();
 }
 
+class _BulkFile {
+  final String fileId;
+  final String storagePath;
+  final String filename;
+  final String? contentType;
+
+  const _BulkFile({
+    required this.fileId,
+    required this.storagePath,
+    required this.filename,
+    required this.contentType,
+  });
+}
+
 class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
   bool _busy = false;
+  final Set<String> _selectedFileIds = <String>{};
+  final Map<String, _BulkFile> _selectedFiles = <String, _BulkFile>{};
 
   Future<void> _downloadFile({
     required String storagePath,
@@ -1396,6 +1515,163 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
         ),
       );
     } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showPreparingZipDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // ✅ cannot dismiss
+      builder: (_) => AlertDialog(
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Preparing ZIP…',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Collecting and packaging selected files for download.',
+                    style: TextStyle(
+                      color: Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _closePreparingZipDialog() {
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
+  Future<void> _bulkDownloadSelected() async {
+    if (_selectedFiles.isEmpty) return;
+
+    final files = _selectedFiles.values.toList(growable: false);
+
+    // ✅ If only one file selected → use existing single-download flow
+    if (files.length == 1) {
+      final f = files.first;
+      await _downloadFile(
+        storagePath: f.storagePath,
+        filename: f.filename,
+        contentType: f.contentType,
+        requestId: widget.requestId,
+        fileId: f.fileId,
+      );
+      return;
+    }
+
+    // ✅ If 2+ files selected → create ZIP on server and download it
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Download ZIP'),
+        content: Text(
+          'Create a ZIP containing ${files.length} files and download it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Download ZIP (${files.length})'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _busy = true);
+    _showPreparingZipDialog();
+
+    try {
+      final fileIds = files.map((f) => f.fileId).toList(growable: false);
+
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getDropoffZipDownloadUrl')
+          .call({'requestId': widget.requestId, 'fileIds': fileIds});
+
+      _closePreparingZipDialog();
+
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final url = (data['url'] ?? '').toString();
+      if (url.isEmpty) {
+        throw Exception('Could not generate ZIP download link.');
+      }
+
+      final uri = Uri.parse(url);
+
+      if (!mounted) return;
+
+      // ✅ Web: open same tab to avoid popup blockers
+      if (kIsWeb) {
+        await launchUrl(uri, webOnlyWindowName: '_self');
+      } else {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+
+      final count = (data['fileCount'] ?? files.length).toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Downloading ZIP ($count files)…')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      _closePreparingZipDialog();
+      if (!mounted) return;
+
+      // ✅ Extract real backend cause
+      String? cause;
+      final details = e.details;
+      if (details is Map && details['cause'] != null) {
+        cause = details['cause'].toString();
+      }
+
+      debugPrint(
+        'ZIP ERROR → code=${e.code}, message=${e.message}, cause=$cause',
+      );
+
+      final uiMessage = cause == null || cause.isEmpty
+          ? 'ZIP download failed. Please try again.'
+          : 'ZIP download failed: $cause';
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(uiMessage)));
+    } catch (e) {
+      _closePreparingZipDialog();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('ZIP download failed: $e')));
+    } finally {
+      // Always close dialog (even if something threw before closing)
+      _closePreparingZipDialog();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -1649,38 +1925,228 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                     );
                                   }
 
+                                  // ✅ Build selectable map (only non-deleted with a storagePath)
+                                  final selectable = <String, _BulkFile>{};
+
+                                  for (final doc in docs) {
+                                    final data = doc.data();
+                                    final isDeleted = data['deleted'] == true;
+                                    final path = (data['storagePath'] ?? '')
+                                        .toString()
+                                        .trim();
+                                    if (isDeleted || path.isEmpty) continue;
+
+                                    selectable[doc.id] = _BulkFile(
+                                      fileId: doc.id,
+                                      storagePath: path,
+                                      filename:
+                                          (data['originalName'] ?? 'Untitled')
+                                              .toString(),
+                                      contentType: (data['contentType'] ?? '')
+                                          .toString(),
+                                    );
+                                  }
+
+                                  final selectableIds = selectable.keys.toSet();
+
+                                  // ✅ Keep selection clean as stream changes (enterprise-grade)
+                                  _selectedFileIds.removeWhere(
+                                    (id) => !selectableIds.contains(id),
+                                  );
+                                  _selectedFiles.removeWhere(
+                                    (id, _) => !selectableIds.contains(id),
+                                  );
+
+                                  final allSelected =
+                                      selectableIds.isNotEmpty &&
+                                      _selectedFileIds.containsAll(
+                                        selectableIds,
+                                      );
+
                                   return _WhiteInset(
                                     padding: EdgeInsets.zero,
                                     child: Column(
                                       children: [
+                                        // ✅ Bulk actions header row
+                                        Container(
+                                          height: 44,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF9FAFB),
+                                            border: Border(
+                                              bottom: BorderSide(
+                                                color: Colors.black.withOpacity(
+                                                  0.06,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Checkbox(
+                                                value: allSelected,
+                                                onChanged:
+                                                    (_busy ||
+                                                        selectableIds.isEmpty)
+                                                    ? null
+                                                    : (v) {
+                                                        setState(() {
+                                                          if (v == true) {
+                                                            _selectedFileIds
+                                                              ..clear()
+                                                              ..addAll(
+                                                                selectableIds,
+                                                              );
+                                                            _selectedFiles
+                                                              ..clear()
+                                                              ..addAll(
+                                                                selectable,
+                                                              );
+                                                          } else {
+                                                            _selectedFileIds
+                                                                .clear();
+                                                            _selectedFiles
+                                                                .clear();
+                                                          }
+                                                        });
+                                                      },
+                                              ),
+                                              Text(
+                                                _selectedFileIds.isEmpty
+                                                    ? 'Select files'
+                                                    : '${_selectedFileIds.length} selected',
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: const Color(
+                                                        0xFF475467,
+                                                      ),
+                                                    ),
+                                              ),
+                                              const Spacer(),
+                                              SizedBox(
+                                                height: 34,
+                                                child: FilledButton.icon(
+                                                  onPressed:
+                                                      (_busy ||
+                                                          _selectedFiles
+                                                              .isEmpty)
+                                                      ? null
+                                                      : _bulkDownloadSelected,
+                                                  icon: const Icon(
+                                                    Icons.download_for_offline,
+                                                    size: 18,
+                                                  ),
+                                                  label: Text(
+                                                    _selectedFiles.length <= 1
+                                                        ? 'Download'
+                                                        : 'Download ZIP (${_selectedFiles.length})',
+                                                  ),
+                                                  style: FilledButton.styleFrom(
+                                                    backgroundColor:
+                                                        AppColors.brandBlue,
+                                                    foregroundColor:
+                                                        Colors.white,
+                                                    textStyle: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+
+                                        // ✅ File rows
                                         for (
                                           int i = 0;
                                           i < docs.length;
                                           i++
                                         ) ...[
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                            ),
-                                            child: _FileRow(
-                                              data: docs[i].data(),
-                                              requestId: widget.requestId,
-                                              fileId: docs[i].id,
-                                              onDownload:
-                                                  (
-                                                    path,
-                                                    name,
-                                                    type,
-                                                    requestId,
-                                                    fileId,
-                                                  ) => _downloadFile(
-                                                    storagePath: path,
-                                                    filename: name,
-                                                    contentType: type,
-                                                    requestId: requestId,
-                                                    fileId: fileId,
-                                                  ),
-                                            ),
+                                          Builder(
+                                            builder: (context) {
+                                              final d = docs[i];
+                                              final data = d.data();
+
+                                              final isDeleted =
+                                                  data['deleted'] == true;
+                                              final path =
+                                                  (data['storagePath'] ?? '')
+                                                      .toString()
+                                                      .trim();
+                                              final name =
+                                                  (data['originalName'] ??
+                                                          'Untitled')
+                                                      .toString();
+                                              final type =
+                                                  (data['contentType'] ?? '')
+                                                      .toString();
+
+                                              return Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                    ),
+                                                child: _FileRow(
+                                                  data: data,
+                                                  requestId: widget.requestId,
+                                                  fileId: d.id,
+
+                                                  // ✅ selection state
+                                                  selected: _selectedFileIds
+                                                      .contains(d.id),
+
+                                                  // ✅ selection handler
+                                                  onSelected: (v) {
+                                                    if (isDeleted ||
+                                                        path.isEmpty)
+                                                      return;
+
+                                                    setState(() {
+                                                      if (v) {
+                                                        _selectedFileIds.add(
+                                                          d.id,
+                                                        );
+                                                        _selectedFiles[d.id] =
+                                                            _BulkFile(
+                                                              fileId: d.id,
+                                                              storagePath: path,
+                                                              filename: name,
+                                                              contentType: type,
+                                                            );
+                                                      } else {
+                                                        _selectedFileIds.remove(
+                                                          d.id,
+                                                        );
+                                                        _selectedFiles.remove(
+                                                          d.id,
+                                                        );
+                                                      }
+                                                    });
+                                                  },
+
+                                                  // ✅ single download still works
+                                                  onDownload:
+                                                      (
+                                                        p,
+                                                        n,
+                                                        t,
+                                                        requestId,
+                                                        fileId,
+                                                      ) => _downloadFile(
+                                                        storagePath: p,
+                                                        filename: n,
+                                                        contentType: t,
+                                                        requestId: requestId,
+                                                        fileId: fileId,
+                                                      ),
+                                                ),
+                                              );
+                                            },
                                           ),
                                           if (i != docs.length - 1)
                                             Divider(
@@ -1942,11 +2408,9 @@ class _WhiteInset extends StatelessWidget {
 class _FileRow extends StatefulWidget {
   final Map<String, dynamic> data;
 
-  // ✅ REQUIRED for server-side enforcement
   final String requestId;
   final String fileId;
 
-  // ✅ UPDATED callback signature (5 args)
   final void Function(
     String storagePath,
     String filename,
@@ -1956,11 +2420,19 @@ class _FileRow extends StatefulWidget {
   )
   onDownload;
 
+  // ✅ NEW
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
   const _FileRow({
     required this.data,
     required this.requestId,
     required this.fileId,
     required this.onDownload,
+
+    // ✅ NEW
+    required this.selected,
+    required this.onSelected,
   });
 
   @override
@@ -2006,8 +2478,17 @@ class _FileRowState extends State<_FileRow> {
             : Colors.black.withOpacity(0.02),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
+
           child: Row(
             children: [
+              // ✅ Selection checkbox (disabled when deleted/unavailable)
+              Checkbox(
+                value: widget.selected,
+                onChanged: (isDeleted || path.trim().isEmpty)
+                    ? null
+                    : (v) => widget.onSelected(v ?? false),
+              ),
+
               _fileTypeIcon(fileName: name, contentType: contentType),
               const SizedBox(width: 12),
 
@@ -2019,35 +2500,35 @@ class _FileRowState extends State<_FileRow> {
                   children: [
                     Row(
                       children: [
-                        if (isDeleted)
-                          const Icon(
-                            Icons.delete_outline,
-                            size: 16,
-                            color: Color(0xFFB42318),
-                          ),
-                        if (isDeleted) const SizedBox(width: 6),
-
                         Expanded(
                           child: Text(
-                            isDeleted ? '$name (Deleted)' : name,
+                            name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w800,
+
+                              // ✅ Keep blue for active/downloadable items
                               color: isDeleted
-                                  ? const Color(0xFFB42318)
+                                  ? const Color(
+                                      0xFF667085,
+                                    ) // enterprise neutral gray
                                   : AppColors.brandBlue,
+
+                              // ✅ Strikethrough when deleted (enterprise record state)
                               decoration: isDeleted
                                   ? TextDecoration.lineThrough
                                   : (_hovered
                                         ? TextDecoration.underline
                                         : null),
+
+                              // subtle line color so it doesn’t scream
+                              decorationColor: const Color(0xFF98A2B3),
                             ),
                           ),
                         ),
                       ],
                     ),
-
                     if (uploadedAt != null) ...[
                       const SizedBox(height: 2),
                       Text(
@@ -2068,7 +2549,7 @@ class _FileRowState extends State<_FileRow> {
                         child: Text(
                           'Deleted — This file was removed',
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFFB42318),
+                            color: const Color(0xFF667085), // neutral gray
                             fontWeight: FontWeight.w700,
                           ),
                         ),
