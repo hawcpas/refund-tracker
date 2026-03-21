@@ -31,7 +31,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
     _textListener = () {
       if (!mounted) return;
-      // Rebuild so the button enabled state updates immediately on iOS
+      // Rebuild so the button enabled state updates immediately (iOS/web)
       setState(() {});
     };
 
@@ -56,7 +56,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
     if (code.length != 6) {
       setState(() {
-        _error = 'Enter the 6‑digit verification code.';
+        _error = 'Enter the 6-digit verification code.';
       });
       return;
     }
@@ -118,13 +118,11 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
       _startCooldown(remaining.clamp(0, _cooldownSeconds));
 
       if (data['throttled'] == true) {
-        // Optional: show a friendly message
         setState(() {
           _error =
               'Please wait $remaining seconds before requesting another code.';
         });
       } else {
-        // Optional: show success feedback
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -163,145 +161,313 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   // =========================
+  // “I don't have a code” (Intuit-style help)
+  // =========================
+  void _showNoCodeSheet() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        final canResend = !_loading && !_resending && _remainingSeconds == 0;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                "Trouble getting your code?",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF393A3D),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "• Check your spam/junk folder.\n"
+                "• Use the most recent code you received.\n"
+                "• Keep this screen open while you retrieve the code.",
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: Color(0xFF6B6C72),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton(
+                  onPressed: canResend ? _resendCode : null,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.brandBlue,
+                    side: BorderSide(
+                      color: AppColors.brandBlue.withOpacity(0.6),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  child: Text(
+                    _remainingSeconds > 0
+                        ? "Resend available in $_remainingSeconds s"
+                        : "Resend verification code",
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        Navigator.pushReplacementNamed(context, '/login');
+                      },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF6B6C72),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                child: const Text("Use a different account"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  InputDecoration _codeDecoration({required bool enabled}) {
+    return InputDecoration(
+      labelText: 'Enter the 6-digit code',
+      helperText: _remainingSeconds > 0
+          ? 'You can request a new code in $_remainingSeconds seconds.'
+          : ' ',
+      errorText: null, // we show errors in the banner for Intuit feel
+      floatingLabelBehavior: FloatingLabelBehavior.auto,
+      filled: false,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: const BorderSide(color: Color(0xFF8D9096)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: const BorderSide(color: Color(0xFF8D9096)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide(color: AppColors.brandBlue, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: const BorderSide(color: Color(0xFFD52B1E)),
+      ),
+      labelStyle: TextStyle(
+        color: enabled ? const Color(0xFF6B6C72) : const Color(0xFFBABEC5),
+        fontWeight: FontWeight.w400,
+      ),
+      helperStyle: TextStyle(
+        color: enabled ? const Color(0xFF6B6C72) : const Color(0xFFBABEC5),
+        fontSize: 12,
+        height: 1.2,
+      ),
+    );
+  }
+
+  // =========================
   // UI
   // =========================
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final enabled = !_loading && !_resending;
+
+    final bool canContinue = !_loading && _controller.text.trim().length == 6;
 
     return Scaffold(
-      // ✅ Same neutral background as Resources / Dashboard pages
-      backgroundColor: AppColors.pageBackgroundLight,
+      backgroundColor: const Color(0xFFDCDCDC), // matches your login bg
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(maxWidth: 380),
             child: Padding(
               padding: const EdgeInsets.all(20),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.black.withOpacity(0.06)),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ===== Header =====
-                    Text(
-                      'Two‑factor verification',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'For security, enter the 6‑digit code sent to your email address.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                        height: 1.35,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    // ===== Code field =====
-                    TextField(
-                      controller: _controller,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
-                      autofillHints: const [AutofillHints.oneTimeCode],
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFD4D7DC)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
                       ],
-                      onChanged: (_) {
-                        if (_error != null) {
-                          setState(() => _error = null);
-                        }
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'Verification code',
-                        prefixIcon: Icon(Icons.lock_outline),
-                        counterText: '',
-                      ),
-                      onSubmitted: (_) => _loading ? null : _verify(),
                     ),
-
-                    // ===== Error =====
-                    if (_error != null) ...[
-                      const SizedBox(height: 14),
-                      _ErrorBanner(message: _error!),
-                    ],
-
-                    const SizedBox(height: 22),
-
-                    // ===== Primary CTA =====
-                    SizedBox(
-                      height: 46,
-                      child: FilledButton(
-                        onPressed: (_loading || _controller.text.length != 6)
-                            ? null
-                            : _verify,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.brandBlue,
-                          foregroundColor: Colors.white,
-                          textStyle: const TextStyle(
-                            fontWeight: FontWeight.w900,
+                    child: IgnorePointer(
+                      ignoring: _loading,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const ImageIcon(
+                            AssetImage(
+                              'assets/icons/aa_logo_imageicon_256.png',
+                            ),
+                            size: 56,
+                            color: AppColors.brandBlue,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                          const SizedBox(height: 18),
+                          Text(
+                            'Enter your verification code',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF393A3D),
+                            ),
                           ),
-                        ),
-                        child: _loading
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
+                          const SizedBox(height: 6),
+                          Text(
+                            'Enter the 6-digit code sent to your email address.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFF6B6C72),
+                              fontWeight: FontWeight.w500,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+
+                          TextField(
+                            controller: _controller,
+                            enabled: enabled,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            maxLength: 6,
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(6),
+                            ],
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 2.5,
+                              color: Color(0xFF393A3D),
+                            ),
+                            onChanged: (_) {
+                              if (_error != null) {
+                                setState(() => _error = null);
+                              }
+                            },
+                            onSubmitted: (_) => canContinue ? _verify() : null,
+                            decoration: _codeDecoration(
+                              enabled: enabled,
+                            ).copyWith(counterText: ''),
+                          ),
+
+                          if (_error != null) ...[
+                            const SizedBox(height: 12),
+                            _ErrorBanner(message: _error!),
+                          ],
+
+                          const SizedBox(height: 14),
+
+                          // Tertiary action (Intuit-style)
+                          SizedBox(
+                            height: 42,
+                            child: TextButton(
+                              onPressed: (_loading || _resending)
+                                  ? null
+                                  : _showNoCodeSheet,
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF6B6C72),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              )
-                            : const Text('Verify and continue'),
+                              ),
+                              child: const Text("I don't have a code"),
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // Primary action (Continue)
+                          SizedBox(
+                            height: 42,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: canContinue ? _verify : null,
+                                borderRadius: BorderRadius.circular(6),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 220),
+                                  child: Container(
+                                    key: ValueKey(_loading),
+                                    decoration: BoxDecoration(
+                                      color: canContinue
+                                          ? AppColors.brandBlue
+                                          : AppColors.brandBlue.withOpacity(
+                                              0.45,
+                                            ),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: _loading
+                                        ? const SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    Colors.white,
+                                                  ),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Continue',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          Text(
+                            'Axume & Associates CPAs · Secure Portal',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-
-                    const SizedBox(height: 16),
-
-                    // ===== Resend =====
-                    Center(
-                      child: TextButton(
-                        onPressed: (_remainingSeconds > 0 || _resending)
-                            ? null
-                            : _resendCode,
-                        child: Text(
-                          _remainingSeconds > 0
-                              ? 'Resend code in $_remainingSeconds s'
-                              : 'Resend verification code',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // ===== Footer =====
-                    Text(
-                      'Axume & Associates CPAs · Secure Portal',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

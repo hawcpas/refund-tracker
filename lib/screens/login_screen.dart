@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:animated_background/animated_background.dart'; // ✅ ADD
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
 import '../theme/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/post_login_route.dart';
+import '../widgets/intuit_text_field.dart';
+
+enum LoginStep { email, password }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,7 +19,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
 
@@ -26,16 +28,19 @@ class _LoginScreenState extends State<LoginScreen>
 
   final AuthService _auth = AuthService();
 
+  late final AnimationController _signinController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<double> _liftAnim;
+
   bool isLoading = false;
   bool obscurePassword = true;
+  bool _rememberMe = true; // Intuit defaults this ON
+
+  LoginStep _step = LoginStep.email;
 
   String? _emailError;
   String? _passwordError;
   String? _authError;
-
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
 
   // ✅ Refined density (matches your “less bulky” direction)
   static const double _cardRadius = 18;
@@ -49,20 +54,6 @@ class _LoginScreenState extends State<LoginScreen>
   static const double _accentH = 4;
   static const double _accentW = 72;
 
-  // ✅ Particle options (tuned for “professional + subtle”)
-  final ParticleOptions _particles = const ParticleOptions(
-    baseColor: AppColors.brandBlue,
-    spawnOpacity: 0.0,
-    opacityChangeRate: 0.25,
-    minOpacity: 0.06,
-    maxOpacity: 0.20,
-    particleCount: 55,
-    spawnMaxRadius: 10.0,
-    spawnMinRadius: 3.0,
-    spawnMaxSpeed: 55.0,
-    spawnMinSpeed: 18.0,
-  );
-
   Future<void> _openLink(String url) async {
     final uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -73,31 +64,35 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
-
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeIn,
-    );
-
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(
-          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-        );
-
-    _animationController.forward();
     _loadSavedEmail();
+
+    _signinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+
+    _fadeAnim = CurvedAnimation(
+      parent: _signinController,
+      curve: Curves.easeOut,
+    );
+
+    _liftAnim = Tween<double>(begin: 0, end: -4).animate(
+      CurvedAnimation(parent: _signinController, curve: Curves.easeOutCubic),
+    );
   }
 
   Future<void> _loadSavedEmail() async {
+    final remember = await LocalAuthPrefs.getRememberMe();
     final savedEmail = await LocalAuthPrefs.getSavedEmail();
-    if (savedEmail != null && mounted) {
-      setState(() => emailController.text = savedEmail);
-    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _rememberMe = remember;
+      if (remember && savedEmail != null) {
+        emailController.text = savedEmail;
+      }
+    });
   }
 
   @override
@@ -106,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen>
     passwordController.dispose();
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
-    _animationController.dispose();
+    _signinController.dispose();
     super.dispose();
   }
 
@@ -118,6 +113,39 @@ class _LoginScreenState extends State<LoginScreen>
         _authError = null;
       });
     }
+  }
+
+  Future<void> _continueToPassword() async {
+    final email = emailController.text.trim().toLowerCase();
+
+    if (email.isEmpty || !email.contains("@")) {
+      setState(() {
+        _emailError = "Enter a valid email address.";
+      });
+      return;
+    }
+
+    // ✅ STEP 4 — Persist Remember Me choice BEFORE UI transition
+    await LocalAuthPrefs.setRememberMe(_rememberMe);
+
+    if (_rememberMe) {
+      await LocalAuthPrefs.saveEmail(email);
+    } else {
+      await LocalAuthPrefs.clearEmail();
+    }
+
+    // ✅ Now transition to password screen
+    setState(() {
+      _emailError = null;
+      _step = LoginStep.password;
+    });
+
+    // ✅ Focus password after animation settles
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        FocusScope.of(context).requestFocus(passwordFocusNode);
+      }
+    });
   }
 
   void _login() async {
@@ -150,6 +178,7 @@ class _LoginScreenState extends State<LoginScreen>
     const minSpinnerMs = 300;
 
     setState(() => isLoading = true);
+    _signinController.forward();
 
     final user = await _auth.login(email, password);
 
@@ -164,6 +193,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     setState(() => isLoading = false);
+    _signinController.reverse();
 
     if (user == null) {
       setState(() {
@@ -179,212 +209,369 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (!verified) {
-  Navigator.pushReplacementNamed(context, '/verify-email');
-  return;
-}
+      Navigator.pushReplacementNamed(context, '/verify-email');
+      return;
+    }
 
-// ✅ Let AuthGate decide the final destination (OTP / deep link / dashboard)
-Navigator.pushReplacementNamed(
-  context,
-  pendingPostLoginRoute ?? '/dashboard',
-);
-pendingPostLoginRoute = null;
+    // ✅ Let AuthGate decide the final destination (OTP / deep link / dashboard)
+    Navigator.pushReplacementNamed(
+      context,
+      pendingPostLoginRoute ?? '/dashboard',
+    );
+    pendingPostLoginRoute = null;
   }
 
   Widget _loginCard(ThemeData theme, bool showAuthError) {
-    return FadeTransition(
-      opacity: _fadeAnimation,
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: CenteredForm(
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.cardBackground,
-              borderRadius: BorderRadius.circular(_cardRadius),
-              border: Border.all(color: Colors.black.withOpacity(0.06)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 10),
+    final VoidCallback? primaryAction = isLoading
+        ? null
+        : (_step == LoginStep.password ? _login : _continueToPassword);
+
+    return CenteredForm(
+      maxWidth: 380,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnimatedBuilder(
+            animation: _signinController,
+            builder: (context, child) {
+              return Opacity(
+                opacity: 1 - (_fadeAnim.value * 0.08),
+                child: Transform.translate(
+                  offset: Offset(0, _liftAnim.value),
+                  child: child,
                 ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(_cardPad),
-              child: Column(
-                children: [
-                  const ImageIcon(
-                    AssetImage('assets/icons/aa_logo_imageicon_256.png'),
-                    size: _logoSize,
-                    color: AppColors.brandBlue,
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    height: _accentH,
-                    width: _accentW,
-                    decoration: BoxDecoration(
-                      color: AppColors.brandBlue.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const SizedBox(height: _blockGap),
-
-                  Text(
-                    "Login",
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: const Color(0xFF101828),
-                      letterSpacing: -0.15,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "Welcome back — sign in to continue",
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF475467),
-                    ),
-                  ),
-                  const SizedBox(height: _blockGap),
-
-                  TextField(
-                    controller: emailController,
-                    focusNode: emailFocusNode,
-                    textInputAction: TextInputAction.next,
-                    onChanged: (_) => _clearInlineErrors(),
-                    onSubmitted: (_) =>
-                        FocusScope.of(context).requestFocus(passwordFocusNode),
-                    decoration: InputDecoration(
-                      labelText: "Email",
-                      prefixIcon: const Icon(
-                        Icons.mail_outline,
-                        color: AppColors.brandBlue,
-                      ),
-                      errorText: _emailError ?? (showAuthError ? " " : null),
-                      errorStyle: const TextStyle(height: 0.1, fontSize: 0.1),
-                    ),
-                  ),
-                  const SizedBox(height: _fieldGap),
-
-                  TextField(
-                    controller: passwordController,
-                    focusNode: passwordFocusNode,
-                    obscureText: obscurePassword,
-                    onChanged: (_) => _clearInlineErrors(),
-                    onSubmitted: (_) => _login(),
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      prefixIcon: const Icon(
-                        Icons.lock_outline,
-                        color: AppColors.brandBlue,
-                      ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: AppColors.brandBlue,
-                        ),
-                        onPressed: () => setState(() {
-                          obscurePassword = !obscurePassword;
-                        }),
-                      ),
-                      errorText: _passwordError ?? _authError,
-                    ),
-                  ),
-                  const SizedBox(height: _fieldGap),
-
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, '/forgot-password'),
-                      child: const Text(
-                        "Forgot password?",
-                        style: TextStyle(
-                          color: AppColors.brandBlue,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: _buttonH,
-                    child: FilledButton(
-                      onPressed: isLoading ? null : _login,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.brandBlue,
-                        foregroundColor: AppColors.cardBackground,
-                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: isLoading
-                          ? Center(
-                              child: Container(
-                                height: 26,
-                                width: 26,
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.92),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: const CircularProgressIndicator(
-                                  strokeWidth: 2.4,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppColors.brandBlue,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : const Text("Login"),
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Divider(color: Colors.black.withOpacity(0.10)),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          "OR",
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: AppColors.lightGrey,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Divider(color: Colors.black.withOpacity(0.10)),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  Text(
-                    "Accounts are created by invitation only.",
-                    style: TextStyle(
-                      color: AppColors.mutedText,
-                      fontWeight: FontWeight.w600,
-                    ),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFD4D7DC)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
+
+              child: IgnorePointer(
+                ignoring: isLoading,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ✅ Logo INSIDE card (Intuit-style)
+                    Center(
+                      child: ImageIcon(
+                        const AssetImage(
+                          'assets/icons/aa_logo_imageicon_256.png',
+                        ),
+                        size: 56,
+                        color: AppColors.brandBlue,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                    Text(
+                      _step == LoginStep.password
+                          ? "Enter your password"
+                          : "Sign in",
+                      textAlign: TextAlign.center, // ✅ CENTERED
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF393A3D),
+                      ),
+                    ),
+
+                    const SizedBox(height: 6),
+
+                    Text(
+                      "Use your Axume & Associates account",
+                      textAlign: TextAlign.center, // ✅ CENTERED
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF6B6C72),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ✅ Intuit-style screen swap
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 320),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeIn,
+                      transitionBuilder: (child, animation) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.04, 0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _step == LoginStep.email
+                          ? Column(
+                              key: const ValueKey('email-step'),
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                IntuitTextField(
+                                  controller: emailController,
+                                  focusNode: emailFocusNode,
+                                  label: "Email",
+                                  enabled: !isLoading,
+                                  textInputAction: TextInputAction.done,
+                                  onChanged: (_) => _clearInlineErrors(),
+                                  onSubmitted: _continueToPassword,
+                                  errorText: _emailError,
+                                ),
+
+                                // ✅ REMEMBER ME — EXACT PLACEMENT
+                                const SizedBox(height: 8),
+
+                                Row(
+                                  children: [
+                                    Checkbox(
+                                      value: _rememberMe,
+                                      onChanged: isLoading
+                                          ? null
+                                          : (val) {
+                                              setState(() {
+                                                _rememberMe = val ?? true;
+                                              });
+                                            },
+                                      activeColor: AppColors.brandBlue,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Text(
+                                      "Remember me",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF6B6C72),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            )
+                          : Column(
+                              key: const ValueKey('password-step'),
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // ✅ Centered identity block (polished)
+                                Column(
+                                  children: [
+                                    Text(
+                                      emailController.text,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF393A3D),
+                                      ),
+                                    ),
+
+                                    const SizedBox(height: 2),
+
+                                    TextButton(
+                                      onPressed: isLoading
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _step = LoginStep.email;
+                                                passwordController.clear();
+                                              });
+                                            },
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: const Color(
+                                          0xFF6B6C72,
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        "Use a different account",
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 12),
+
+                                IntuitTextField(
+                                  controller: passwordController,
+                                  focusNode: passwordFocusNode,
+                                  label: "Password",
+                                  enabled: !isLoading,
+                                  obscureText: obscurePassword,
+                                  onChanged: (_) => _clearInlineErrors(),
+                                  onSubmitted: _login,
+                                  errorText: _passwordError ?? _authError,
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      obscurePassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                      size: 20,
+                                    ),
+                                    onPressed: isLoading
+                                        ? null
+                                        : () => setState(
+                                            () => obscurePassword =
+                                                !obscurePassword,
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      height: 42,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: primaryAction,
+                          borderRadius: BorderRadius.circular(6),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 220),
+                            child: Container(
+                              key: ValueKey('${_step}_$isLoading'),
+                              decoration: BoxDecoration(
+                                color: AppColors.brandBlue,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              alignment: Alignment.center,
+                              child: isLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.white,
+                                            ),
+                                      ),
+                                    )
+                                  : Text(
+                                      _step == LoginStep.password
+                                          ? "Sign in"
+                                          : "Continue",
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    Text(
+                      "Accounts are created by invitation only.",
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF6B6C72),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emailStep() {
+    return Column(
+      key: const ValueKey("email-step"),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        IntuitTextField(
+          controller: emailController,
+          focusNode: emailFocusNode,
+          label: "Email",
+          enabled: !isLoading,
+          textInputAction: TextInputAction.done,
+          onChanged: (_) => _clearInlineErrors(),
+          onSubmitted: _continueToPassword,
+          errorText: _emailError,
+        ),
+      ],
+    );
+  }
+
+  Widget _passwordStep() {
+    return Column(
+      key: const ValueKey("password-step"),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ✅ Read‑only email (Intuit style)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            emailController.text,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF393A3D),
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
-      ),
+
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: isLoading
+                ? null
+                : () {
+                    setState(() {
+                      _step = LoginStep.email;
+                      passwordController.clear();
+                    });
+                  },
+            child: const Text("Use a different account"),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        IntuitTextField(
+          controller: passwordController,
+          focusNode: passwordFocusNode,
+          label: "Password",
+          enabled: !isLoading,
+          obscureText: obscurePassword,
+          onChanged: (_) => _clearInlineErrors(),
+          onSubmitted: _login,
+          errorText: _passwordError ?? _authError,
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscurePassword ? Icons.visibility_off : Icons.visibility,
+              size: 20,
+            ),
+            onPressed: isLoading
+                ? null
+                : () => setState(() => obscurePassword = !obscurePassword),
+          ),
+        ),
+      ],
     );
   }
 
@@ -467,72 +654,44 @@ pendingPostLoginRoute = null;
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: true,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: AnimatedBackground(
-              vsync: this,
-              behaviour: RandomParticleBehaviour(options: _particles),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          IgnorePointer(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.pageBackgroundLight.withOpacity(0.70),
-                    AppColors.pageBackgroundLight.withOpacity(0.60),
-                    AppColors.pageBackgroundLight.withOpacity(0.72),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                const double footerBreakpoint = 620;
-                final bool pinFooter =
-                    constraints.maxHeight >= footerBreakpoint;
+      backgroundColor: const Color(0xFFDCDCDC), // ✅ #dcdcdc
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const double footerBreakpoint = 620;
+            final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
 
-                final footerWidget = Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _footer(theme),
-                );
+            final footerWidget = Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _footer(theme),
+            );
 
-                return Column(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 16,
-                        ),
-                        child: Column(
-                          children: [
-                            _loginCard(theme, showAuthError),
-                            const SizedBox(height: 12),
-                            _legalLinksRow(),
-                            if (!pinFooter) ...[
-                              const SizedBox(height: 16),
-                              footerWidget,
-                            ],
-                          ],
-                        ),
-                      ),
+            return Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
                     ),
-                    if (pinFooter) footerWidget,
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
+                    child: Column(
+                      children: [
+                        _loginCard(theme, showAuthError),
+                        const SizedBox(height: 12),
+                        _legalLinksRow(),
+                        if (!pinFooter) ...[
+                          const SizedBox(height: 16),
+                          footerWidget,
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                if (pinFooter) footerWidget,
+              ],
+            );
+          },
+        ),
       ),
     );
   }
