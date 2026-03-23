@@ -26,6 +26,7 @@ import 'services/auth_service.dart';
 import 'shell/app_shell.dart';
 import 'services/post_login_route.dart';
 import 'screens/terms_of_service_screen.dart';
+import 'screens/privacy_policy_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -158,13 +159,16 @@ class _MyAppState extends State<MyApp> {
             route == '/login' ||
             route == '/forgot-password' ||
             route == '/verify-email' ||
-            route == '/terms') {
+            route == '/terms' ||
+            route == '/privacy') {
           return MaterialPageRoute(
             settings: settings,
             builder: (_) {
               switch (route) {
                 case '/forgot-password':
                   return const ForgotPasswordScreen();
+                case '/privacy':
+                  return const PrivacyPolicyScreen();
                 case '/verify-email':
                   return const VerifyEmailScreen();
                 case '/terms':

@@ -37,13 +37,12 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # ✅ App assets
   assets:
     - assets/icons/
     - assets/fonts/
 
-  # ✅ Inter font (Intuit‑style legal typography)
   fonts:
+    # ✅ Body / legal text (Intuit-style readability)
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter-Regular.ttf
@@ -54,3 +53,9 @@ flutter:
           weight: 600
         - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
+
+    # ✅ Headings / branding font
+    - family: GeneraGrotesk
+      fonts:
+        - asset: assets/fonts/GeneraGrotesk-Heavy.ttf
+          weight: 800
