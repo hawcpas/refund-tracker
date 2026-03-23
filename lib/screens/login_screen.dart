@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/post_login_route.dart';
 import '../widgets/intuit_text_field.dart';
+import '../widgets/login_legal_notice.dart';
 
 enum LoginStep { email, password }
 
@@ -479,6 +480,9 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
 
+                    const SizedBox(height: 12),
+                    const LoginLegalNotice(),
+
                     const SizedBox(height: 16),
 
                     Text(
@@ -670,19 +674,27 @@ class _LoginScreenState extends State<LoginScreen>
               children: [
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 16,
-                    ),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        const SizedBox(
+                          height: 88,
+                        ), // ✅ ~1 inch from top (key line)
+
                         _loginCard(theme, showAuthError),
+
                         const SizedBox(height: 12),
                         _legalLinksRow(),
+
                         if (!pinFooter) ...[
                           const SizedBox(height: 16),
                           footerWidget,
                         ],
+
+                        const SizedBox(height: 32), // bottom breathing room
                       ],
                     ),
                   ),
