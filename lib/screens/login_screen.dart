@@ -8,6 +8,8 @@ import '../services/post_login_route.dart';
 import '../widgets/intuit_text_field.dart';
 import '../widgets/login_legal_notice.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../screens/verify_email_screen.dart';
+import '../screens/otp_verify_screen.dart';
 
 enum LoginStep { email, password }
 
@@ -249,16 +251,63 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (!verified) {
-      Navigator.pushReplacementNamed(context, '/verify-email');
+      Navigator.of(context).pushReplacement(
+  PageRouteBuilder(
+    transitionDuration: const Duration(milliseconds: 420),
+    pageBuilder: (_, __, ___) => const VerifyEmailScreen(),
+    transitionsBuilder: (_, animation, __, child) {
+      final fade = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+
+      final slide = Tween<Offset>(
+        begin: const Offset(0, 0.02),
+        end: Offset.zero,
+      ).animate(fade);
+
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: slide,
+          child: child,
+        ),
+      );
+    },
+  ),
+);
       return;
     }
 
-    // ✅ Let AuthGate decide the final destination (OTP / deep link / dashboard)
-    Navigator.pushReplacementNamed(
-      context,
-      pendingPostLoginRoute ?? '/dashboard',
-    );
-    pendingPostLoginRoute = null;
+    Navigator.of(context).pushReplacement(
+  PageRouteBuilder(
+    transitionDuration: const Duration(milliseconds: 420),
+    pageBuilder: (_, __, ___) => OtpVerifyScreen(
+      nextRoute: pendingPostLoginRoute,
+    ),
+    transitionsBuilder: (_, animation, __, child) {
+      final fade = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+
+      final slide = Tween<Offset>(
+        begin: const Offset(0, 0.02),
+        end: Offset.zero,
+      ).animate(fade);
+
+      return FadeTransition(
+        opacity: fade,
+        child: SlideTransition(
+          position: slide,
+          child: child,
+        ),
+      );
+    },
+  ),
+);
+
+pendingPostLoginRoute = null;
   }
 
   Widget _noAccountBox() {
