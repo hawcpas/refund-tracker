@@ -14,6 +14,51 @@ class AccountSettingsScreen extends StatefulWidget {
   State<AccountSettingsScreen> createState() => _AccountSettingsScreenState();
 }
 
+class _AccountSettingsSkeleton extends StatelessWidget {
+  const _AccountSettingsSkeleton();
+
+  Widget _line({double w = double.infinity, double h = 14}) {
+    return Container(
+      width: w,
+      height: h,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _line(w: 240, h: 18), // title
+        const SizedBox(height: 10),
+        _line(w: 360), // subtitle
+
+        const SizedBox(height: 24),
+
+        _line(w: 180), // tabs
+        const SizedBox(height: 16),
+
+        // Form fields
+        _line(h: 44),
+        const SizedBox(height: 12),
+        _line(h: 44),
+        const SizedBox(height: 12),
+        _line(h: 44),
+        const SizedBox(height: 12),
+        _line(h: 44),
+
+        const SizedBox(height: 24),
+
+        _line(w: 180, h: 44), // button
+      ],
+    );
+  }
+}
+
 class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     with SingleTickerProviderStateMixin {
   final AuthService _auth = AuthService();
@@ -66,7 +111,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     });
 
     // ✅ always reload when screen is entered
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
       _loadProfile();
     });
   }
@@ -578,74 +624,74 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   @override
-Widget build(BuildContext context) {
-  final theme = Theme.of(context);
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
 
-  final localTheme = theme.copyWith(
-    inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-      filled: true,
-      fillColor: const Color(0xFFF4F7FF),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(
-          color: AppColors.brandBlue.withOpacity(0.28),
-          width: 1.2,
+    final localTheme = theme.copyWith(
+      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+        filled: true,
+        fillColor: const Color(0xFFF4F7FF),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: AppColors.brandBlue.withOpacity(0.28),
+            width: 1.2,
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.brandBlue, width: 2.0),
         ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.brandBlue, width: 2.0),
-      ),
-    ),
-  );
+    );
 
-  return PopScope(
-    canPop: true,
-    onPopInvoked: (didPop) {
-      // no-op: AppShell handles chrome
-    },
-    child: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : PageScaffold(
-            title: 'Account Settings',
-            subtitle: 'Update your personal details and password.',
-            child: Theme(
-              data: localTheme, // ✅ affects only the form controls
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720), // form rail inside card
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_error != null) ...[
-                        _errorBanner(Theme.of(context), _error!),
-                        const SizedBox(height: _sectionGap),
-                      ],
-                      if (_success != null) ...[
-                        _successBanner(Theme.of(context), _success!),
-                        const SizedBox(height: _sectionGap),
-                      ],
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        // no-op: AppShell handles chrome
+      },
+      child: PageScaffold(
+        title: 'Account Settings',
+        subtitle: 'Update your personal details and password.',
+        child: Theme(
+          data: localTheme, // ✅ affects only the form controls
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: _loading
+                  ? const _AccountSettingsSkeleton()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_error != null) ...[
+                          _errorBanner(Theme.of(context), _error!),
+                          const SizedBox(height: _sectionGap),
+                        ],
+                        if (_success != null) ...[
+                          _successBanner(Theme.of(context), _success!),
+                          const SizedBox(height: _sectionGap),
+                        ],
 
-                      _tabsBar(Theme.of(context)),
-                      const SizedBox(height: 16),
+                        _tabsBar(Theme.of(context)),
+                        const SizedBox(height: 16),
 
-                      SizedBox(
-                        height: 420,
-                        child: IndexedStack(
-                          index: _tabController.index,
-                          children: [
-                            _personalInfoPanel(Theme.of(context)),
-                            _passwordPanel(Theme.of(context)),
-                          ],
+                        SizedBox(
+                          height: 420,
+                          child: IndexedStack(
+                            index: _tabController.index,
+                            children: [
+                              _personalInfoPanel(Theme.of(context)),
+                              _passwordPanel(Theme.of(context)),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+                      ],
+                    ),
             ),
           ),
-  );
-}
+        ),
+      ),
+    );
+  }
 }

@@ -13,6 +13,8 @@ import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/create_upload_link_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialRoute = '/dashboard'});
@@ -23,12 +25,179 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with TickerProviderStateMixin {
   final _auth = AuthService();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _avatarHover = false;
+  bool _settingsHover = false;
 
   late String _currentRoute;
+  late final AnimationController _avatarAnim;
+  late final AnimationController _settingsAnim;
   String? _dropoffDetailsId;
+  final LayerLink _avatarLink = LayerLink();
+  OverlayEntry? _avatarEntry;
+
+  bool get _isAvatarMenuOpen => _avatarEntry != null;
+
+  final LayerLink _settingsLink = LayerLink();
+  OverlayEntry? _settingsEntry;
+
+  bool get _isSettingsMenuOpen => _settingsEntry != null;
+
+  Future<void> _closeSettingsMenu() async {
+    if (_settingsEntry == null) return;
+
+    await _settingsAnim.reverse();
+    _settingsEntry?.remove();
+    _settingsEntry = null;
+  }
+
+  Future<void> _closeAvatarMenu() async {
+    if (_avatarEntry == null) return;
+
+    await _avatarAnim.reverse();
+    _avatarEntry?.remove();
+    _avatarEntry = null;
+  }
+
+  void _toggleAvatarMenu({
+    required BuildContext ctx,
+    required String displayName,
+    required String email,
+  }) {
+    if (_isAvatarMenuOpen) {
+      _closeAvatarMenu();
+      return;
+    }
+
+    final overlay = Overlay.of(ctx);
+    if (overlay == null) return;
+
+    _avatarEntry = OverlayEntry(
+      builder: (context) {
+        // Full-screen "tap outside to close" barrier + anchored menu
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _closeAvatarMenu,
+          child: Stack(
+            children: [
+              CompositedTransformFollower(
+                link: _avatarLink,
+                showWhenUnlinked: false,
+                targetAnchor: Alignment.bottomRight,
+                followerAnchor: Alignment.topRight,
+                offset: const Offset(0, 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 280,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black.withOpacity(0.08)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Axume & Associates CPAs',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                    color: Color(0xFF101828), // high contrast
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.brandBlue,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                onPressed: () async {
+                                  _closeAvatarMenu();
+                                  await _logout();
+                                },
+                                child: const Text('Sign out'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Divider(
+                            height: 1,
+                            color: Colors.black.withOpacity(0.08),
+                          ),
+                          const SizedBox(height: 10),
+
+                          Center(
+                            child: Column(
+                              children: [
+                                Text(
+                                  displayName,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                    color: Color(0xFF101828),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  email,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF475467), // readable slate
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_avatarEntry!);
+    _avatarAnim.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _closeAvatarMenu();
+    _closeSettingsMenu();
+    _avatarAnim.dispose();
+    _settingsAnim.dispose();
+    super.dispose();
+  }
 
   void _openDropoffDetails(String requestId) {
     setState(() {
@@ -56,10 +225,166 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  void _toggleSettingsMenu(BuildContext ctx) {
+    if (_isSettingsMenuOpen) {
+      _closeSettingsMenu();
+      return;
+    }
+
+    final overlay = Overlay.of(ctx);
+    if (overlay == null) return;
+
+    _settingsEntry = OverlayEntry(
+      builder: (context) {
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: _closeSettingsMenu,
+          child: Stack(
+            children: [
+              CompositedTransformFollower(
+                link: _settingsLink,
+                showWhenUnlinked: false,
+                targetAnchor: Alignment.bottomRight,
+                followerAnchor: Alignment.topRight,
+                offset: const Offset(0, 8), // ✅ directly below ⋯
+                child: Material(
+                  color: Colors.transparent,
+                  child: FadeTransition(
+                    opacity: CurvedAnimation(
+                      parent: _settingsAnim,
+                      curve: Curves.easeOutCubic,
+                    ),
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.96, end: 1.0).animate(
+                        CurvedAnimation(
+                          parent: _settingsAnim,
+                          curve: Curves.easeOutCubic,
+                        ),
+                      ),
+                      alignment: Alignment.topRight,
+                      child: Container(
+                        width: 200,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.black.withOpacity(0.08),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.12),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // ✅ Settings
+                            InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                _closeSettingsMenu();
+                                _navigate('/account-settings');
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                child: Row(
+                                  children: const [
+                                    Icon(
+                                      Icons.settings_outlined,
+                                      size: 18,
+                                      color: Color(0xFF101828),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      'Settings',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF101828),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            Divider(
+                              height: 1,
+                              color: Colors.black.withOpacity(0.06),
+                            ),
+
+                            // ✅ Support (email)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () async {
+                                _closeSettingsMenu();
+                                await _openSupportEmail();
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                child: Row(
+                                  children: const [
+                                    Icon(
+                                      Icons.help_outline,
+                                      size: 18,
+                                      color: Color(0xFF101828),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      'Support',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF101828),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_settingsEntry!);
+    _settingsAnim.forward(from: 0);
+  }
+
   @override
   void initState() {
     super.initState();
     _currentRoute = widget.initialRoute;
+
+    _avatarAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 90),
+    );
+
+    _settingsAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 90),
+    );
   }
 
   String _titleFor(String route) {
@@ -116,6 +441,40 @@ class _AppShellState extends State<AppShell> {
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
+  Future<void> _openSupportEmail() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final userEmail = user?.email ?? 'Unknown';
+
+    final now = DateTime.now();
+    final timestamp =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+    final screenTitle = _titleFor(_currentRoute);
+
+    final subject = 'Portal Support Request';
+
+    final body =
+        '''
+User Email: $userEmail
+Timestamp: $timestamp
+Current Screen: $screenTitle
+
+Please describe the issue below:
+
+''';
+
+    final uri = Uri(
+      scheme: 'mailto',
+      path: 'support@axumecpas.com',
+      queryParameters: {'subject': subject, 'body': body},
+    );
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
   void _navigate(String route) async {
     if (_scaffoldKey.currentState?.isDrawerOpen == true) {
       Navigator.pop(context);
@@ -164,6 +523,13 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  String _initialsFromName(String name) {
+    final parts = name.trim().split(' ');
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobileShell = MediaQuery.of(context).size.width < 900;
@@ -210,12 +576,92 @@ class _AppShellState extends State<AppShell> {
         title: Text(_titleFor(_currentRoute)),
         leading: leading,
 
-        // ✅ Admin Console gets black top bar
         backgroundColor: isAdminConsole ? Colors.black : AppColors.brandBlue,
         foregroundColor: Colors.white,
-
-        // ✅ Correct status bar icons (white on dark)
         systemOverlayStyle: SystemUiOverlayStyle.light,
+
+        actions: [
+          // =========================
+          // ⋯ SETTINGS FLYOUT (ICON ONLY — trigger)
+          // =========================
+          MouseRegion(
+            onEnter: (_) => setState(() => _settingsHover = true),
+            onExit: (_) => setState(() => _settingsHover = false),
+            child: CompositedTransformTarget(
+              link: _settingsLink,
+              child: IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.more_vert, size: 20),
+                style: IconButton.styleFrom(
+                  backgroundColor: _settingsHover
+                      ? Colors.white.withOpacity(0.15)
+                      : Colors.transparent,
+                ),
+                onPressed: () => _toggleSettingsMenu(context),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 6),
+
+          // =========================
+          // USER AVATAR + PROFILE FLYOUT
+          // =========================
+          Builder(
+            builder: (ctx) {
+              final user = FirebaseAuth.instance.currentUser;
+              final email = user?.email ?? '';
+              final displayName = user?.displayName?.trim().isNotEmpty == true
+                  ? user!.displayName!
+                  : email;
+
+              final initials = _initialsFromName(displayName);
+
+              return CompositedTransformTarget(
+                link: _avatarLink,
+                child: FocusableActionDetector(
+                  autofocus: false,
+                  mouseCursor: SystemMouseCursors.click,
+                  onShowHoverHighlight: (hover) =>
+                      setState(() => _avatarHover = hover),
+                  child: GestureDetector(
+                    onTap: () {
+                      _toggleAvatarMenu(
+                        ctx: ctx,
+                        displayName: displayName,
+                        email: email,
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      margin: const EdgeInsets.only(right: 12),
+                      height: 32,
+                      width: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _avatarHover
+                            ? Colors.white.withOpacity(0.15)
+                            : Colors.white,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        initials,
+                        style: TextStyle(
+                          color: isAdminConsole
+                              ? Colors.black
+                              : AppColors.brandBlue,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
 
       // Drawer on mobile

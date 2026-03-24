@@ -24,8 +24,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-
-    // ✅ Wait for first NON-null user (avoids web refresh race)
     FirebaseAuth.instance.authStateChanges().where((u) => u != null).first.then(
       (u) {
         if (!mounted) return;
@@ -77,128 +75,227 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     final isAdmin = !_loadingProfile && _role == 'admin';
     final welcomeText = _fullName.isNotEmpty
-        ? 'Welcome back, $_fullName'
-        : 'Welcome back';
+        ? 'Welcome, $_fullName'
+        : 'Welcome';
 
-    // ✅ Content-only page (AppShell provides the app bar + sidebar)
     return PageScaffold(
-      title: 'Dashboard',
-      subtitle: 'Overview and quick access to firm tools.',
-      hideHeader: true,
-      wrapInCard: false, // ✅ THIS IS THE KEY
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final w = c.maxWidth;
-          final isMobile = w < 560;
+      title: welcomeText,
+      subtitle: 'Axume & Associates CPAs · Firm Portal',
+      hideHeader: false, // ✅ IMPORTANT
+      wrapInCard: false,
 
-          final isAdmin = !_loadingProfile && _role == 'admin';
-          final welcomeText = _fullName.isNotEmpty
-              ? 'Welcome back, $_fullName'
-              : 'Welcome back';
-
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 900, // dashboard content width inside the rail
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ContextHeader(
-                    loading: _loadingProfile,
-                    welcomeText: welcomeText,
-                    isAdmin: isAdmin,
-                    isMobile: isMobile,
-                    wildix: _wildixExt,
-                    clearfly: _clearflyNumber,
-                    onAdminTap: () =>
-                        Navigator.pushNamed(context, '/admin-users'),
-                  ),
-                  const SizedBox(height: 18),
-
-                  if (_hasDropoffAccess) ...[
-                    const _SectionLabel(
-                      title: 'Incoming files',
-                      subtitle:
-                          'All client-uploaded documents across all upload links.',
-                    ),
-                    const SizedBox(height: 12),
-                    _PrimaryFeatureCard(
-                      isMobile: isMobile,
-                      title: 'File Box',
-                      subtitle:
-                          'View and manage all uploaded files (newest first).',
-                      icon: Icons.cloud_upload_outlined,
-                      ctaLabel: 'Open file box',
-                      onOpen: () => Navigator.pushNamed(context, '/file-box'),
-                    ),
-                    const SizedBox(height: 28),
-                    const _SectionLabel(
-                      title: 'Request files',
-                      subtitle:
-                          'Create secure upload links for clients to submit documents.',
-                    ),
-                    const SizedBox(height: 12),
-                    _PrimaryFeatureCard(
-                      isMobile: isMobile,
-                      title: 'Generate Upload Links',
-                      subtitle:
-                          'Create and manage secure upload links for clients.',
-                      icon: Icons.link_outlined,
-                      ctaLabel: 'Manage links',
-                      onOpen: () =>
-                          Navigator.pushNamed(context, '/generate-upload-link'),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 8),
-                    _SurfaceCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Access notice',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              color: const Color(0xFF101828),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'You currently do not have access to Client Upload Links. '
-                            'If you believe this is incorrect, please contact an administrator.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFF475467),
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 22),
-                ],
-              ),
+      // ✅ OFFICE‑STYLE COMMAND BAR
+      commandBar: FluentCommandBar(
+        actions: [
+          if (isAdmin)
+            FluentCommandAction(
+              icon: Icons.admin_panel_settings_outlined,
+              label: 'Admin console',
+              onPressed: () => Navigator.pushNamed(context, '/admin-users'),
+              accent: true,
             ),
-          );
-        },
+        ],
+        overflowActions: [
+          // Example overflow items (optional)
+          FluentCommandAction(
+            icon: Icons.settings_outlined,
+            label: 'Account settings',
+            onPressed: () => Navigator.pushNamed(context, '/account-settings'),
+          ),
+          FluentCommandAction(
+            icon: Icons.refresh,
+            label: 'Refresh',
+            onPressed: _loadingProfile
+                ? null
+                : () {
+                    final u = FirebaseAuth.instance.currentUser;
+                    if (u != null) _loadProfile(u);
+                  },
+          ),
+        ],
+      ),
+
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1200),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6),
+
+                Text(
+                  'Axume & Associates CPAs · Firm Portal',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF6B7280),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // ===== Section: Access =====
+                _SectionHeader(title: 'Quick access'),
+
+                const SizedBox(height: 8),
+
+                _SurfaceTable(
+                  children: [
+                    if (_hasDropoffAccess)
+                      _RowItem(
+                        icon: Icons.folder_open_outlined,
+                        title: 'File Box',
+                        subtitle:
+                            'View and manage all client‑uploaded documents',
+                        onTap: () => Navigator.pushNamed(context, '/file-box'),
+                      ),
+                    if (_hasDropoffAccess)
+                      _RowItem(
+                        icon: Icons.link_outlined,
+                        title: 'Upload links',
+                        subtitle:
+                            'Create and manage secure client upload links',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/generate-upload-link',
+                        ),
+                      ),
+                    if (!_hasDropoffAccess)
+                      _InfoRow(
+                        text:
+                            'You do not currently have access to client upload links. '
+                            'Please contact an administrator if this is unexpected.',
+                      ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // ===== Section: Comms =====
+                if (_wildixExt.isNotEmpty || _clearflyNumber.isNotEmpty) ...[
+                  _SectionHeader(title: 'Communication'),
+                  const SizedBox(height: 8),
+                  _SurfaceTable(
+                    children: [
+                      if (_wildixExt.isNotEmpty)
+                        _KeyValueRow(
+                          label: 'Wildix extension',
+                          value: _wildixExt,
+                        ),
+                      if (_clearflyNumber.isNotEmpty)
+                        _KeyValueRow(
+                          label: 'Clearfly / eFax',
+                          value: _clearflyNumber,
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
+/// ============================
+/// Office 365 style components
+/// ============================
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      title,
+      style: theme.textTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w700,
+        color: const Color(0xFF374151),
+        letterSpacing: 0.2,
+      ),
+    );
+  }
+}
+
+class _SurfaceTable extends StatelessWidget {
+  const _SurfaceTable({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.black.withOpacity(0.06)),
+      ),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _RowItem extends StatelessWidget {
+  const _RowItem({
     required this.icon,
-    required this.label,
-    required this.value,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
   });
 
   final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: AppColors.brandBlue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyValueRow extends StatelessWidget {
+  const _KeyValueRow({required this.label, required this.value});
   final String label;
   final String value;
 
@@ -206,456 +303,50 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.black.withOpacity(0.08)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppColors.brandBlue),
-          const SizedBox(width: 6),
-          Text(
-            '$label:',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: const Color(0xFF667085),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            value,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: const Color(0xFF101828),
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Small enterprise section label
-/// ============================
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.title, this.subtitle});
-
-  final String title;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title.toUpperCase(),
-          style: theme.textTheme.labelLarge?.copyWith(
-            letterSpacing: 1.1,
-            fontWeight: FontWeight.w900,
-            color: const Color(0xFF667085),
-          ),
-        ),
-        if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            subtitle!,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF475467),
-              height: 1.30,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// ============================
-/// Enterprise Context Header
-/// ============================
-class _ContextHeader extends StatelessWidget {
-  const _ContextHeader({
-    required this.loading,
-    required this.welcomeText,
-    required this.isAdmin,
-    required this.isMobile,
-    required this.wildix,
-    required this.clearfly,
-    required this.onAdminTap,
-  });
-
-  final bool loading;
-  final String welcomeText;
-  final bool isAdmin;
-  final bool isMobile;
-  final String wildix;
-  final String clearfly;
-  final VoidCallback onAdminTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final hasWildix = wildix.trim().isNotEmpty;
-    final hasClearfly = clearfly.trim().isNotEmpty;
-    final showComms = !loading && (hasWildix || hasClearfly);
-
-    final title = loading ? 'Loading…' : welcomeText;
-
-    return _SurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 40,
-                width: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.brandBlue.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.dashboard_rounded,
-                  color: AppColors.brandBlue,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Axume & Associates CPAs – Firm Portal',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                        height: 1.25,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!isMobile && isAdmin) ...[
-                const SizedBox(width: 12),
-                _CompactButton(
-                  label: 'Admin Console',
-                  icon: Icons.admin_panel_settings_rounded,
-                  onPressed: onAdminTap,
-                  dark: true,
-                ),
-              ],
-            ],
-          ),
-          if (isMobile && isAdmin) ...[
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: FilledButton.icon(
-                onPressed: onAdminTap,
-                icon: const Icon(Icons.admin_panel_settings_rounded, size: 18),
-                label: const Text('Admin Console'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0B1220),
-                  foregroundColor: Colors.white,
-                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (showComms) ...[
-            const SizedBox(height: 14),
-            _CommsInlineBar(
-              hasWildix: hasWildix,
-              hasClearfly: hasClearfly,
-              wildixExtension: wildix,
-              clearflyNumber: clearfly,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Primary Feature Card
-/// ============================
-class _PrimaryFeatureCard extends StatelessWidget {
-  const _PrimaryFeatureCard({
-    required this.isMobile,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.ctaLabel,
-    required this.onOpen,
-  });
-
-  final bool isMobile;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final String ctaLabel;
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return _SurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                height: 44,
-                width: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.brandBlue.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: AppColors.brandBlue, size: 22),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF101828),
-                        letterSpacing: -0.15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF475467),
-                        height: 1.30,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!isMobile) ...[
-                const SizedBox(width: 12),
-                _CompactButton(
-                  label: ctaLabel,
-                  icon: Icons.open_in_new_rounded,
-                  onPressed: onOpen,
-                ),
-              ],
-            ],
-          ),
-          if (isMobile) ...[
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: FilledButton(
-                onPressed: onOpen,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.brandBlue,
-                  foregroundColor: Colors.white,
-                  textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(ctaLabel),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Shared Card Surface (Enterprise)
-/// ============================
-class _SurfaceCard extends StatelessWidget {
-  const _SurfaceCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-      ),
-      child: child,
-    );
-  }
-}
-
-/// ============================
-/// Compact Button
-/// ============================
-class _CompactButton extends StatelessWidget {
-  const _CompactButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.dark = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool dark;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        style: FilledButton.styleFrom(
-          backgroundColor: dark ? const Color(0xFF0B1220) : AppColors.brandBlue,
-          foregroundColor: Colors.white,
-          textStyle: const TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.2,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// ============================
-/// Comms Bar
-/// ============================
-class _CommsInlineBar extends StatelessWidget {
-  const _CommsInlineBar({
-    required this.hasWildix,
-    required this.hasClearfly,
-    required this.wildixExtension,
-    required this.clearflyNumber,
-  });
-
-  final bool hasWildix;
-  final bool hasClearfly;
-  final String wildixExtension;
-  final String clearflyNumber;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       child: Row(
         children: [
-          if (hasWildix) ...[
-            Icon(
-              Icons.phone_in_talk_outlined,
-              size: 16,
-              color: AppColors.brandBlue.withOpacity(0.90),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Wildix',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF667085),
+          SizedBox(
+            width: 180,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF6B7280),
               ),
             ),
-            const SizedBox(width: 6),
-            Text(
-              'Ext $wildixExtension',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: const Color(0xFF101828),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF111827),
               ),
             ),
-          ],
-          if (hasWildix && hasClearfly) ...[
-            const SizedBox(width: 10),
-            Text(
-              '|',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: const Color(0xFF98A2B3),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 10),
-          ],
-          if (hasClearfly) ...[
-            Icon(
-              Icons.sms_outlined,
-              size: 16,
-              color: AppColors.brandBlue.withOpacity(0.90),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Clearfly/eFax',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF667085),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                clearflyNumber,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                  color: const Color(0xFF101828),
-                ),
-              ),
-            ),
-          ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: const Color(0xFF6B7280),
+          height: 1.4,
+        ),
       ),
     );
   }

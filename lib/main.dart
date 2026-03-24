@@ -106,6 +106,102 @@ class _MyAppState extends State<MyApp> {
       brightness: Brightness.light,
     );
 
+    TextTheme _fluentTextTheme(TextTheme base) {
+      // Fluent 2 Web type ramp (mapped into Flutter TextTheme)
+      // Source ramp includes: caption2 10/14, caption1 12/16, body1 14/20, body2 16/22,
+      // subtitle1 20/26, title3 24/32, title2 28/36, title1 32/40. [1](https://fluent2.microsoft.design/typography)[2](https://fluentuipr.z22.web.core.windows.net/heads/master/public-docsite-v9/storybook/index.html?path=/docs/theme-typography--page)
+      TextStyle s(
+        TextStyle? t, {
+        double? size,
+        double? height,
+        FontWeight? weight,
+        double? letterSpacing,
+      }) {
+        return (t ?? const TextStyle()).copyWith(
+          fontFamily: 'Segoe UI',
+          fontFamilyFallback: const [
+            'Segoe UI Variable',
+            'Segoe UI Web',
+            'Segoe UI',
+            'Helvetica Neue',
+            'Arial',
+            'sans-serif',
+          ],
+          fontSize: size,
+          height: height,
+          fontWeight: weight,
+          letterSpacing: letterSpacing,
+        );
+      }
+
+      return base.copyWith(
+        // Page titles / section titles (Fluent “Subtitle 1” ~ 20/26 semibold)
+        titleLarge: s(
+          base.titleLarge,
+          size: 20,
+          height: 26 / 20,
+          weight: FontWeight.w600,
+          letterSpacing: -0.1,
+        ),
+
+        // Card/section headers (Fluent “Body 2” or “Subtitle 2” vibes)
+        titleMedium: s(
+          base.titleMedium,
+          size: 16,
+          height: 22 / 16,
+          weight: FontWeight.w600,
+        ),
+
+        // Standard body (Fluent “Body 1” 14/20)
+        bodyMedium: s(
+          base.bodyMedium,
+          size: 14,
+          height: 20 / 14,
+          weight: FontWeight.w400,
+        ),
+
+        // Slightly smaller body / helper (Fluent “Caption 1” 12/16)
+        bodySmall: s(
+          base.bodySmall,
+          size: 12,
+          height: 16 / 12,
+          weight: FontWeight.w400,
+        ),
+
+        // Labels (use 12 semibold like Fluent caption strong)
+        labelLarge: s(
+          base.labelLarge,
+          size: 12,
+          height: 16 / 12,
+          weight: FontWeight.w600,
+          letterSpacing: 0.2,
+        ),
+        labelMedium: s(
+          base.labelMedium,
+          size: 12,
+          height: 16 / 12,
+          weight: FontWeight.w600,
+          letterSpacing: 0.2,
+        ),
+        labelSmall: s(
+          base.labelSmall,
+          size: 10,
+          height: 14 / 10,
+          weight: FontWeight.w600,
+          letterSpacing: 0.2,
+        ),
+
+        // Smaller headline for admin-style pages (avoid giant marketing headers)
+        headlineSmall: s(
+          base.headlineSmall,
+          size: 24,
+          height: 32 / 24,
+          weight: FontWeight.w600,
+          letterSpacing: -0.2,
+        ),
+      );
+    }
+
     return MaterialApp(
       title: 'Axume & Associates CPAs Portal',
       debugShowCheckedModeBanner: false,
@@ -115,7 +211,153 @@ class _MyAppState extends State<MyApp> {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: colorScheme,
-        scaffoldBackgroundColor: AppColors.pageBackgroundLight,
+
+        // ✅ Office 365 / Fluent page background layer
+        scaffoldBackgroundColor: AppColors.pageBackgroundSoft,
+
+        // ✅ Fluent / Microsoft typography ramp
+        textTheme: ThemeData.light().textTheme.copyWith(
+          // Page / section titles (Fluent Subtitle 1 — 20 / 26)
+          titleLarge: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 20,
+            height: 26 / 20,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
+            color: Color(0xFF111827),
+          ),
+
+          // Card headers / table headers (Fluent Body 2 — 16 / 22)
+          titleMedium: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 16,
+            height: 22 / 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF111827),
+          ),
+
+          // Primary body text (Fluent Body 1 — 14 / 20)
+          bodyMedium: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 14,
+            height: 20 / 14,
+            fontWeight: FontWeight.w400,
+            color: Color(0xFF1F2937),
+          ),
+
+          // Secondary body / helper text (Fluent Caption 1 — 12 / 16)
+          bodySmall: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 12,
+            height: 16 / 12,
+            fontWeight: FontWeight.w400,
+            color: Color(0xFF6B7280),
+          ),
+
+          // Labels / metadata (Fluent Caption Strong)
+          labelLarge: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 12,
+            height: 16 / 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+            color: Color(0xFF374151),
+          ),
+
+          labelMedium: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 12,
+            height: 16 / 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+            color: Color(0xFF374151),
+          ),
+
+          labelSmall: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 10,
+            height: 14 / 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+            color: Color(0xFF6B7280),
+          ),
+
+          // Smaller admin-style headlines (avoid marketing-sized headers)
+          headlineSmall: const TextStyle(
+            fontFamily: 'Segoe UI',
+            fontFamilyFallback: [
+              'Segoe UI Variable',
+              'Segoe UI Web',
+              'Segoe UI',
+              'Helvetica Neue',
+              'Arial',
+              'sans-serif',
+            ],
+            fontSize: 24,
+            height: 32 / 24,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.2,
+            color: Color(0xFF111827),
+          ),
+        ),
+
+        // ✅ No animations globally (your existing behavior)
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: NoTransitionsBuilder(),
@@ -125,6 +367,7 @@ class _MyAppState extends State<MyApp> {
             TargetPlatform.windows: NoTransitionsBuilder(),
           },
         ),
+
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.brandBlue,
           foregroundColor: Colors.white,
@@ -134,11 +377,11 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
 
+      // ✅ KEEP EVERYTHING BELOW EXACTLY THE SAME
       onGenerateRoute: (settings) {
         final route = settings.name ?? '/';
 
         // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
-        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public client-only)
         if (route.startsWith('/dropoff') && route != '/file-box') {
           return MaterialPageRoute(
             settings: settings,
@@ -190,7 +433,7 @@ class _MyAppState extends State<MyApp> {
           );
         }
 
-        // ✅ Protected routes: ONLY build them once auth is restored
+        // ✅ Protected routes — unchanged
         switch (route) {
           case '/dashboard':
             return MaterialPageRoute(
@@ -236,7 +479,6 @@ class _MyAppState extends State<MyApp> {
                 requestedRoute: route,
                 builder: (user) =>
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
                       future: FirebaseFirestore.instance
                           .collection('users')
                           .doc(user.uid)
@@ -255,10 +497,9 @@ class _MyAppState extends State<MyApp> {
                             .toString()
                             .toLowerCase()
                             .trim();
-
-                        // Only admins can access admin USERS screen
-                        if (role != 'admin')
+                        if (role != 'admin') {
                           return const AppShell(initialRoute: '/dashboard');
+                        }
                         return const AppShell(initialRoute: '/admin-users');
                       },
                     ),
@@ -290,9 +531,9 @@ class _MyAppState extends State<MyApp> {
                         final hasDropoffAccess =
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
-
-                        if (!hasDropoffAccess)
+                        if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
+                        }
                         return const AppShell(initialRoute: '/file-box');
                       },
                     ),
@@ -306,7 +547,6 @@ class _MyAppState extends State<MyApp> {
                 requestedRoute: route,
                 builder: (user) =>
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      // ✅ IMPORTANT: use the restored user.uid, NOT currentUser
                       future: FirebaseFirestore.instance
                           .collection('users')
                           .doc(user.uid)
@@ -317,20 +557,17 @@ class _MyAppState extends State<MyApp> {
                             body: Center(child: CircularProgressIndicator()),
                           );
                         }
-
                         final data = snap.data!.data() ?? {};
                         final role = (data['role'] ?? '')
                             .toString()
                             .toLowerCase()
                             .trim();
-
                         final hasDropoffAccess =
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
-
-                        // No access → back to dashboard
-                        if (!hasDropoffAccess)
+                        if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
+                        }
                         return const AppShell(
                           initialRoute: '/generate-upload-link',
                         );
