@@ -263,6 +263,7 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const SizedBox(height: 12), // ✅ NEW: extra space above logo
                     // ✅ Logo INSIDE card (Intuit-style)
                     Center(
                       child: ImageIcon(
@@ -580,40 +581,27 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _legalLinksRow() {
-    TextStyle linkStyle = const TextStyle(
-      color: AppColors.brandBlue,
-      fontWeight: FontWeight.w700,
-      fontSize: 10,
-    );
-
-    Widget link(String label, String url) {
-      return InkWell(
-        onTap: () => _openLink(url),
-        borderRadius: BorderRadius.circular(6),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          child: Text(label, style: linkStyle),
-        ),
-      );
+    Widget link(BuildContext context, String label, VoidCallback onTap) {
+      return _HoverUnderlineLink(label: label, onTap: onTap);
     }
 
     return CenteredForm(
       child: Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
+        spacing: 6, // ✅ closer together
         children: [
-          link("Website", "https://www.axumecpas.com/"),
+          link(context, "Legal", () {
+            Navigator.pushNamed(context, '/legal');
+          }),
           const Text("·", style: TextStyle(color: Colors.grey)),
-          link(
-            "ShareFile",
-            "https://auth.sharefile.io/axumecpas/login?returnUrl=%2fconnect%2fauthorize%2fcallback%3fclient_id%3dDzi4UPUAg5l8beKdioecdcnmHUTWWln6%26state%3doPhvHV46Gj6A7JJhyll3ww--%26acr_values%3dtenant%253Aaxumecpas%26response_type%3dcode%26redirect_uri%3dhttps%253A%252F%252Faxumecpas.sharefile.com%252Flogin%252Foauthlogin%26scope%3dsharefile%253Arestapi%253Av3%2520sharefile%253Arestapi%253Av3-internal%2520offline_access%2520openid",
-          ),
+          link(context, "Privacy", () {
+            Navigator.pushNamed(context, '/privacy');
+          }),
           const Text("·", style: TextStyle(color: Colors.grey)),
-          link(
-            "SecureSend",
-            "https://www.securefirmportal.com/Account/Login/119710",
-          ),
+          link(context, "Security", () {
+            Navigator.pushNamed(context, '/security');
+          }),
         ],
       ),
     );
@@ -628,6 +616,11 @@ class _LoginScreenState extends State<LoginScreen>
     return CenteredForm(
       child: Column(
         children: [
+          // ✅ ALWAYS above copyright (Intuit-style)
+          _legalLinksRow(),
+
+          const SizedBox(height: 12),
+
           Text(
             "© 2026 Axume & Associates CPAs, AAC",
             textAlign: TextAlign.center,
@@ -687,7 +680,6 @@ class _LoginScreenState extends State<LoginScreen>
                         _loginCard(theme, showAuthError),
 
                         const SizedBox(height: 12),
-                        _legalLinksRow(),
 
                         if (!pinFooter) ...[
                           const SizedBox(height: 16),
@@ -703,6 +695,50 @@ class _LoginScreenState extends State<LoginScreen>
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _HoverUnderlineLink extends StatefulWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _HoverUnderlineLink({required this.label, required this.onTap});
+
+  @override
+  State<_HoverUnderlineLink> createState() => _HoverUnderlineLinkState();
+}
+
+class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 120),
+          style: TextStyle(
+            color: AppColors.brandBlue,
+            fontWeight: FontWeight.w700,
+            fontSize: 10,
+            decoration: _hovering
+                ? TextDecoration.underline
+                : TextDecoration.none,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 4, // ✅ tighter than before
+              vertical: 2,
+            ),
+            child: Text(widget.label),
+          ),
         ),
       ),
     );
