@@ -18,6 +18,7 @@ const path = require("path");
 const fs = require("fs");
 
 admin.initializeApp();
+
 const db = admin.firestore();
 
 // ============================
@@ -37,11 +38,35 @@ const SMTP_PORT = defineInt("SMTP_PORT", { default: 587 });
 const SMTP_SECURE = defineBoolean("SMTP_SECURE", { default: false });
 const SMTP_FROM = defineString("SMTP_FROM");
 
+// ============================
+// checkEmailExists (public)
+// ============================
+exports.checkEmailExists = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const email = String(request.data?.email || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      throw new HttpsError("invalid-argument", "Valid email is required.");
+    }
 
+    try {
+      await admin.auth().getUserByEmail(email);
+      return { ok: true, exists: true };
+    } catch (e) {
+      // Firebase Admin throws auth/user-not-found
+      if (e && (e.code === "auth/user-not-found" || e.errorInfo?.code === "auth/user-not-found")) {
+        return { ok: true, exists: false };
+      }
+      console.error("checkEmailExists failed:", e);
+      throw new HttpsError("internal", "Unable to check email.");
+    }
+  }
+);
 
 // ============================
 // Helpers
 // ============================
+
 
 function hashOtp(code) {
   return crypto.createHash("sha256").update(code).digest("hex");
