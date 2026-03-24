@@ -4,10 +4,17 @@ class AppColors {
   // Primary page background (light)
   static const Color pageBackgroundLight = Color.fromARGB(255, 220, 220, 220);
 
-  static const Color pageBackgroundSoft = Color.fromARGB(232, 236, 238, 241); // #e3e3e3
+  static const Color pageBackgroundSoft = Color.fromARGB(
+    232,
+    236,
+    238,
+    241,
+  ); // #e3e3e3
 
   // Alternate page background (dark / brand)
   static const Color pageBackgroundDark = Color(0xFF0B346A);
+
+  static const Color divider = Color(0xFFE5E7EB);
 
   // Light Blue color
   static const Color lightGrey = Color(0xFF667085);
