@@ -165,7 +165,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen>
     }
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackgroundLight,
+      backgroundColor: AppColors.pageBackgroundSoft,
 
       // ✅ Paint background behind body
       body: ColoredBox(

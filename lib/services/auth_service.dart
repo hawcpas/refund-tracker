@@ -99,6 +99,24 @@ class AuthService {
   // Helpers
   // =========================
 
+  /// ✅ Checks if an email exists using a Cloud Function (Admin SDK).
+  /// This is reliable even if client auth masks user-not-found.
+  Future<bool> emailExists(String email) async {
+    final e = email.trim().toLowerCase();
+
+    try {
+      final res = await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('checkEmailExists').call({'email': e});
+
+      final data = (res.data as Map?) ?? {};
+      return data['exists'] == true;
+    } catch (_) {
+      // Fail open: do not block UX if network/server hiccups
+      return true;
+    }
+  }
+  
   // =========================
   // OTP (2FA)
   // =========================

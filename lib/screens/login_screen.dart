@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/post_login_route.dart';
 import '../widgets/intuit_text_field.dart';
 import '../widgets/login_legal_notice.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 enum LoginStep { email, password }
 
@@ -42,6 +43,9 @@ class _LoginScreenState extends State<LoginScreen>
   String? _emailError;
   String? _passwordError;
   String? _authError;
+
+  bool _checkingEmail = false;
+  bool _noAccountBanner = false;
 
   // ✅ Refined density (matches your “less bulky” direction)
   static const double _cardRadius = 18;
@@ -107,11 +111,15 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _clearInlineErrors() {
-    if (_emailError != null || _passwordError != null || _authError != null) {
+    if (_emailError != null ||
+        _passwordError != null ||
+        _authError != null ||
+        _noAccountBanner) {
       setState(() {
         _emailError = null;
         _passwordError = null;
         _authError = null;
+        _noAccountBanner = false;
       });
     }
   }
@@ -122,31 +130,62 @@ class _LoginScreenState extends State<LoginScreen>
     if (email.isEmpty || !email.contains("@")) {
       setState(() {
         _emailError = "Enter a valid email address.";
+        _noAccountBanner = false;
       });
       return;
     }
 
-    // ✅ STEP 4 — Persist Remember Me choice BEFORE UI transition
-    await LocalAuthPrefs.setRememberMe(_rememberMe);
-
-    if (_rememberMe) {
-      await LocalAuthPrefs.saveEmail(email);
-    } else {
-      await LocalAuthPrefs.clearEmail();
-    }
-
-    // ✅ Now transition to password screen
     setState(() {
       _emailError = null;
-      _step = LoginStep.password;
+      _noAccountBanner = false;
+      _checkingEmail = true;
     });
 
-    // ✅ Focus password after animation settles
-    Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) {
-        FocusScope.of(context).requestFocus(passwordFocusNode);
+    try {
+      final exists = await _auth.emailExists(email);
+      if (!mounted) return;
+
+      if (!exists) {
+        setState(() {
+          _checkingEmail = false;
+          _noAccountBanner = true; // ✅ Show Intuit-style warning box
+        });
+        return;
       }
-    });
+
+      // ✅ Persist Remember Me ONLY after email is confirmed to exist
+      await LocalAuthPrefs.setRememberMe(_rememberMe);
+      if (_rememberMe) {
+        await LocalAuthPrefs.saveEmail(email);
+      } else {
+        await LocalAuthPrefs.clearEmail();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _checkingEmail = false;
+        _step = LoginStep.password;
+      });
+
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) {
+          FocusScope.of(context).requestFocus(passwordFocusNode);
+        }
+      });
+    } on FirebaseAuthException catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _checkingEmail = false;
+        _emailError = "Unable to verify email right now. Please try again.";
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _checkingEmail = false;
+        _emailError = "Unable to verify email right now. Please try again.";
+      });
+    }
   }
 
   void _login() async {
@@ -222,8 +261,58 @@ class _LoginScreenState extends State<LoginScreen>
     pendingPostLoginRoute = null;
   }
 
+  Widget _noAccountBox() {
+    const border = Color(0xFFDC2626); // red
+    const bg = Color(0xFFFFF5F5); // very light red
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: 1),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_rounded, // triangle warning icon
+            color: border,
+            size: 20,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Double check your info',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'We can’t find an account with what you entered.',
+                  style: TextStyle(
+                    color: Color(0xFF374151),
+                    height: 1.35,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _loginCard(ThemeData theme, bool showAuthError) {
-    final VoidCallback? primaryAction = isLoading
+    final VoidCallback? primaryAction = (isLoading || _checkingEmail)
         ? null
         : (_step == LoginStep.password ? _login : _continueToPassword);
 
@@ -321,11 +410,12 @@ class _LoginScreenState extends State<LoginScreen>
                               key: const ValueKey('email-step'),
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
+                                if (_noAccountBanner) _noAccountBox(),
                                 IntuitTextField(
                                   controller: emailController,
                                   focusNode: emailFocusNode,
                                   label: "Email",
-                                  enabled: !isLoading,
+                                  enabled: !isLoading && !_checkingEmail,
                                   textInputAction: TextInputAction.done,
                                   onChanged: (_) => _clearInlineErrors(),
                                   onSubmitted: _continueToPassword,
@@ -381,27 +471,16 @@ class _LoginScreenState extends State<LoginScreen>
 
                                     const SizedBox(height: 2),
 
-                                    TextButton(
-                                      onPressed: isLoading
-                                          ? null
+                                    _HoverUnderlineLink(
+                                      label: "Use a different account",
+                                      onTap: isLoading
+                                          ? () {}
                                           : () {
                                               setState(() {
                                                 _step = LoginStep.email;
                                                 passwordController.clear();
                                               });
                                             },
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: const Color(
-                                          0xFF6B6C72,
-                                        ),
-                                        textStyle: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        "Use a different account",
-                                      ),
                                     ),
                                   ],
                                 ),
@@ -454,7 +533,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               alignment: Alignment.center,
-                              child: isLoading
+                              child: (isLoading || _checkingEmail)
                                   ? const SizedBox(
                                       height: 20,
                                       width: 20,
@@ -651,7 +730,7 @@ class _LoginScreenState extends State<LoginScreen>
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFDCDCDC), // ✅ #dcdcdc
+      backgroundColor: AppColors.pageBackgroundSoft, // ✅ #dcdcdc
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
