@@ -23,7 +23,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
 
@@ -72,6 +72,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _signinController = AnimationController(
       vsync: this,
@@ -116,12 +117,27 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // ✅ iOS Safari fix: force pointer + focus restoration
+      if (!mounted) return;
+
+      FocusScope.of(context).unfocus();
+
+      // Force a rebuild to re-enable hit testing
+      setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
     _signinController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+
     super.dispose();
   }
 

@@ -15,7 +15,8 @@ class OtpVerifyScreen extends StatefulWidget {
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
 }
 
-class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
+class _OtpVerifyScreenState extends State<OtpVerifyScreen>
+    with WidgetsBindingObserver {
   final _controller = TextEditingController();
 
   bool _loading = false;
@@ -31,6 +32,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _textListener = () {
       if (!mounted) return;
@@ -42,7 +44,18 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!mounted) return;
+
+      FocusScope.of(context).unfocus();
+      setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     if (_textListener != null) {
       _controller.removeListener(_textListener!);
@@ -418,9 +431,9 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                 }
               },
               onSubmitted: (_) => canContinue ? _verify() : null,
-              decoration: _codeDecoration(enabled: enabled).copyWith(
-                counterText: '',
-              ),
+              decoration: _codeDecoration(
+                enabled: enabled,
+              ).copyWith(counterText: ''),
             ),
 
             if (_error != null) ...[
@@ -522,12 +535,11 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const SizedBox(height: 88), // ✅ same top anchor as Login
+                        const SizedBox(
+                          height: 88,
+                        ), // ✅ same top anchor as Login
 
-                        CenteredForm(
-                          maxWidth: 380,
-                          child: _otpCard(theme),
-                        ),
+                        CenteredForm(maxWidth: 380, child: _otpCard(theme)),
 
                         const SizedBox(height: 12),
 
@@ -558,10 +570,7 @@ class _HoverUnderlineLink extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _HoverUnderlineLink({
-    required this.label,
-    required this.onTap,
-  });
+  const _HoverUnderlineLink({required this.label, required this.onTap});
 
   @override
   State<_HoverUnderlineLink> createState() => _HoverUnderlineLinkState();
@@ -584,8 +593,9 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
             color: AppColors.brandBlue,
             fontWeight: FontWeight.w700,
             fontSize: 10,
-            decoration:
-                _hovering ? TextDecoration.underline : TextDecoration.none,
+            decoration: _hovering
+                ? TextDecoration.underline
+                : TextDecoration.none,
           ),
           child: const Padding(
             padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
