@@ -141,7 +141,7 @@ class ResourcesScreen extends StatelessWidget {
               Text(
                 'Links open in your default browser.',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.lightGrey,
+                  color: AppColors.pageCanvas,
                   fontWeight: FontWeight.w600,
                 ),
               ),
