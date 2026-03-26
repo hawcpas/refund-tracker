@@ -118,6 +118,45 @@ class _DashboardActionCard extends StatelessWidget {
   }
 }
 
+class _DashboardIntroHeader extends StatelessWidget {
+  const _DashboardIntroHeader({required this.title, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF111827),
+              letterSpacing: -0.2,
+            ),
+          ),
+          if (subtitle != null && subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF6B7280),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _loadingProfile = true;
   bool _hasDropoffAccess = false;
@@ -187,12 +226,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         : 'Welcome';
 
     return PageScaffold(
-      // ✅ No “Welcome” hero / app name header
       title: '',
       hideHeader: true,
       wrapInCard: false,
 
-      // ✅ Quick actions live in the command bar now
+      // ✅ Welcome text ABOVE command bar (new slot)
+      preCommandBar: _DashboardIntroHeader(
+        title: welcomeText, // "Welcome, Guillermo"
+        // subtitle: 'Here’s what you can do today',
+      ),
+
       commandBar: FluentCommandBar(
         actions: [
           // File Box
@@ -243,15 +286,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 runSpacing: 16,
                 children: [
                   SizedBox(
-                    width: isNarrow
-                        ? constraints.maxWidth
-                        : 420, // ✅ Microsoft-style card width
+                    width: isNarrow ? constraints.maxWidth : 420,
                     child: _DashboardActionCard(
                       title: 'File Box',
                       description:
                           'Review, manage, and securely store documents uploaded by clients.',
                       buttonLabel: 'Open File Box',
-                      //icon: Icons.folder_open_outlined,
                       onPressed: _hasDropoffAccess
                           ? () => Navigator.pushNamed(context, '/file-box')
                           : () {},
@@ -259,15 +299,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
 
                   SizedBox(
-                    width: isNarrow
-                        ? constraints.maxWidth
-                        : 420, // ✅ Microsoft-style card width
+                    width: isNarrow ? constraints.maxWidth : 420,
                     child: _DashboardActionCard(
                       title: 'Create Upload Link',
                       description:
                           'Generate a secure upload link for clients to submit documents.',
                       buttonLabel: 'Create link',
-                      //icon: Icons.link_outlined,
                       onPressed: _hasDropoffAccess
                           ? () => Navigator.pushNamed(
                               context,

@@ -7,6 +7,7 @@ class PageScaffold extends StatelessWidget {
   final Widget child;
   final Widget? commandBar;
   final Color? backgroundColor;
+  final Widget? preCommandBar;
 
   /// If true, PageScaffold uses a ListView for scrolling.
   /// If false, PageScaffold does NOT scroll (for pages that manage their own scrolling).
@@ -30,7 +31,8 @@ class PageScaffold extends StatelessWidget {
     this.hideHeader = false,
     this.wrapInCard = true,
     this.commandBar,
-    this.backgroundColor, // ✅ ADD THIS
+    this.preCommandBar, // ✅ NEW
+    this.backgroundColor,
   });
 
   @override
@@ -94,7 +96,13 @@ class PageScaffold extends StatelessWidget {
           children: [
             if (!hideHeader) header,
 
-            // ✅ Command bar under header (Office 365 style)
+            // ✅ Optional content ABOVE command bar (Dashboard welcome)
+            if (preCommandBar != null) ...[
+              preCommandBar!,
+              const SizedBox(height: 8),
+            ],
+
+            // ✅ Command bar under header
             if (commandBar != null) ...[
               commandBar!,
               const SizedBox(height: 12),

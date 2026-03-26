@@ -17,6 +17,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+const double kTopBarHeight = 48;
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialRoute = '/dashboard'});
 
@@ -58,6 +60,22 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     if (digits.length < 10) return input.trim();
     final t = digits.substring(digits.length - 10);
     return '${t.substring(0, 3)}-${t.substring(3, 6)}-${t.substring(6)}';
+  }
+
+  void _dismissSettingsMenuImmediate() {
+    if (_settingsEntry == null) return;
+    _settingsAnim.stop();
+    _settingsEntry?.remove();
+    _settingsEntry = null;
+    _settingsAnim.value = 0; // reset
+  }
+
+  void _dismissAvatarMenuImmediate() {
+    if (_avatarEntry == null) return;
+    _avatarAnim.stop();
+    _avatarEntry?.remove();
+    _avatarEntry = null;
+    _avatarAnim.value = 0; // reset
   }
 
   /// ✅ Public API for opening Account Settings
@@ -125,6 +143,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     String wildixExt = '',
     String clearflyNumber = '',
   }) {
+    _dismissSettingsMenuImmediate();
     if (_isAvatarMenuOpen) {
       _closeAvatarMenu();
       return;
@@ -135,8 +154,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
     _avatarEntry = OverlayEntry(
       builder: (context) {
-        final initials = _initialsFromName(displayName);
-        const double appBarHeight = kToolbarHeight;
+        final parts = displayName.trim().split(RegExp(r'\s+'));
+        final initials = parts.length >= 2
+            ? '${parts.first[0]}${parts.last[0]}'.toUpperCase()
+            : (parts.isNotEmpty ? parts.first[0].toUpperCase() : '?');
+
+        const double appBarHeight = kTopBarHeight;
 
         return Stack(
           children: [
@@ -361,7 +384,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
         return RightSideFlyout(
           onClose: _closeAccountSettingsFlyout,
-          width: 480,
+          width: MediaQuery.of(context).size.width < 520
+              ? MediaQuery.of(context).size.width
+              : 480,
           progress: progress,
 
           // ✅ This whole child will fade in only in the last quarter (handled by flyout)
@@ -436,7 +461,69 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     });
   }
 
+  Widget _buildSettingsMenuContent(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () {
+            Navigator.pop(context); // close bottom sheet
+            _openAccountSettingsFlyout(context);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: const [
+                Icon(
+                  Icons.settings_outlined,
+                  size: 20,
+                  color: Color(0xFF101828),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Divider(height: 1, color: Colors.black.withOpacity(0.06)),
+        InkWell(
+          onTap: () async {
+            Navigator.pop(context); // close bottom sheet
+            await _openSupportEmail();
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: const [
+                Icon(Icons.help_outline, size: 20, color: Color(0xFF101828)),
+                SizedBox(width: 12),
+                Text(
+                  'Support',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _toggleSettingsMenu(BuildContext ctx) {
+    _dismissAvatarMenuImmediate();
+
+    // ✅ DESKTOP: existing behavior below
     if (_isSettingsMenuOpen) {
       _closeSettingsMenu();
       return;
@@ -457,7 +544,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                 showWhenUnlinked: false,
                 targetAnchor: Alignment.bottomRight,
                 followerAnchor: Alignment.topRight,
-                offset: const Offset(0, 8), // ✅ directly below ⋯
+                offset: const Offset(0, 4),
                 child: Material(
                   color: Colors.transparent,
                   child: FadeTransition(
@@ -486,7 +573,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                             BoxShadow(
                               color: Colors.black.withOpacity(0.12),
                               blurRadius: 18,
-                              offset: const Offset(0, 8),
+                              offset: const Offset(0, 4),
                             ),
                           ],
                         ),
@@ -745,11 +832,31 @@ Please describe the issue below:
     }
   }
 
-  String _initialsFromName(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return (parts.first[0] + parts.last[0]).toUpperCase();
+  String _initialsFromProfile({
+    required String firstName,
+    required String lastName,
+    String? fallback,
+  }) {
+    final f = firstName.trim();
+    final l = lastName.trim();
+
+    if (f.isNotEmpty && l.isNotEmpty) {
+      return '${f[0]}${l[0]}'.toUpperCase();
+    }
+
+    if (f.isNotEmpty) {
+      return f[0].toUpperCase();
+    }
+
+    if (fallback != null && fallback.trim().isNotEmpty) {
+      final parts = fallback.trim().split(RegExp(r'\s+'));
+      if (parts.length >= 2) {
+        return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      }
+      return parts[0][0].toUpperCase();
+    }
+
+    return '?';
   }
 
   @override
@@ -792,10 +899,10 @@ Please describe the issue below:
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: AppColors.pageBackgroundLight,
+      backgroundColor: AppColors.pageCanvas, // ✅ Fluent canvas
 
       appBar: AppBar(
-        toolbarHeight: 48, // ✅ Microsoft-style compact height
+        toolbarHeight: kTopBarHeight,
         titleSpacing: 16, // ✅ tighter horizontal rhythm
 
         title: Text(
@@ -815,14 +922,22 @@ Please describe the issue below:
 
         actions: [
           IconButton(
-            tooltip: 'Settings',
+            tooltip: 'Account settings',
             icon: const Icon(Icons.settings_outlined, size: 20),
-            padding: EdgeInsets.zero, // ✅ remove extra vertical padding
-            constraints: const BoxConstraints(
-              minWidth: 40,
-              minHeight: 40, // ✅ accessibility preserved
-            ),
-            onPressed: () => _toggleAccountSettingsFlyout(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            onPressed: () {
+              // ✅ prevent stacked overlays
+              _dismissAvatarMenuImmediate();
+              _dismissSettingsMenuImmediate();
+
+              // ✅ Toggle Account Settings flyout (open/close)
+              if (_isAccountSettingsOpen) {
+                _closeAccountSettingsFlyout(); // reverse animation already implemented
+              } else {
+                _openAccountSettingsFlyout(context);
+              }
+            },
           ),
 
           IconButton(
@@ -842,83 +957,110 @@ Please describe the issue below:
             builder: (ctx) {
               final user = FirebaseAuth.instance.currentUser;
               final email = user?.email ?? '';
-              final displayName = user?.displayName?.trim().isNotEmpty == true
-                  ? user!.displayName!
-                  : email;
 
-              final initials = _initialsFromName(displayName);
+              return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                future: user == null
+                    ? null
+                    : FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .get(),
+                builder: (context, snapshot) {
+                  String firstName = '';
+                  String lastName = '';
+                  String fallbackName =
+                      user?.displayName?.trim().isNotEmpty == true
+                      ? user!.displayName!
+                      : email;
 
-              return CompositedTransformTarget(
-                link: _avatarLink,
-                child: FocusableActionDetector(
-                  autofocus: false,
-                  mouseCursor: SystemMouseCursors.click,
-                  onShowHoverHighlight: (hover) =>
-                      setState(() => _avatarHover = hover),
-                  child: GestureDetector(
-                    onTap: () async {
-                      final user = FirebaseAuth.instance.currentUser;
-                      String wildix = '';
-                      String clearfly = '';
+                  if (snapshot.hasData && snapshot.data?.data() != null) {
+                    final data = snapshot.data!.data()!;
+                    firstName = (data['firstName'] ?? '').toString().trim();
+                    lastName = (data['lastName'] ?? '').toString().trim();
+                  }
 
-                      if (user != null) {
-                        try {
-                          final doc = await FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(user.uid)
-                              .get();
+                  final initials = _initialsFromProfile(
+                    firstName: firstName,
+                    lastName: lastName,
+                    fallback: fallbackName,
+                  );
 
-                          final data = doc.data() ?? {};
-                          final comms = Map<String, dynamic>.from(
-                            data['communications'] ?? {},
+                  return CompositedTransformTarget(
+                    link: _avatarLink,
+                    child: FocusableActionDetector(
+                      autofocus: false,
+                      mouseCursor: SystemMouseCursors.click,
+                      onShowHoverHighlight: (hover) =>
+                          setState(() => _avatarHover = hover),
+                      child: GestureDetector(
+                        onTap: () async {
+                          final user = FirebaseAuth.instance.currentUser;
+                          String wildix = '';
+                          String clearfly = '';
+
+                          if (user != null) {
+                            try {
+                              final doc = await FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(user.uid)
+                                  .get();
+
+                              final data = doc.data() ?? {};
+                              final comms = Map<String, dynamic>.from(
+                                data['communications'] ?? {},
+                              );
+                              wildix = (comms['wildixExtension'] ?? '')
+                                  .toString()
+                                  .trim();
+                              clearfly = _formatUsPhone10(
+                                (comms['clearflySmsNumber'] ?? '')
+                                    .toString()
+                                    .trim(),
+                              );
+                            } catch (_) {
+                              // Keep empty if load fails
+                            }
+                          }
+
+                          _toggleAvatarMenu(
+                            ctx: ctx,
+                            displayName:
+                                '$firstName $lastName'.trim().isNotEmpty
+                                ? '$firstName $lastName'
+                                : fallbackName,
+                            email: email,
+                            wildixExt: wildix,
+                            clearflyNumber: clearfly,
                           );
-                          wildix = (comms['wildixExtension'] ?? '')
-                              .toString()
-                              .trim();
-                          clearfly = _formatUsPhone10(
-                            (comms['clearflySmsNumber'] ?? '')
-                                .toString()
-                                .trim(),
-                          );
-                        } catch (_) {
-                          // Keep empty if load fails
-                        }
-                      }
-
-                      _toggleAvatarMenu(
-                        ctx: ctx,
-                        displayName: displayName,
-                        email: email,
-                        wildixExt: wildix,
-                        clearflyNumber: clearfly,
-                      );
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      margin: const EdgeInsets.only(right: 12),
-                      height: 28, // ✅ slightly tighter than before
-                      width: 28,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _avatarHover
-                            ? Colors.white.withOpacity(0.15)
-                            : Colors.white,
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        initials,
-                        style: TextStyle(
-                          color: isAdminConsole
-                              ? Colors.black
-                              : AppColors.brandBlue,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.4,
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 120),
+                          margin: const EdgeInsets.only(right: 12),
+                          height: 28,
+                          width: 28,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _avatarHover
+                                ? Colors.white.withOpacity(0.15)
+                                : Colors.white,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            initials,
+                            style: TextStyle(
+                              color: isAdminConsole
+                                  ? Colors.black
+                                  : AppColors.brandBlue,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),
@@ -1000,6 +1142,42 @@ class _SidebarNav extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
+          if (showAdmin) ...[
+            const SizedBox(height: 10),
+            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            const SizedBox(height: 10),
+
+            if (!collapsed)
+              const Padding(
+                padding: EdgeInsets.only(left: 8, bottom: 6),
+                child: Text(
+                  'ADMIN',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                    color: Color(0xFF111827), // ✅ different section color
+                  ),
+                ),
+              ),
+
+            _SidebarNavItem(
+              icon: Icons.admin_panel_settings_outlined,
+              label: 'Admin Console',
+              route: '/admin-users',
+              currentRoute: currentRoute,
+              onNavigate: onNavigate,
+              collapsed: collapsed,
+
+              // ✅ use a distinct accent color for admin
+              accentOverride: const Color(0xFF111827),
+            ),
+          ],
+
+          const SizedBox(height: 6),
+          Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+          const SizedBox(height: 6),
+
           _SidebarNavItem(
             icon: Icons.dashboard_outlined,
             label: 'Dashboard',
@@ -1058,38 +1236,6 @@ class _SidebarNav extends StatelessWidget {
             onNavigate: onNavigate,
             collapsed: collapsed,
           ),
-
-          if (showAdmin) ...[
-            const SizedBox(height: 10),
-            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
-            const SizedBox(height: 10),
-
-            if (!collapsed)
-              const Padding(
-                padding: EdgeInsets.only(left: 8, bottom: 6),
-                child: Text(
-                  'ADMIN',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.1,
-                    color: Color(0xFF111827), // ✅ different section color
-                  ),
-                ),
-              ),
-
-            _SidebarNavItem(
-              icon: Icons.admin_panel_settings_outlined,
-              label: 'Admin Console',
-              route: '/admin-users',
-              currentRoute: currentRoute,
-              onNavigate: onNavigate,
-              collapsed: collapsed,
-
-              // ✅ use a distinct accent color for admin
-              accentOverride: const Color(0xFF111827),
-            ),
-          ],
 
           const SizedBox(height: 6),
           Divider(height: 1, color: Colors.black.withOpacity(0.08)),
@@ -1246,7 +1392,7 @@ class RightSideFlyout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double appBarHeight = kToolbarHeight;
+    const double appBarHeight = kTopBarHeight;
 
     return Stack(
       children: [
@@ -1288,9 +1434,11 @@ class RightSideFlyout extends StatelessWidget {
 
               return SizedBox(
                 width: w,
-                child: ClipRect(
-                  child: Align(
-                    alignment: Alignment.centerRight,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    // ✅ allows shadow to extend left without clipping
+                    padding: const EdgeInsets.only(left: 24),
                     child: GestureDetector(
                       onTap: () {}, // absorb taps inside
                       child: SizedBox(
@@ -1299,20 +1447,33 @@ class RightSideFlyout extends StatelessWidget {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(panelOpacity),
+
+                            // ✅ Structural left divider
                             border: Border(
                               left: BorderSide(
                                 color: Colors.black.withOpacity(
-                                  0.08 * panelOpacity,
+                                  0.10 * panelOpacity,
                                 ),
+                                width: 1,
                               ),
                             ),
+
+                            // ✅ Enterprise left‑cast shadow (NOW VISIBLE)
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(
-                                  0.18 * panelOpacity,
+                                  0.22 * panelOpacity,
                                 ),
-                                blurRadius: 24,
-                                offset: const Offset(-4, 0),
+                                blurRadius: 32,
+                                spreadRadius: 2,
+                                offset: const Offset(-8, 0),
+                              ),
+                              BoxShadow(
+                                color: Colors.black.withOpacity(
+                                  0.10 * panelOpacity,
+                                ),
+                                blurRadius: 8,
+                                offset: const Offset(-2, 0),
                               ),
                             ],
                           ),
