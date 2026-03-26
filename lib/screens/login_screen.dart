@@ -39,6 +39,7 @@ class _LoginScreenState extends State<LoginScreen>
   bool isLoading = false;
   bool obscurePassword = true;
   bool _rememberMe = true; // Intuit defaults this ON
+  bool _pageReady = false;
 
   LoginStep _step = LoginStep.email;
 
@@ -71,7 +72,6 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
-    _loadSavedEmail();
 
     _signinController = AnimationController(
       vsync: this,
@@ -86,6 +86,19 @@ class _LoginScreenState extends State<LoginScreen>
     _liftAnim = Tween<double>(begin: 0, end: -4).animate(
       CurvedAnimation(parent: _signinController, curve: Curves.easeOutCubic),
     );
+
+    // ✅ Load async data, then show page
+    Future.microtask(() async {
+      await _loadSavedEmail();
+
+      if (!mounted) return;
+
+      // Small intentional delay = smoother first paint
+      await Future.delayed(const Duration(milliseconds: 180));
+
+      if (!mounted) return;
+      setState(() => _pageReady = true);
+    });
   }
 
   Future<void> _loadSavedEmail() async {
@@ -252,62 +265,55 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (!verified) {
       Navigator.of(context).pushReplacement(
-  PageRouteBuilder(
-    transitionDuration: const Duration(milliseconds: 420),
-    pageBuilder: (_, __, ___) => const VerifyEmailScreen(),
-    transitionsBuilder: (_, animation, __, child) {
-      final fade = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-      );
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 420),
+          pageBuilder: (_, __, ___) => const VerifyEmailScreen(),
+          transitionsBuilder: (_, animation, __, child) {
+            final fade = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            );
 
-      final slide = Tween<Offset>(
-        begin: const Offset(0, 0.02),
-        end: Offset.zero,
-      ).animate(fade);
+            final slide = Tween<Offset>(
+              begin: const Offset(0, 0.02),
+              end: Offset.zero,
+            ).animate(fade);
 
-      return FadeTransition(
-        opacity: fade,
-        child: SlideTransition(
-          position: slide,
-          child: child,
+            return FadeTransition(
+              opacity: fade,
+              child: SlideTransition(position: slide, child: child),
+            );
+          },
         ),
       );
-    },
-  ),
-);
       return;
     }
 
     Navigator.of(context).pushReplacement(
-  PageRouteBuilder(
-    transitionDuration: const Duration(milliseconds: 420),
-    pageBuilder: (_, __, ___) => OtpVerifyScreen(
-      nextRoute: pendingPostLoginRoute,
-    ),
-    transitionsBuilder: (_, animation, __, child) {
-      final fade = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-      );
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 420),
+        pageBuilder: (_, __, ___) =>
+            OtpVerifyScreen(nextRoute: pendingPostLoginRoute),
+        transitionsBuilder: (_, animation, __, child) {
+          final fade = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
 
-      final slide = Tween<Offset>(
-        begin: const Offset(0, 0.02),
-        end: Offset.zero,
-      ).animate(fade);
+          final slide = Tween<Offset>(
+            begin: const Offset(0, 0.02),
+            end: Offset.zero,
+          ).animate(fade);
 
-      return FadeTransition(
-        opacity: fade,
-        child: SlideTransition(
-          position: slide,
-          child: child,
-        ),
-      );
-    },
-  ),
-);
+          return FadeTransition(
+            opacity: fade,
+            child: SlideTransition(position: slide, child: child),
+          );
+        },
+      ),
+    );
 
-pendingPostLoginRoute = null;
+    pendingPostLoginRoute = null;
   }
 
   Widget _noAccountBox() {
@@ -779,50 +785,67 @@ pendingPostLoginRoute = null;
     final bool showAuthError = _authError != null;
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackgroundSoft, // ✅ #dcdcdc
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            const double footerBreakpoint = 620;
-            final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
+      backgroundColor: AppColors.pageBackgroundSoft,
+      body: AbsorbPointer(
+        absorbing: !_pageReady, // ✅ prevent interaction while loading
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeIn,
+          child: _pageReady
+              ? SafeArea(
+                  key: const ValueKey(
+                    'login-ui',
+                  ), // ✅ required for AnimatedSwitcher
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      const double footerBreakpoint = 620;
+                      final bool pinFooter =
+                          constraints.maxHeight >= footerBreakpoint;
 
-            final footerWidget = Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: _footer(theme),
-            );
+                      final footerWidget = Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _footer(Theme.of(context)),
+                      );
 
-            return Column(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    keyboardDismissBehavior:
-                        ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SizedBox(
-                          height: 88,
-                        ), // ✅ ~1 inch from top (key line)
-
-                        _loginCard(theme, showAuthError),
-
-                        const SizedBox(height: 12),
-
-                        if (!pinFooter) ...[
-                          const SizedBox(height: 16),
-                          footerWidget,
+                      return Column(
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  const SizedBox(height: 88),
+                                  _loginCard(
+                                    Theme.of(context),
+                                    _authError != null,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (!pinFooter) ...[
+                                    const SizedBox(height: 16),
+                                    footerWidget,
+                                  ],
+                                  const SizedBox(height: 32),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (pinFooter) footerWidget,
                         ],
-
-                        const SizedBox(height: 32), // bottom breathing room
-                      ],
-                    ),
+                      );
+                    },
                   ),
+                )
+              : const _LoginLoadingScreen(
+                  key: ValueKey(
+                    'login-loading',
+                  ), // ✅ required for AnimatedSwitcher
                 ),
-                if (pinFooter) footerWidget,
-              ],
-            );
-          },
         ),
       ),
     );
@@ -868,6 +891,60 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
             child: Text(widget.label),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LoginLoadingScreen extends StatelessWidget {
+  const _LoginLoadingScreen({super.key}); // ✅ FIX
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.pageBackgroundSoft,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ✅ Brand mark
+          ImageIcon(
+            const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
+            size: 48,
+            color: AppColors.brandBlue,
+          ),
+
+          const SizedBox(height: 20),
+
+          // ✅ Optional polish (spinner scale-in)
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.9, end: 1),
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+            builder: (context, scale, child) {
+              return Transform.scale(scale: scale, child: child);
+            },
+            child: const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandBlue),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          const Text(
+            'Loading secure sign‑in…',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF6B6C72),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
