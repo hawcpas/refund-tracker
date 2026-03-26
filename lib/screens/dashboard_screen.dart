@@ -4,12 +4,118 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
+import '../shell/app_shell.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardActionCard extends StatelessWidget {
+  const _DashboardActionCard({
+    required this.title,
+    required this.description,
+    required this.buttonLabel,
+    required this.onPressed,
+  });
+
+  final String title;
+  final String description;
+  final String buttonLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 220), // ✅ taller card
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black.withOpacity(0.08)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 6,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ✅ Blue top accent line (Microsoft style)
+          Container(
+            height: 3,
+            decoration: const BoxDecoration(
+              color: AppColors.brandBlue,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ✅ Recommended label (no icon)
+                const Text(
+                  'Recommended',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.brandBlue,
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: Color(0xFF374151),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ✅ Button anchored bottom-left
+                SizedBox(
+                  height: 34,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brandBlue,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      textStyle: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onPressed: onPressed,
+                    child: Text(buttonLabel),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
@@ -81,121 +187,114 @@ class _DashboardScreenState extends State<DashboardScreen> {
         : 'Welcome';
 
     return PageScaffold(
-      title: welcomeText,
-      subtitle: 'Axume & Associates CPAs · Firm Portal',
-      hideHeader: false, // ✅ IMPORTANT
+      // ✅ No “Welcome” hero / app name header
+      title: '',
+      hideHeader: true,
       wrapInCard: false,
 
-      // ✅ OFFICE‑STYLE COMMAND BAR
+      // ✅ Quick actions live in the command bar now
       commandBar: FluentCommandBar(
         actions: [
+          // File Box
+          FluentCommandAction(
+            icon: Icons.folder_open_outlined,
+            label: 'File Box',
+            onPressed: _hasDropoffAccess
+                ? () => Navigator.pushNamed(context, '/file-box')
+                : null,
+            accent: false,
+          ),
+
+          // Upload links
+          FluentCommandAction(
+            icon: Icons.link_outlined,
+            label: 'Upload links',
+            onPressed: _hasDropoffAccess
+                ? () => Navigator.pushNamed(context, '/generate-upload-link')
+                : null,
+            accent: false,
+          ),
+
+          // Admin (admins only)
           if (isAdmin)
             FluentCommandAction(
               icon: Icons.admin_panel_settings_outlined,
-              label: 'Admin console',
-              onPressed: () => Navigator.pushNamed(context, '/admin-users'),
-              accent: true,
+              label: 'Admin',
+              onPressed: () {
+                final shell = context.findAncestorStateOfType<AppShellState>();
+                shell?.openAdmin();
+              },
+              accent: false, // ✅ neutral black
             ),
         ],
-        overflowActions: [
-          // Example overflow items (optional)
-          FluentCommandAction(
-            icon: Icons.settings_outlined,
-            label: 'Account settings',
-            onPressed: () => Navigator.pushNamed(context, '/account-settings'),
-          ),
-          FluentCommandAction(
-            icon: Icons.refresh,
-            label: 'Refresh',
-            onPressed: _loadingProfile
-                ? null
-                : () {
-                    final u = FirebaseAuth.instance.currentUser;
-                    if (u != null) _loadProfile(u);
-                  },
-          ),
-        ],
+        overflowActions: const [],
       ),
 
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ✅ Dashboard recommendation cards (Microsoft-style)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 900;
 
-                Text(
-                  'Axume & Associates CPAs · Firm Portal',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF6B7280),
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  SizedBox(
+                    width: isNarrow
+                        ? constraints.maxWidth
+                        : 420, // ✅ Microsoft-style card width
+                    child: _DashboardActionCard(
+                      title: 'File Box',
+                      description:
+                          'Review, manage, and securely store documents uploaded by clients.',
+                      buttonLabel: 'Open File Box',
+                      //icon: Icons.folder_open_outlined,
+                      onPressed: _hasDropoffAccess
+                          ? () => Navigator.pushNamed(context, '/file-box')
+                          : () {},
+                    ),
                   ),
-                ),
 
-                const SizedBox(height: 24),
-
-                // ===== Section: Access =====
-                _SectionHeader(title: 'Quick access'),
-
-                const SizedBox(height: 8),
-
-                _SurfaceTable(
-                  children: [
-                    if (_hasDropoffAccess)
-                      _RowItem(
-                        icon: Icons.folder_open_outlined,
-                        title: 'File Box',
-                        subtitle:
-                            'View and manage all client‑uploaded documents',
-                        onTap: () => Navigator.pushNamed(context, '/file-box'),
-                      ),
-                    if (_hasDropoffAccess)
-                      _RowItem(
-                        icon: Icons.link_outlined,
-                        title: 'Upload links',
-                        subtitle:
-                            'Create and manage secure client upload links',
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          '/generate-upload-link',
-                        ),
-                      ),
-                    if (!_hasDropoffAccess)
-                      _InfoRow(
-                        text:
-                            'You do not currently have access to client upload links. '
-                            'Please contact an administrator if this is unexpected.',
-                      ),
-                  ],
-                ),
-
-                const SizedBox(height: 24),
-
-                // ===== Section: Comms =====
-                if (_wildixExt.isNotEmpty || _clearflyNumber.isNotEmpty) ...[
-                  _SectionHeader(title: 'Communication'),
-                  const SizedBox(height: 8),
-                  _SurfaceTable(
-                    children: [
-                      if (_wildixExt.isNotEmpty)
-                        _KeyValueRow(
-                          label: 'Wildix extension',
-                          value: _wildixExt,
-                        ),
-                      if (_clearflyNumber.isNotEmpty)
-                        _KeyValueRow(
-                          label: 'Clearfly / eFax',
-                          value: _clearflyNumber,
-                        ),
-                    ],
+                  SizedBox(
+                    width: isNarrow
+                        ? constraints.maxWidth
+                        : 420, // ✅ Microsoft-style card width
+                    child: _DashboardActionCard(
+                      title: 'Create Upload Link',
+                      description:
+                          'Generate a secure upload link for clients to submit documents.',
+                      buttonLabel: 'Create link',
+                      //icon: Icons.link_outlined,
+                      onPressed: _hasDropoffAccess
+                          ? () => Navigator.pushNamed(
+                              context,
+                              '/generate-upload-link',
+                            )
+                          : () {},
+                    ),
                   ),
                 ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 20),
+
+          // ✅ Access notice (unchanged)
+          if (!_hasDropoffAccess)
+            _SurfaceTable(
+              children: const [
+                _InfoRow(
+                  text:
+                      'You do not currently have access to File Box or Upload links. '
+                      'Please contact an administrator if this is unexpected.',
+                ),
               ],
             ),
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -223,19 +322,53 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _SurfaceTable extends StatelessWidget {
+class _SurfaceTable extends StatefulWidget {
   const _SurfaceTable({required this.children});
   final List<Widget> children;
 
   @override
+  State<_SurfaceTable> createState() => _SurfaceTableState();
+}
+
+class _SurfaceTableState extends State<_SurfaceTable> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          // ✅ Noticeable hover background (same language as command bar)
+          color: _hover ? const Color(0xFFF0F0F0) : AppColors.cardBackground,
+
+          // ✅ Sharper, enterprise-style corners
+          borderRadius: BorderRadius.circular(3),
+
+          // ✅ Stronger border on hover
+          border: Border.all(
+            color: _hover
+                ? Colors.black.withOpacity(0.28)
+                : Colors.black.withOpacity(0.12),
+            width: 1,
+          ),
+
+          // ✅ Deeper, clearer elevation on hover
+          boxShadow: [
+            BoxShadow(
+              color: _hover
+                  ? const Color(0x33000000) // ~20% black
+                  : const Color(0x1A000000), // ~10% black
+              blurRadius: _hover ? 8 : 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Column(children: widget.children),
       ),
-      child: Column(children: children),
     );
   }
 }
