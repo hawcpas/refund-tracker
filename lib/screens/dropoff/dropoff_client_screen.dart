@@ -882,6 +882,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                         const SizedBox(height: 12),
 
                         // ✅ Main secure card
+                        // ✅ Main secure card
                         Container(
                           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
                           decoration: BoxDecoration(
@@ -901,7 +902,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ✅ enterprise header row
+                              // =========================================================
+                              // ✅ HEADER — ALWAYS VISIBLE
+                              // =========================================================
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -933,7 +936,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                   ),
                                   const SizedBox(width: 10),
 
-                                  // ✅ Right-side trust + status
+                                  // ✅ Single source of truth for verification
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
@@ -946,214 +949,225 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                 ],
                               ),
 
-                              const SizedBox(height: 12),
+                              // =========================================================
+                              // ✅ ANIMATED BODY — REVEALED AFTER VERIFICATION
+                              // =========================================================
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                                child: _loading
+                                    ? const SizedBox.shrink()
+                                    : Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const SizedBox(height: 12),
 
-                              // ✅ For / Requested by panel
-                              _BriefContextPanel(info: _info),
-
-                              const SizedBox(height: 16),
-
-                              if (_loading) ...[
-                                Row(
-                                  children: [
-                                    const SizedBox(
-                                      height: 16,
-                                      width: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      'Validating link…',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: _kGray,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-
-                              if (_error != null && !_isClosed) ...[
-                                _ErrorBanner(message: _error!),
-                                const SizedBox(height: 12),
-                              ],
-
-                              /*
-                              if (_success != null) ...[
-                                _SuccessBanner(message: _success!),
-                                const SizedBox(height: 12),
-                              ],
-                              */
-
-                              if ((_info?['message'] ?? '')
-                                  .toString()
-                                  .trim()
-                                  .isNotEmpty) ...[
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: const Color(
-                                      0xFF0B1F33,
-                                    ).withOpacity(0.06),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: const Color(
-                                        0xFF0B1F33,
-                                      ).withOpacity(0.16),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    (_info?['message'] ?? '').toString(),
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: const Color(0xFF475467),
-                                      height: 1.35,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-
-                              if (!_loading && !canUploadNow) ...[
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: Text(
-                                    _closedMsg,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.red.shade700,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-
-                              if (_queuedFiles.isNotEmpty) ...[
-                                _QueuedFilesCard(
-                                  files: _queuedFiles,
-                                  onRemove: _removeQueuedAt,
-                                  disabled: _uploading,
-                                  progress: _uploadProgress,
-                                  activeKey: _currentlyUploadingKey,
-                                  state: _fileState,
-                                  errors: _fileError,
-                                ),
-
-                                // ✅ Inline enterprise completion message
-                                if (_showCompletionNote &&
-                                    _allFilesSucceeded) ...[
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withOpacity(0.06),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.green.withOpacity(0.25),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Icon(
-                                              Icons.check_circle,
-                                              color: Color(0xFF067647),
-                                              size: 18,
+                                          // =========================================================
+                                          // ✅ STEP 1 — Animate ONLY the BriefContextPanel
+                                          // =========================================================
+                                          AnimatedSlide(
+                                            duration: const Duration(
+                                              milliseconds: 220,
                                             ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Text(
-                                                'All files have been successfully uploaded. You may upload more files or safely close this page.',
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
+                                            curve: Curves.easeOutCubic,
+                                            offset: const Offset(
+                                              0,
+                                              0.02,
+                                            ), // ✅ tiny vertical settle
+                                            child: AnimatedOpacity(
+                                              duration: const Duration(
+                                                milliseconds: 180,
+                                              ),
+                                              opacity: 1.0,
+                                              child: _BriefContextPanel(
+                                                info: _info,
+                                              ),
+                                            ),
+                                          ),
+
+                                          const SizedBox(height: 16),
+
+                                          // =========================================================
+                                          // ✅ STEP 2 — Rest of content (fade only, no slide)
+                                          // ✅ AnimatedSwitcher gives us a natural stagger
+                                          // =========================================================
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 180,
+                                            ),
+                                            switchInCurve: const Interval(
+                                              0.4,
+                                              1.0,
+                                              curve: Curves.easeOut,
+                                            ),
+                                            transitionBuilder:
+                                                (child, animation) {
+                                                  return FadeTransition(
+                                                    opacity: animation,
+                                                    child: child,
+                                                  );
+                                                },
+                                            child: Column(
+                                              key: const ValueKey('body'),
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                if (_error != null &&
+                                                    !_isClosed) ...[
+                                                  _ErrorBanner(
+                                                    message: _error!,
+                                                  ),
+                                                  const SizedBox(height: 12),
+                                                ],
+
+                                                if ((_info?['message'] ?? '')
+                                                    .toString()
+                                                    .trim()
+                                                    .isNotEmpty) ...[
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          12,
+                                                        ),
+                                                    decoration: BoxDecoration(
                                                       color: const Color(
-                                                        0xFF067647,
+                                                        0xFF0B1F33,
+                                                      ).withOpacity(0.06),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                      border: Border.all(
+                                                        color: const Color(
+                                                          0xFF0B1F33,
+                                                        ).withOpacity(0.16),
                                                       ),
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      height: 1.35,
                                                     ),
-                                              ),
+                                                    child: Text(
+                                                      (_info?['message'] ?? '')
+                                                          .toString(),
+                                                      style: theme
+                                                          .textTheme
+                                                          .bodyMedium
+                                                          ?.copyWith(
+                                                            color: const Color(
+                                                              0xFF475467,
+                                                            ),
+                                                            height: 1.35,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 16),
+                                                ],
+
+                                                if (!canUploadNow) ...[
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 10,
+                                                        ),
+                                                    child: Text(
+                                                      _closedMsg,
+                                                      style: theme
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: Colors
+                                                                .red
+                                                                .shade700,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ],
+
+                                                if (_queuedFiles
+                                                    .isNotEmpty) ...[
+                                                  _QueuedFilesCard(
+                                                    files: _queuedFiles,
+                                                    onRemove: _removeQueuedAt,
+                                                    disabled: _uploading,
+                                                    progress: _uploadProgress,
+                                                    activeKey:
+                                                        _currentlyUploadingKey,
+                                                    state: _fileState,
+                                                    errors: _fileError,
+                                                  ),
+                                                ],
+
+                                                if (isCompact) ...[
+                                                  SizedBox(
+                                                    height: 48,
+                                                    child: IgnorePointer(
+                                                      ignoring: !canUploadNow,
+                                                      child: Opacity(
+                                                        opacity: canUploadNow
+                                                            ? 1.0
+                                                            : 0.55,
+                                                        child: addFilesBtn,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 10),
+                                                  SizedBox(
+                                                    height: 48,
+                                                    child: uploadBtn,
+                                                  ),
+                                                ] else ...[
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: SizedBox(
+                                                          height: 48,
+                                                          child: IgnorePointer(
+                                                            ignoring:
+                                                                !canUploadNow,
+                                                            child: Opacity(
+                                                              opacity:
+                                                                  canUploadNow
+                                                                  ? 1.0
+                                                                  : 0.55,
+                                                              child:
+                                                                  addFilesBtn,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 10),
+                                                      Expanded(
+                                                        child: SizedBox(
+                                                          height: 48,
+                                                          child: uploadBtn,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+
+                                                const SizedBox(height: 12),
+                                                Text(
+                                                  'Files are transmitted over an encrypted connection.',
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: _kGray,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                ),
+
+                                                const SizedBox(height: 18),
+                                              ],
                                             ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          _notifyingRequester
-                                              ? 'Notifying the requesting party…'
-                                              : (_requesterNotified
-                                                    ? 'The requesting party has been notified.'
-                                                    : 'Upload complete. The requesting party will be notified shortly.'),
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                color: _kGray,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                ],
-                              ],
-
-                              if (isCompact) ...[
-                                SizedBox(
-                                  height: 48,
-                                  child: IgnorePointer(
-                                    ignoring: !canUploadNow,
-                                    child: Opacity(
-                                      opacity: canUploadNow ? 1.0 : 0.55,
-                                      child: addFilesBtn,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                SizedBox(height: 48, child: uploadBtn),
-                              ] else ...[
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: SizedBox(
-                                        height: 48,
-                                        child: IgnorePointer(
-                                          ignoring: !canUploadNow,
-                                          child: Opacity(
-                                            opacity: canUploadNow ? 1.0 : 0.55,
-                                            child: addFilesBtn,
                                           ),
-                                        ),
+                                        ],
                                       ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: SizedBox(
-                                        height: 48,
-                                        child: uploadBtn,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-
-                              const SizedBox(height: 12),
-                              Text(
-                                'Files are transmitted over an encrypted connection.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: _kGray,
-                                  fontWeight: FontWeight.w600,
-                                ),
                               ),
-
-                              const SizedBox(height: 18),
                             ],
                           ),
                         ),
@@ -1803,7 +1817,7 @@ class _BriefContextPanel extends StatelessWidget {
     final requestedByName = _s(info?['requestedByName']);
 
     // “For:” should prefer business name; fall back to client name
-    String forValue = businessName.isNotEmpty ? businessName : clientName;
+    String forValue = clientName.isNotEmpty ? clientName : businessName;
 
     // Nice premium polish: “Business (Client)” when both exist
     if (businessName.isNotEmpty &&
