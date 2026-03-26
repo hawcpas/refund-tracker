@@ -6,6 +6,7 @@ class PageScaffold extends StatelessWidget {
   final String? subtitle;
   final Widget child;
   final Widget? commandBar;
+  final Color? backgroundColor;
 
   /// If true, PageScaffold uses a ListView for scrolling.
   /// If false, PageScaffold does NOT scroll (for pages that manage their own scrolling).
@@ -29,12 +30,14 @@ class PageScaffold extends StatelessWidget {
     this.hideHeader = false,
     this.wrapInCard = true,
     this.commandBar,
+    this.backgroundColor, // ✅ ADD THIS
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final width = MediaQuery.of(context).size.width;
+
     final bool isMobile = width < 700;
 
     final EdgeInsets pagePadding = isMobile
@@ -106,17 +109,14 @@ class PageScaffold extends StatelessWidget {
     // ✅ Scrollable scaffold (default)
     if (scrollable) {
       return Container(
-        color: AppColors.pageBackgroundSoft,
-        child: ListView(
-          padding: pagePadding,
-          children: [inner],
-        ),
+        color: backgroundColor ?? AppColors.pageBackgroundSoft,
+        child: ListView(padding: pagePadding, children: [inner]),
       );
     }
 
     // ✅ Non-scroll scaffold (pages with their own scrolling)
     return Container(
-      color: AppColors.pageBackgroundSoft,
+      color: backgroundColor ?? AppColors.pageBackgroundSoft,
       padding: pagePadding,
       child: inner,
     );
@@ -148,7 +148,7 @@ class FluentCommandBar extends StatelessWidget {
   /// Primary actions shown inline
   final List<FluentCommandAction> actions;
 
-  /// Extra actions shown in the ⋯ overflow menu (Exchange Admin style)
+  /// Extra actions shown in the ⋯ overflow menu
   final List<FluentCommandAction> overflowActions;
 
   const FluentCommandBar({
@@ -159,21 +159,40 @@ class FluentCommandBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final divider = AppColors.divider; // make sure AppColors.divider exists
+    final width = MediaQuery.of(context).size.width;
+
+    // ✅ Office365-style breakpoint
+    final bool isNarrow = width < 720;
+
+    // ✅ On narrow screens, collapse actions into overflow
+    final List<FluentCommandAction> inlineActions = isNarrow
+        ? const []
+        : actions;
+
+    final List<FluentCommandAction> overflow = isNarrow
+        ? [...actions, ...overflowActions]
+        : overflowActions;
 
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: divider),
-          bottom: BorderSide(color: divider),
-        ),
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(color: Colors.black.withOpacity(0.12), width: 1),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 4,
+            offset: Offset(0, 1),
+          ),
+        ],
       ),
       child: Row(
+        // ✅ THIS IS THE LINE YOU ASKED ABOUT
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final a in actions)
+          for (final a in inlineActions)
             FluentCommandButton(
               icon: a.icon,
               label: a.label,
@@ -183,18 +202,17 @@ class FluentCommandBar extends StatelessWidget {
 
           const Spacer(),
 
-          if (overflowActions.isNotEmpty)
-            FluentOverflowMenuButton(actions: overflowActions),
+          if (overflow.isNotEmpty) FluentOverflowMenuButton(actions: overflow),
         ],
       ),
     );
   }
 }
 
-class FluentCommandButton extends StatelessWidget {
+class FluentCommandButton extends StatefulWidget {
   final IconData icon;
   final String label;
-  final VoidCallback? onPressed;
+  final VoidCallback? onPressed; // null = disabled
   final bool accent;
 
   const FluentCommandButton({
@@ -206,45 +224,86 @@ class FluentCommandButton extends StatelessWidget {
   });
 
   @override
+  State<FluentCommandButton> createState() => _FluentCommandButtonState();
+}
+
+class _FluentCommandButtonState extends State<FluentCommandButton> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final Color enabledFg = accent ? AppColors.brandBlue : const Color(0xFF111827);
-    const Color disabledFg = Color(0xFF9CA3AF);
+    final enabled = widget.onPressed != null;
 
-    // ✅ Fluent hover/press overlays
-    final overlay = MaterialStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(MaterialState.disabled)) return Colors.transparent;
-      if (states.contains(MaterialState.pressed)) return const Color(0x14000000);
-      if (states.contains(MaterialState.hovered)) return const Color(0x0A000000);
-      return Colors.transparent;
-    });
+    final Color fgEnabled = widget.accent
+        ? AppColors.brandBlue
+        : const Color(0xFF111827);
+    const Color fgDisabled = Color(0xFF9CA3AF);
 
-    final fg = MaterialStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(MaterialState.disabled)) return disabledFg;
-      return enabledFg;
-    });
+    // ✅ Darker, more noticeable per-segment hover
+    final Color bg = !enabled
+        ? Colors.transparent
+        : _pressed
+        ? Colors.black.withOpacity(0.16)
+        : (_hover ? Colors.black.withOpacity(0.10) : Colors.transparent);
+
+    // Optional: subtle border on hover (very Office365)
+    final Color border = !enabled
+        ? Colors.transparent
+        : (_hover || _pressed
+              ? Colors.black.withOpacity(0.16)
+              : Colors.transparent);
 
     return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: ButtonStyle(
-          minimumSize: MaterialStateProperty.all(const Size(0, 32)),
-          padding: MaterialStateProperty.all(
-            const EdgeInsets.symmetric(horizontal: 12),
-          ),
-          overlayColor: overlay,
-          foregroundColor: fg,
-          textStyle: MaterialStateProperty.all(
-            const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              height: 1.2,
+      padding: const EdgeInsets.only(right: 6),
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onEnter: (_) {
+          if (!enabled) return;
+          setState(() => _hover = true);
+        },
+        onExit: (_) {
+          if (!enabled) return;
+          setState(() {
+            _hover = false;
+            _pressed = false;
+          });
+        },
+        child: GestureDetector(
+          onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+          onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+          onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            height: 40, // ✅ matches Office365 control height
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: border, width: 1),
             ),
-          ),
-          shape: MaterialStateProperty.all(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.icon,
+                  size: 18,
+                  color: enabled ? fgEnabled : fgDisabled,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                    color: enabled ? fgEnabled : fgDisabled,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -297,13 +356,10 @@ class FluentOverflowMenuButton extends StatelessWidget {
     final RenderBox overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox;
 
-    final Rect buttonRect = button.localToGlobal(Offset.zero, ancestor: overlay) &
-        button.size;
+    final Rect buttonRect =
+        button.localToGlobal(Offset.zero, ancestor: overlay) & button.size;
 
-    final pos = RelativeRect.fromRect(
-      buttonRect,
-      Offset.zero & overlay.size,
-    );
+    final pos = RelativeRect.fromRect(buttonRect, Offset.zero & overlay.size);
 
     return showMenu<FluentCommandAction>(
       context: context,
@@ -317,7 +373,9 @@ class FluentOverflowMenuButton extends StatelessWidget {
               Icon(
                 a.icon,
                 size: 18,
-                color: a.enabled ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                color: a.enabled
+                    ? const Color(0xFF111827)
+                    : const Color(0xFF9CA3AF),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -326,7 +384,9 @@ class FluentOverflowMenuButton extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: a.enabled ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                    color: a.enabled
+                        ? const Color(0xFF111827)
+                        : const Color(0xFF9CA3AF),
                   ),
                 ),
               ),

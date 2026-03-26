@@ -212,12 +212,11 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
         colorScheme: colorScheme,
 
-        // ✅ Office 365 / Fluent page background layer
-        scaffoldBackgroundColor: AppColors.pageBackgroundSoft,
+        // ✅ Office 365 page background
+        scaffoldBackgroundColor: AppColors.pageCanvas,
 
-        // ✅ Fluent / Microsoft typography ramp
+        // ✅ Fluent / Microsoft typography ramp (KEEP — this is good)
         textTheme: ThemeData.light().textTheme.copyWith(
-          // Page / section titles (Fluent Subtitle 1 — 20 / 26)
           titleLarge: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -235,7 +234,6 @@ class _MyAppState extends State<MyApp> {
             color: Color(0xFF111827),
           ),
 
-          // Card headers / table headers (Fluent Body 2 — 16 / 22)
           titleMedium: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -252,7 +250,6 @@ class _MyAppState extends State<MyApp> {
             color: Color(0xFF111827),
           ),
 
-          // Primary body text (Fluent Body 1 — 14 / 20)
           bodyMedium: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -266,10 +263,9 @@ class _MyAppState extends State<MyApp> {
             fontSize: 14,
             height: 20 / 14,
             fontWeight: FontWeight.w400,
-            color: Color(0xFF1F2937),
+            color: Color(0xFF323130), // ✅ Fluent neutral text
           ),
 
-          // Secondary body / helper text (Fluent Caption 1 — 12 / 16)
           bodySmall: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -283,10 +279,9 @@ class _MyAppState extends State<MyApp> {
             fontSize: 12,
             height: 16 / 12,
             fontWeight: FontWeight.w400,
-            color: Color(0xFF6B7280),
+            color: Color(0xFF605E5C), // ✅ Fluent secondary text
           ),
 
-          // Labels / metadata (Fluent Caption Strong)
           labelLarge: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -301,7 +296,7 @@ class _MyAppState extends State<MyApp> {
             height: 16 / 12,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
-            color: Color(0xFF374151),
+            color: Color(0xFF323130),
           ),
 
           labelMedium: const TextStyle(
@@ -318,7 +313,7 @@ class _MyAppState extends State<MyApp> {
             height: 16 / 12,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
-            color: Color(0xFF374151),
+            color: Color(0xFF323130),
           ),
 
           labelSmall: const TextStyle(
@@ -335,10 +330,9 @@ class _MyAppState extends State<MyApp> {
             height: 14 / 10,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
-            color: Color(0xFF6B7280),
+            color: Color(0xFF605E5C),
           ),
 
-          // Smaller admin-style headlines (avoid marketing-sized headers)
           headlineSmall: const TextStyle(
             fontFamily: 'Segoe UI',
             fontFamilyFallback: [
@@ -357,7 +351,7 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
 
-        // ✅ No animations globally (your existing behavior)
+        // ✅ No page transitions (keep — enterprise correct)
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: NoTransitionsBuilder(),
@@ -368,9 +362,10 @@ class _MyAppState extends State<MyApp> {
           },
         ),
 
+        // ✅ Neutral AppBar (Office365 does NOT use brand blue chrome)
         appBarTheme: const AppBarTheme(
-          backgroundColor: AppColors.brandBlue,
-          foregroundColor: Colors.white,
+          backgroundColor: Color(0xFFE9E9E9),
+          foregroundColor: Color(0xFF323130),
           elevation: 0,
           centerTitle: false,
           surfaceTintColor: Colors.transparent,

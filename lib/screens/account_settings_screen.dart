@@ -8,7 +8,9 @@ import '../services/auth_service.dart';
 import '../widgets/page_scaffold.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
-  const AccountSettingsScreen({super.key});
+  final bool embed;
+
+  const AccountSettingsScreen({super.key, this.embed = false});
 
   @override
   State<AccountSettingsScreen> createState() => _AccountSettingsScreenState();
@@ -57,6 +59,151 @@ class _AccountSettingsSkeleton extends StatelessWidget {
       ],
     );
   }
+}
+
+class AccountSettingsContent extends StatelessWidget {
+  const AccountSettingsContent({
+    super.key,
+    required this.loading,
+    required this.error,
+    required this.success,
+    required this.tabController,
+    required this.onSavePersonal,
+    required this.onChangePassword,
+    required this.isAdmin,
+    required this.savingPersonal,
+    required this.savingPassword,
+    required this.firstNameController,
+    required this.lastNameController,
+    required this.emailController,
+    required this.phoneController,
+    required this.currentPasswordController,
+    required this.newPasswordController,
+    required this.confirmPasswordController,
+    required this.tabsBar,
+    required this.personalInfoPanel,
+    required this.passwordPanel,
+  });
+
+  final bool loading;
+  final String? error;
+  final String? success;
+
+  final TabController tabController;
+
+  final bool isAdmin;
+  final bool savingPersonal;
+  final bool savingPassword;
+
+  final VoidCallback onSavePersonal;
+  final VoidCallback onChangePassword;
+
+  final TextEditingController firstNameController;
+  final TextEditingController lastNameController;
+  final TextEditingController emailController;
+  final TextEditingController phoneController;
+
+  final TextEditingController currentPasswordController;
+  final TextEditingController newPasswordController;
+  final TextEditingController confirmPasswordController;
+
+  /// Injected builders from the screen (keeps logic intact)
+  final Widget Function(ThemeData) tabsBar;
+  final Widget Function(ThemeData) personalInfoPanel;
+  final Widget Function(ThemeData) passwordPanel;
+
+  static const double _sectionGap = 18;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (loading) {
+      return const _AccountSettingsSkeleton();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (error != null) ...[
+          _errorBanner(theme, error!),
+          const SizedBox(height: _sectionGap),
+        ],
+        if (success != null) ...[
+          _successBanner(theme, success!),
+          const SizedBox(height: _sectionGap),
+        ],
+
+        tabsBar(theme),
+        const SizedBox(height: 16),
+
+        SizedBox(
+          height: 420,
+          child: IndexedStack(
+            index: tabController.index,
+            children: [personalInfoPanel(theme), passwordPanel(theme)],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ Copied helpers so behavior stays identical
+  Widget _errorBanner(ThemeData theme, String msg) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.red.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.red.withOpacity(0.20)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFFB42318),
+              fontWeight: FontWeight.w700,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _successBanner(ThemeData theme, String msg) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.green.withOpacity(0.10),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.green.withOpacity(0.25)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.check_circle_outline,
+          color: Colors.green.shade800,
+          size: 18,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            msg,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.green.shade800,
+              fontWeight: FontWeight.w800,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _AccountSettingsScreenState extends State<AccountSettingsScreen>
@@ -652,42 +799,41 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       },
       child: PageScaffold(
         title: 'Account Settings',
-        subtitle: 'Update your personal details and password.',
+        subtitle: widget.embed
+            ? null
+            : 'Update your personal details and password.',
+        hideHeader: widget.embed,
+        wrapInCard: !widget.embed,
+        scrollable: !widget.embed,
+
+        backgroundColor: widget.embed ? Colors.white : null,
         child: Theme(
           data: localTheme, // ✅ affects only the form controls
           child: Align(
             alignment: Alignment.centerLeft,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 720),
-              child: _loading
-                  ? const _AccountSettingsSkeleton()
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_error != null) ...[
-                          _errorBanner(Theme.of(context), _error!),
-                          const SizedBox(height: _sectionGap),
-                        ],
-                        if (_success != null) ...[
-                          _successBanner(Theme.of(context), _success!),
-                          const SizedBox(height: _sectionGap),
-                        ],
-
-                        _tabsBar(Theme.of(context)),
-                        const SizedBox(height: 16),
-
-                        SizedBox(
-                          height: 420,
-                          child: IndexedStack(
-                            index: _tabController.index,
-                            children: [
-                              _personalInfoPanel(Theme.of(context)),
-                              _passwordPanel(Theme.of(context)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+              child: AccountSettingsContent(
+                loading: _loading,
+                error: _error,
+                success: _success,
+                tabController: _tabController,
+                isAdmin: _isAdmin,
+                savingPersonal: _savingPersonal,
+                savingPassword: _savingPassword,
+                onSavePersonal: _savePersonalInfo,
+                onChangePassword: _changePasswordWithCurrent,
+                firstNameController: firstNameController,
+                lastNameController: lastNameController,
+                emailController: emailController,
+                phoneController: phoneController,
+                currentPasswordController: currentPasswordController,
+                newPasswordController: newPasswordController,
+                confirmPasswordController: confirmPasswordController,
+                tabsBar: _tabsBar,
+                personalInfoPanel: _personalInfoPanel,
+                passwordPanel: _passwordPanel,
+              ),
             ),
           ),
         ),
