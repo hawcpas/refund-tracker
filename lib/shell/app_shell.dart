@@ -22,9 +22,14 @@ import 'dart:async';
 const double kTopBarHeight = 48;
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.initialRoute = '/dashboard'});
+  const AppShell({
+    super.key,
+    this.initialRoute = '/dashboard',
+    this.deepLinkRid,
+  });
 
   final String initialRoute;
+  final String? deepLinkRid;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -677,6 +682,14 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _currentRoute = widget.initialRoute;
+    // ✅ Deep-link support: open specific upload details from email link
+    final rid = widget.deepLinkRid;
+    if (rid != null &&
+        rid.trim().isNotEmpty &&
+        _currentRoute == '/generate-upload-link') {
+      _dropoffDetailsId = rid.trim();
+      _currentRoute = '/dropoff-details';
+    }
     _loadMyRole();
 
     _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
@@ -689,13 +702,20 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         });
         return;
       }
-
       final token = await user.getIdTokenResult(true);
-      final otp = token.claims?['otp_verified'] == true;
+      final claims = token.claims ?? {};
+      final otp = claims['otp_verified'] == true;
+
+      final at = claims['otp_verified_at'];
+      final atMs = (at is int) ? at : (at is num ? at.toInt() : 0);
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      // ✅ 1 hour validity
+      final otpFresh = otp && atMs > 0 && (nowMs - atMs) <= (60 * 60 * 1000);
 
       setState(() {
         _authReady = true;
-        _otpVerified = otp;
+        _otpVerified = otpFresh;
       });
     });
 

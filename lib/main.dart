@@ -374,7 +374,10 @@ class _MyAppState extends State<MyApp> {
 
       // ✅ KEEP EVERYTHING BELOW EXACTLY THE SAME
       onGenerateRoute: (settings) {
-        final route = settings.name ?? '/';
+        final raw = settings.name ?? '/';
+        final uri = Uri.parse(raw);
+        final route = uri.path; // ✅ path only (no query)
+        final rid = uri.queryParameters['rid'];
 
         // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
         if (route.startsWith('/dropoff') && route != '/file-box') {
@@ -563,8 +566,9 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return const AppShell(
+                        return AppShell(
                           initialRoute: '/generate-upload-link',
+                          deepLinkRid: rid,
                         );
                       },
                     ),
@@ -611,7 +615,7 @@ class _AuthGate extends StatelessWidget {
         if (!user.emailVerified) return const VerifyEmailScreen();
 
         return FutureBuilder<IdTokenResult>(
-          // 🔐 CRITICAL: force refresh so OTP claim is authoritative
+          // 🔐 Force refresh so OTP + timestamp claims are authoritative
           future: user.getIdTokenResult(true),
           builder: (context, tokenSnap) {
             if (tokenSnap.connectionState == ConnectionState.waiting) {
@@ -621,21 +625,31 @@ class _AuthGate extends StatelessWidget {
             }
 
             final claims = tokenSnap.data?.claims ?? {};
+
             final otpVerified = claims['otp_verified'] == true;
 
-            // ✅ If someone deep-links to an admin route before OTP is verified,
-            // force the post-OTP route to a safe destination.
+            final at = claims['otp_verified_at'];
+            final atMs = (at is int) ? at : (at is num ? at.toInt() : 0);
+
+            final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+            // ✅ OTP valid for 1 hour
+            final otpFresh =
+                otpVerified && atMs > 0 && (nowMs - atMs) <= (60 * 60 * 1000);
+
+            // ✅ If someone deep-links to an admin route and OTP is expired,
+            // force post-OTP navigation to a safe destination.
             final isProtected = requestedRoute.startsWith('/admin');
-            final safeRoute = (isProtected && !otpVerified)
+            final safeRoute = (isProtected && !otpFresh)
                 ? '/dashboard'
                 : requestedRoute;
 
-            // ✅ HARD STOP: never render protected UI until OTP verified
-            if (!otpVerified) {
+            // ✅ HARD STOP: never render protected UI until OTP is fresh
+            if (!otpFresh) {
               return OtpVerifyScreen(nextRoute: safeRoute);
             }
 
-            // ✅ OTP verified → allow the requested screen
+            // ✅ OTP verified and fresh → allow the requested screen
             return builder(user);
           },
         );
