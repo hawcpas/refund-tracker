@@ -299,6 +299,14 @@ function safeFilename(name) {
     .replace(/"/g, "'");
 }
 
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 function normalizeEmail(email) {
   return (email || "").toLowerCase().trim();
 }
@@ -588,14 +596,75 @@ exports.notifyDropoffBatchUpload = onCall(
 
       const subject = `${clientName} has uploaded files.`;
       // ✅ MULTI‑FILE LIST (this is the only difference)
-      const safeFiles = files
-        .map((n) => safeFilename((n || "").toString().trim()))
-        .filter((n) => n);
+      // ✅ Normalize BOTH payload types:
+      //  - old: ["a.pdf", "b.txt"]
+      //  - new: [{ name:"a.pdf", sizeBytes: 123 }, ...]
+      const normalizedFiles = (Array.isArray(files) ? files : [])
+        .map((x) => {
+          if (typeof x === "string") {
+            return { name: x, sizeBytes: null };
+          }
+          if (x && typeof x === "object") {
+            // allow a few common key names
+            const name =
+              (x.name || x.originalName || x.filename || "").toString().trim();
+            const sizeBytes =
+              x.sizeBytes != null ? Number(x.sizeBytes) : (x.size != null ? Number(x.size) : null);
+            return { name, sizeBytes };
+          }
+          return { name: "", sizeBytes: null };
+        })
+        .filter((f) => (f.name || "").toString().trim().length > 0);
 
-      // Build <li> list items (enterprise email-safe)
-      const fileLines = safeFiles
-        .map((n) => `<li style="margin:0 0 6px 0;"><b>${n}</b></li>`)
-        .join("");
+      // ✅ If caller payload was empty after normalization, fall back to Firestore
+      let finalFiles = normalizedFiles;
+
+      if (finalFiles.length === 0) {
+        try {
+          const want = Math.min(
+            25,
+            Math.max(1, Array.isArray(files) ? files.length : 10)
+          );
+
+          const filesSnap = await ref
+            .collection("files")
+            .where("deleted", "==", false)
+            .orderBy("createdAt", "desc")
+            .limit(want)
+            .get();
+
+          finalFiles = filesSnap.docs.map((d) => {
+            const m = d.data() || {};
+            return {
+              name: (m.originalName || d.id || "").toString().trim(),
+              sizeBytes: m.sizeBytes != null ? Number(m.sizeBytes) : null,
+            };
+          }).filter((f) => f.name);
+        } catch (e) {
+          console.warn("notifyDropoffBatchUpload fallback list failed:", e);
+        }
+      }
+
+      console.log("notifyDropoffBatchUpload file payload", {
+        receivedCount: Array.isArray(files) ? files.length : 0,
+        normalizedCount: normalizedFiles.length,
+        finalCount: finalFiles.length,
+        sample: Array.isArray(files) ? files[0] : null,
+      });
+
+      const fileLines = finalFiles
+        .map((f) => {
+          const name = safeFilename((f.name || "").toString().trim());
+          if (!name) return null;
+
+          const sizeText = f.sizeBytes != null ? formatBytes(f.sizeBytes) : null;
+          return sizeText
+            ? `<li style="margin:0 0 6px 0;"><b>${name}</b> <span style="color:#667085; font-weight:600;">(${sizeText})</span></li>`
+            : `<li style="margin:0 0 6px 0;"><b>${name}</b></li>`;
+        })
+        .filter(Boolean)
+        .join("") || `<li style="margin:0 0 6px 0;"><b>Files uploaded</b> <span style="color:#667085; font-weight:600;">(details unavailable)</span></li>`;
+        ``
 
       const html = `
 <div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
