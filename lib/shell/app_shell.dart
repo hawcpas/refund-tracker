@@ -13,16 +13,23 @@ import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/create_upload_link_screen.dart';
+import '../screens/otp_verify_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 
 const double kTopBarHeight = 48;
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.initialRoute = '/dashboard'});
+  const AppShell({
+    super.key,
+    this.initialRoute = '/dashboard',
+    this.deepLinkRid,
+  });
 
   final String initialRoute;
+  final String? deepLinkRid;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -35,6 +42,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   bool _settingsHover = false;
   bool _sidebarCollapsed = false;
   bool _isAdminUser = false;
+  bool _authReady = false;
+  bool _otpVerified = false;
+  StreamSubscription<User?>? _tokenSub;
 
   late String _currentRoute;
   late final AnimationController _avatarAnim;
@@ -342,6 +352,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarAnim.dispose();
     _settingsAnim.dispose();
     _accountSettingsAnim.dispose();
+    _tokenSub?.cancel();
     super.dispose();
   }
 
@@ -671,7 +682,42 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _currentRoute = widget.initialRoute;
+    // ✅ Deep-link support: open specific upload details from email link
+    final rid = widget.deepLinkRid;
+    if (rid != null &&
+        rid.trim().isNotEmpty &&
+        _currentRoute == '/generate-upload-link') {
+      _dropoffDetailsId = rid.trim();
+      _currentRoute = '/dropoff-details';
+    }
     _loadMyRole();
+
+    _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
+      if (!mounted) return;
+
+      if (user == null) {
+        setState(() {
+          _authReady = true;
+          _otpVerified = false;
+        });
+        return;
+      }
+      final token = await user.getIdTokenResult(true);
+      final claims = token.claims ?? {};
+      final otp = claims['otp_verified'] == true;
+
+      final at = claims['otp_verified_at'];
+      final atMs = (at is int) ? at : (at is num ? at.toInt() : 0);
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      // ✅ 1 hour validity
+      final otpFresh = otp && atMs > 0 && (nowMs - atMs) <= (60 * 60 * 1000);
+
+      setState(() {
+        _authReady = true;
+        _otpVerified = otpFresh;
+      });
+    });
 
     _accountSettingsAnim = AnimationController(
       vsync: this,
@@ -861,6 +907,21 @@ Please describe the issue below:
 
   @override
   Widget build(BuildContext context) {
+    // =========================
+    // 🔐 OTP / Auth HARD GATE
+    // =========================
+
+    // Block rendering until we know auth + claims state
+    if (!_authReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // Signed in but OTP not verified → force OTP screen
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !_otpVerified) {
+      return const OtpVerifyScreen();
+    }
+
     final isMobileShell = MediaQuery.of(context).size.width < 900;
     final isAdminConsole = _currentRoute == '/admin-users';
 

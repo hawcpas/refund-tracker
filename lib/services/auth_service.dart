@@ -116,7 +116,7 @@ class AuthService {
       return true;
     }
   }
-  
+
   // =========================
   // OTP (2FA)
   // =========================
@@ -542,6 +542,12 @@ class AuthService {
   // =========================
 
   Future<void> logout() async {
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('clearOtpSession').call();
+    } catch (_) {}
+
     await stopSessionGuard();
     await _auth.signOut();
   }
