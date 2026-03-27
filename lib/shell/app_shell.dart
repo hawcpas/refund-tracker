@@ -13,9 +13,11 @@ import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/create_upload_link_screen.dart';
+import '../screens/otp_verify_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 
 const double kTopBarHeight = 48;
 
@@ -35,6 +37,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   bool _settingsHover = false;
   bool _sidebarCollapsed = false;
   bool _isAdminUser = false;
+  bool _authReady = false;
+  bool _otpVerified = false;
+  StreamSubscription<User?>? _tokenSub;
 
   late String _currentRoute;
   late final AnimationController _avatarAnim;
@@ -342,6 +347,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarAnim.dispose();
     _settingsAnim.dispose();
     _accountSettingsAnim.dispose();
+    _tokenSub?.cancel();
     super.dispose();
   }
 
@@ -673,6 +679,26 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _currentRoute = widget.initialRoute;
     _loadMyRole();
 
+    _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
+      if (!mounted) return;
+
+      if (user == null) {
+        setState(() {
+          _authReady = true;
+          _otpVerified = false;
+        });
+        return;
+      }
+
+      final token = await user.getIdTokenResult(true);
+      final otp = token.claims?['otp_verified'] == true;
+
+      setState(() {
+        _authReady = true;
+        _otpVerified = otp;
+      });
+    });
+
     _accountSettingsAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
@@ -861,6 +887,21 @@ Please describe the issue below:
 
   @override
   Widget build(BuildContext context) {
+    // =========================
+    // 🔐 OTP / Auth HARD GATE
+    // =========================
+
+    // Block rendering until we know auth + claims state
+    if (!_authReady) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // Signed in but OTP not verified → force OTP screen
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !_otpVerified) {
+      return const OtpVerifyScreen();
+    }
+
     final isMobileShell = MediaQuery.of(context).size.width < 900;
     final isAdminConsole = _currentRoute == '/admin-users';
 
