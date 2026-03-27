@@ -90,6 +90,25 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     });
   }
 
+  /// ✅ Refresh profile-dependent UI (avatar, menus, etc.)
+  /// ✅ Refresh profile-dependent UI (avatar, menus, flyouts)
+  Future<void> refreshProfile() async {
+    if (!mounted) return;
+
+    // Force shell rebuild (AppBar, avatar, dashboard welcome, etc.)
+    setState(() {});
+
+    // ✅ If avatar menu is open, close it so it reopens with fresh data
+    if (_isAvatarMenuOpen) {
+      _dismissAvatarMenuImmediate();
+    }
+
+    // ✅ If account settings flyout is open, close it
+    if (_isAccountSettingsOpen) {
+      await _closeAccountSettingsFlyout();
+    }
+  }
+
   Future<void> _loadMyRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -294,25 +313,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                                     ),
 
                                   const SizedBox(height: 12),
-
-                                  TextButton(
-                                    style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: const Size(0, 0),
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                      foregroundColor: AppColors.brandBlue,
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      _closeAvatarMenu();
-                                      _openAccountSettingsFlyout(context);
-                                    },
-                                    child: const Text('View account'),
-                                  ),
                                 ],
                               ),
                             ),

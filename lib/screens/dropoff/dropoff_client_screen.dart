@@ -452,6 +452,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       _error = null;
       _success = null;
 
+      _showCompletionNote = false;
+      _notifyingRequester = false;
+      _requesterNotified = false;
+
       _totalToUpload = pending.length;
       _uploadedSoFar = 0;
       _currentFileName = null;
@@ -718,6 +722,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final status = (_info?['status'] ?? 'closed').toString();
     final canUploadNow = !_loading && status == 'open';
     final isCompact = _isCompact(context);
+    final showSessionBanner = _showCompletionNote && _allUploadsComplete;
 
     final brand = AppColors.brandBlue;
 
@@ -1096,6 +1101,12 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                         _currentlyUploadingKey,
                                                     state: _fileState,
                                                     errors: _fileError,
+
+                                                    // ✅ PASS STATE DOWN
+                                                    notifyingRequester:
+                                                        _notifyingRequester,
+                                                    requesterNotified:
+                                                        _requesterNotified,
                                                   ),
                                                 ],
 
@@ -1160,6 +1171,16 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                             FontWeight.w600,
                                                       ),
                                                 ),
+                                                // ✅ Session-level completion banner (very bottom of uploads)
+                                                if (showSessionBanner) ...[
+                                                  const SizedBox(height: 12),
+                                                  _SessionCompletionBanner(
+                                                    notifyingRequester:
+                                                        _notifyingRequester,
+                                                    requesterNotified:
+                                                        _requesterNotified,
+                                                  ),
+                                                ],
 
                                                 const SizedBox(height: 18),
                                               ],
@@ -1344,6 +1365,10 @@ class _QueuedFilesCard extends StatelessWidget {
   final Map<String, String> errors;
   final String? activeKey;
 
+  // ✅ ADD THESE
+  final bool notifyingRequester;
+  final bool requesterNotified;
+
   const _QueuedFilesCard({
     required this.files,
     required this.onRemove,
@@ -1352,6 +1377,10 @@ class _QueuedFilesCard extends StatelessWidget {
     required this.activeKey,
     required this.state,
     required this.errors,
+
+    // ✅ ADD THESE
+    required this.notifyingRequester,
+    required this.requesterNotified,
   });
 
   @override
@@ -1386,135 +1415,156 @@ class _QueuedFilesCard extends StatelessWidget {
             final s = state[key] ?? _UploadItemState.queued;
             final err = errors[key];
 
-            final isDone = s == _UploadItemState.success;
-            final isFail = s == _UploadItemState.failed;
-            final isFinalizing = s == _UploadItemState.finalizing;
+            // ✅ Stable layout constants (declared OUTSIDE widget list)
+            const double statusBarHeight = 6;
+            const double statusGap = 6;
+            const double statusTextHeight = 16;
+            const double statusAreaHeight =
+                statusBarHeight + statusGap + statusTextHeight;
+
+            // Normalize progress (always defined)
+            final double pv = (s == _UploadItemState.uploading)
+                ? (p ?? 0.0)
+                : (s == _UploadItemState.queued)
+                ? 0.0
+                : 1.0;
+
+            // Status text (single line, stable)
+            final String statusText = (s == _UploadItemState.queued)
+                ? 'Queued'
+                : (s == _UploadItemState.uploading)
+                ? 'Uploading… ${(pv * 100).clamp(0, 100).toStringAsFixed(0)}%'
+                : (s == _UploadItemState.finalizing)
+                ? 'Finalizing…'
+                : (s == _UploadItemState.success)
+                ? 'Uploaded'
+                : (err ?? 'Upload failed');
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.insert_drive_file_outlined,
-                        size: 16,
-                        color: _kGray,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          f.name,
-                          overflow: TextOverflow.ellipsis,
+              child: SizedBox(
+                height: 34, // ✅ compact, consistent row height
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.insert_drive_file_outlined,
+                      size: 16,
+                      color: _kGray,
+                    ),
+                    const SizedBox(width: 8),
+
+                    // ✅ Filename + inline queued label (same line)
+                    Expanded(
+                      child: RichText(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: _kGray,
                             fontWeight: FontWeight.w600,
                           ),
-                        ),
-                      ),
+                          children: [
+                            TextSpan(text: f.name),
 
-                      // Right-side status / actions (enterprise)
-                      if (isDone) ...[
-                        const Icon(
-                          Icons.check_circle,
-                          color: Color(0xFF067647),
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                      ] else if (isFail) ...[
-                        const Icon(
-                          Icons.error_outline,
-                          color: Color(0xFFB42318),
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                      ] else if (isFinalizing) ...[
-                        const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 8),
-                      ] else ...[
-                        IconButton(
-                          icon: Icon(Icons.close, color: Colors.red.shade700),
-                          tooltip: disabled ? 'Uploading…' : 'Remove',
-                          onPressed: disabled ? null : () => onRemove(i),
-                        ),
-                      ],
-                    ],
-                  ),
+                            // Queued (gray)
+                            if (s == _UploadItemState.queued) ...[
+                              const TextSpan(text: ' — '),
+                              TextSpan(
+                                text: 'Queued',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
 
-                  // Status details below filename
-                  if (isDone) ...[
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: 1.0,
-                        minHeight: 6,
-                        backgroundColor: Colors.black.withOpacity(0.06),
-                        color: const Color(0xFF067647), // green
+                            // Uploading (optional label; you can remove if you prefer clean name)
+                            // if (s == _UploadItemState.uploading) ...[
+                            //   const TextSpan(text: ' — '),
+                            //   TextSpan(
+                            //     text: 'Uploading',
+                            //     style: theme.textTheme.bodySmall?.copyWith(
+                            //       color: const Color(0xFF667085),
+                            //       fontWeight: FontWeight.w600,
+                            //     ),
+                            //   ),
+                            // ],
+
+                            // Finalizing (optional label)
+                            if (s == _UploadItemState.finalizing) ...[
+                              const TextSpan(text: ' — '),
+                              TextSpan(
+                                text: 'Finalizing…',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+
+                            // ✅ Uploaded (GREEN) — this is what you asked for
+                            if (s == _UploadItemState.success) ...[
+                              const TextSpan(text: ' — '),
+                              TextSpan(
+                                text: 'Uploaded',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF067647),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+
+                            // Failed (red)
+                            if (s == _UploadItemState.failed) ...[
+                              const TextSpan(text: ' — '),
+                              TextSpan(
+                                text: 'Failed',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFFB42318),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Uploaded',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: const Color(0xFF067647),
-                        fontWeight: FontWeight.w800,
+
+                    const SizedBox(width: 12),
+
+                    // ✅ Inline status area (bar+% OR check OR spinner), no extra lines
+                    SizedBox(
+                      width: 140,
+                      child: _buildInlineStatusRow(
+                        state: s,
+                        progress: p ?? 0.0,
                       ),
                     ),
-                  ] else if (isFail) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      err ?? 'Upload failed',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: const Color(0xFFB42318),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ] else if (isFinalizing) ...[
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: 1.0,
-                        minHeight: 6,
-                        backgroundColor: Colors.black.withOpacity(0.06),
-                        color: _kBrandBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Finalizing…',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: _kGray,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ] else if (p != null) ...[
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: p,
-                        minHeight: 6,
-                        backgroundColor: Colors.black.withOpacity(0.06),
-                        color: _kBrandBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: _kGray,
-                        fontWeight: FontWeight.w700,
-                      ),
+
+                    // ✅ Optional remove button ONLY while queued (keeps list clean)
+                    const SizedBox(width: 6),
+                    SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: (s == _UploadItemState.queued && !disabled)
+                          ? IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 34,
+                                minHeight: 34,
+                              ),
+                              icon: Icon(
+                                Icons.close,
+                                color: Colors.red.shade700,
+                                size: 18,
+                              ),
+                              tooltip: 'Remove',
+                              onPressed: () => onRemove(i),
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
-                ],
+                ),
               ),
             );
           }),
@@ -1522,121 +1572,90 @@ class _QueuedFilesCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _WhiteSection extends StatelessWidget {
-  final Widget child;
-  final EdgeInsets padding;
+  Widget _buildInlineStatusRow({
+    required _UploadItemState state,
+    required double progress,
+  }) {
+    // Nothing on the right when queued (status is next to name)
+    if (state == _UploadItemState.queued) {
+      return const SizedBox.shrink();
+    }
 
-  const _WhiteSection({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-  });
+    // ✅ Uploading: ALWAYS show a bar.
+    // If progress is still 0, show an indeterminate (animated) bar so it’s visible.
+    if (state == _UploadItemState.uploading) {
+      final bool hasRealProgress = progress > 0.01; // threshold
+      final String pct = (progress * 100).clamp(0, 100).toStringAsFixed(0);
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-      ),
-      padding: padding,
-      child: child,
-    );
-  }
-}
-
-class _UploadingBanner extends StatelessWidget {
-  final int total;
-  final int done;
-  final double progress;
-  final String? currentFileName;
-
-  const _UploadingBanner({
-    required this.total,
-    required this.done,
-    required this.progress,
-    required this.currentFileName,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final pct = (progress * 100).clamp(0, 100).toStringAsFixed(0);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.brandBlue.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.brandBlue.withOpacity(0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.cloud_upload_outlined,
-                color: AppColors.brandBlue,
-                size: 18,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Uploading files — please do not close this browser window.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF101828),
-                    fontWeight: FontWeight.w800,
-                    height: 1.25,
-                  ),
+      return SizedBox(
+        height: 18,
+        child: Row(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  // ✅ null => indeterminate animation (always visible)
+                  value: hasRealProgress ? progress.clamp(0.0, 1.0) : null,
+                  minHeight: 6,
+                  // Slightly stronger track so it can be seen on white/light gray
+                  backgroundColor: Colors.black.withOpacity(0.08),
+                  // ✅ Green as requested
+                  color: const Color(0xFF067647),
                 ),
               ),
-              Text(
-                '$done/$total',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF475467),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
 
-          if (currentFileName != null &&
-              currentFileName!.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              'Current file: $currentFileName',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: _kDarkGray,
-                fontWeight: FontWeight.w600,
+            // ✅ Only show % when we have real progress (otherwise it jumps around or shows 0%)
+            SizedBox(
+              width: 34,
+              child: Text(
+                hasRealProgress ? '$pct%' : '',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF667085),
+                ),
               ),
             ),
           ],
+        ),
+      );
+    }
 
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: Colors.black.withOpacity(0.06),
-              color: AppColors.brandBlue,
-            ),
+    // ✅ Finalizing: keep a subtle animated bar (still "working"), not a spinner
+    if (state == _UploadItemState.finalizing) {
+      return SizedBox(
+        height: 18,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: null, // indeterminate
+            minHeight: 6,
+            backgroundColor: Colors.black.withOpacity(0.08),
+            color: const Color(0xFF067647),
           ),
-          const SizedBox(height: 6),
-          Text(
-            '$pct% complete',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: const Color(0xFF667085),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
+        ),
+      );
+    }
+
+    // ✅ Success: bar disappears; rely on the green “— Uploaded” next to filename.
+    // Optional check icon on far right:
+    if (state == _UploadItemState.success) {
+      return const Align(
+        alignment: Alignment.centerRight,
+        child: Icon(Icons.check_circle, size: 18, color: Color(0xFF067647)),
+      );
+      // If you want NO icon, return SizedBox.shrink() instead.
+    }
+
+    // Failed
+    return const Align(
+      alignment: Alignment.centerRight,
+      child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
     );
   }
 }
@@ -1666,45 +1685,6 @@ class _ErrorBanner extends StatelessWidget {
               style: theme.textTheme.bodySmall?.copyWith(
                 color: const Color(0xFFB42318),
                 fontWeight: FontWeight.w700,
-                height: 1.3,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SuccessBanner extends StatelessWidget {
-  final String message;
-  const _SuccessBanner({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green.withOpacity(0.25)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.check_circle_outline,
-            color: Color(0xFF067647),
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF067647),
-                fontWeight: FontWeight.w800,
                 height: 1.3,
               ),
             ),
@@ -1816,14 +1796,14 @@ class _BriefContextPanel extends StatelessWidget {
     final businessName = _s(info?['businessName']);
     final requestedByName = _s(info?['requestedByName']);
 
-    // “For:” should prefer business name; fall back to client name
+    // ✅ Prefer client name first, then business in parentheses
     String forValue = clientName.isNotEmpty ? clientName : businessName;
 
-    // Nice premium polish: “Business (Client)” when both exist
-    if (businessName.isNotEmpty &&
-        clientName.isNotEmpty &&
+    // ✅ “Client Name (Business Name)” when both exist and differ
+    if (clientName.isNotEmpty &&
+        businessName.isNotEmpty &&
         businessName != clientName) {
-      forValue = '$businessName ($clientName)';
+      forValue = '$clientName ($businessName)';
     }
 
     final showFor = forValue.trim().isNotEmpty;
@@ -1981,6 +1961,88 @@ class _DropoffLegalFooter extends StatelessWidget {
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+class _SessionCompletionBanner extends StatelessWidget {
+  final bool notifyingRequester;
+  final bool requesterNotified;
+
+  const _SessionCompletionBanner({
+    required this.notifyingRequester,
+    required this.requesterNotified,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    // Enterprise messaging: status-first, calm, no cheerleading.
+    final String line1 = 'All files have been successfully uploaded.';
+    final String line2 = notifyingRequester
+        ? 'Notifying the recipient…'
+        : requesterNotified
+        ? 'The recipient has been notified by email. You may upload additional files, or safely close this page.'
+        : 'You may upload additional files, or safely close this page.';
+
+    // Color: green only when final state is reached
+    final Color accent = requesterNotified
+        ? const Color(0xFF067647)
+        : const Color(0xFF667085);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: requesterNotified
+            ? Colors.green.withOpacity(0.06)
+            : const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: requesterNotified
+              ? Colors.green.withOpacity(0.25)
+              : Colors.black.withOpacity(0.10),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            requesterNotified ? Icons.check_circle : Icons.info_outline,
+            color: accent,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  line1,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: requesterNotified
+                        ? const Color(0xFF067647)
+                        : const Color(0xFF101828),
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  line2,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: requesterNotified
+                        ? const Color(0xFF067647)
+                        : const Color(0xFF475467),
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
