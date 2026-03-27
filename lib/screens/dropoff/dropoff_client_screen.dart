@@ -736,7 +736,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       final baseBtn = OutlinedButton.icon(
         onPressed: (canUploadNow && !_uploading)
             ? () {
-                // Keep this synchronous so iOS Safari still treats the gesture as "direct".
                 setState(() {
                   _dismissCompletionNote();
                   _error = null;
@@ -752,14 +751,14 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         style: OutlinedButton.styleFrom(
           foregroundColor: brand,
           iconColor: brand,
-          side: BorderSide(color: brand, width: 1.6),
-          backgroundColor: brand.withOpacity(0.08),
-          overlayColor: brand.withOpacity(0.12),
+          side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
+          backgroundColor: brand.withOpacity(0.06), // lighter, more "secondary"
+          overlayColor: brand.withOpacity(0.10),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          disabledForegroundColor: _kGray.withOpacity(0.85),
+          disabledForegroundColor: brand.withOpacity(0.45),
           disabledBackgroundColor: Colors.transparent,
         ),
       );
@@ -786,7 +785,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       );
     } else {
       // ✅ Non‑iOS web/native: your original flow is fine
-      addFilesBtn = OutlinedButton.icon(
+      addFilesBtn = FilledButton.icon(
         onPressed: (canUploadNow && !_uploading)
             ? () async {
                 setState(() {
@@ -795,7 +794,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                   _success = null;
                 });
 
-                // ✅ Re-check server status right before letting user pick
                 final ok = await _refreshAndCheckCanUpload(showMessage: true);
                 if (!ok) {
                   if (!mounted) return;
@@ -818,14 +816,14 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         style: OutlinedButton.styleFrom(
           foregroundColor: brand,
           iconColor: brand,
-          side: BorderSide(color: brand, width: 1.6),
-          backgroundColor: brand.withOpacity(0.08),
-          overlayColor: brand.withOpacity(0.12),
+          side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
+          backgroundColor: brand.withOpacity(0.06),
+          overlayColor: brand.withOpacity(0.10),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          disabledForegroundColor: brand.withOpacity(0.55),
+          disabledForegroundColor: brand.withOpacity(0.45),
           disabledBackgroundColor: Colors.transparent,
         ),
       );
@@ -957,34 +955,47 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                               // =========================================================
                               // ✅ ANIMATED BODY — REVEALED AFTER VERIFICATION
                               // =========================================================
-                              AnimatedSize(
-                                duration: const Duration(milliseconds: 260),
-                                curve: Curves.easeOutCubic,
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 380),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) {
+                                  final curved = CurvedAnimation(
+                                    parent: animation,
+                                    curve: Curves.easeOutCubic,
+                                    reverseCurve: Curves.easeInCubic,
+                                  );
+
+                                  // ✅ "Fly-out downward": expand vertically from the top edge
+                                  return ClipRect(
+                                    child: FadeTransition(
+                                      opacity: curved,
+                                      child: SizeTransition(
+                                        sizeFactor: curved,
+                                        axis: Axis.vertical,
+                                        axisAlignment:
+                                            -1.0, // ✅ anchor to top (expands downward)
+                                        child: child,
+                                      ),
+                                    ),
+                                  );
+                                },
+
                                 child: _loading
-                                    ? const SizedBox.shrink()
+                                    ? const SizedBox(key: ValueKey('empty'))
                                     : Column(
+                                        key: const ValueKey('validated'),
+
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
                                           const SizedBox(height: 12),
 
-                                          // =========================================================
-                                          // ✅ STEP 1 — Animate ONLY the BriefContextPanel
-                                          // =========================================================
-                                          AnimatedSlide(
-                                            duration: const Duration(
-                                              milliseconds: 220,
-                                            ),
-                                            curve: Curves.easeOutCubic,
-                                            offset: const Offset(
-                                              0,
-                                              0.02,
-                                            ), // ✅ tiny vertical settle
-                                            child: AnimatedOpacity(
-                                              duration: const Duration(
-                                                milliseconds: 180,
-                                              ),
-                                              opacity: 1.0,
+                                          // ✅ CONTEXT PANEL — reserved height still helps prevent jitter
+                                          SizedBox(
+                                            height: 78,
+                                            child: _Reveal(
+                                              show: true,
                                               child: _BriefContextPanel(
                                                 info: _info,
                                               ),
@@ -993,143 +1004,131 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                           const SizedBox(height: 16),
 
-                                          // =========================================================
-                                          // ✅ STEP 2 — Rest of content (fade only, no slide)
-                                          // ✅ AnimatedSwitcher gives us a natural stagger
-                                          // =========================================================
-                                          AnimatedSwitcher(
-                                            duration: const Duration(
-                                              milliseconds: 180,
-                                            ),
-                                            switchInCurve: const Interval(
-                                              0.4,
-                                              1.0,
-                                              curve: Curves.easeOut,
-                                            ),
-                                            transitionBuilder:
-                                                (child, animation) {
-                                                  return FadeTransition(
-                                                    opacity: animation,
-                                                    child: child,
-                                                  );
-                                                },
+                                          _Reveal(
+                                            show: _error != null && !_isClosed,
                                             child: Column(
-                                              key: const ValueKey('body'),
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
                                               children: [
-                                                if (_error != null &&
-                                                    !_isClosed) ...[
-                                                  _ErrorBanner(
-                                                    message: _error!,
-                                                  ),
-                                                  const SizedBox(height: 12),
-                                                ],
+                                                _ErrorBanner(
+                                                  message: _error ?? '',
+                                                ),
+                                                const SizedBox(height: 12),
+                                              ],
+                                            ),
+                                          ),
 
-                                                if ((_info?['message'] ?? '')
-                                                    .toString()
-                                                    .trim()
-                                                    .isNotEmpty) ...[
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.all(
+                                          _Reveal(
+                                            show: (_info?['message'] ?? '')
+                                                .toString()
+                                                .trim()
+                                                .isNotEmpty,
+                                            child: Column(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.all(
+                                                    12,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(
+                                                      0xFF0B1F33,
+                                                    ).withOpacity(0.06),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
                                                           12,
                                                         ),
-                                                    decoration: BoxDecoration(
+                                                    border: Border.all(
                                                       color: const Color(
                                                         0xFF0B1F33,
-                                                      ).withOpacity(0.06),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                      border: Border.all(
-                                                        color: const Color(
-                                                          0xFF0B1F33,
-                                                        ).withOpacity(0.16),
-                                                      ),
-                                                    ),
-                                                    child: Text(
-                                                      (_info?['message'] ?? '')
-                                                          .toString(),
-                                                      style: theme
-                                                          .textTheme
-                                                          .bodyMedium
-                                                          ?.copyWith(
-                                                            color: const Color(
-                                                              0xFF475467,
-                                                            ),
-                                                            height: 1.35,
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                          ),
+                                                      ).withOpacity(0.16),
                                                     ),
                                                   ),
-                                                  const SizedBox(height: 16),
-                                                ],
-
-                                                if (!canUploadNow) ...[
-                                                  Padding(
-                                                    padding:
-                                                        const EdgeInsets.only(
-                                                          bottom: 10,
+                                                  child: Text(
+                                                    (_info?['message'] ?? '')
+                                                        .toString(),
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodyMedium
+                                                        ?.copyWith(
+                                                          color: const Color(
+                                                            0xFF475467,
+                                                          ),
+                                                          height: 1.35,
+                                                          fontWeight:
+                                                              FontWeight.w600,
                                                         ),
-                                                    child: Text(
-                                                      _closedMsg,
-                                                      style: theme
-                                                          .textTheme
-                                                          .bodySmall
-                                                          ?.copyWith(
-                                                            color: Colors
-                                                                .red
-                                                                .shade700,
-                                                            fontWeight:
-                                                                FontWeight.w600,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 16),
+                                              ],
+                                            ),
+                                          ),
+
+                                          _Reveal(
+                                            show: !canUploadNow,
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 10,
+                                              ),
+                                              child: Text(
+                                                _closedMsg,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      color:
+                                                          Colors.red.shade700,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+
+                                          _Reveal(
+                                            show: _queuedFiles.isNotEmpty,
+                                            child: _QueuedFilesCard(
+                                              files: _queuedFiles,
+                                              onRemove: _removeQueuedAt,
+                                              disabled: _uploading,
+                                              progress: _uploadProgress,
+                                              activeKey: _currentlyUploadingKey,
+                                              state: _fileState,
+                                              errors: _fileError,
+                                              notifyingRequester:
+                                                  _notifyingRequester,
+                                              requesterNotified:
+                                                  _requesterNotified,
+                                            ),
+                                          ),
+
+                                          const SizedBox(height: 12),
+
+                                          _Reveal(
+                                            show: true,
+                                            child: isCompact
+                                                ? Column(
+                                                    children: [
+                                                      SizedBox(
+                                                        height: 48,
+                                                        child: IgnorePointer(
+                                                          ignoring:
+                                                              !canUploadNow,
+                                                          child: Opacity(
+                                                            opacity:
+                                                                canUploadNow
+                                                                ? 1.0
+                                                                : 0.55,
+                                                            child: addFilesBtn,
                                                           ),
-                                                    ),
-                                                  ),
-                                                ],
-
-                                                if (_queuedFiles
-                                                    .isNotEmpty) ...[
-                                                  _QueuedFilesCard(
-                                                    files: _queuedFiles,
-                                                    onRemove: _removeQueuedAt,
-                                                    disabled: _uploading,
-                                                    progress: _uploadProgress,
-                                                    activeKey:
-                                                        _currentlyUploadingKey,
-                                                    state: _fileState,
-                                                    errors: _fileError,
-
-                                                    // ✅ PASS STATE DOWN
-                                                    notifyingRequester:
-                                                        _notifyingRequester,
-                                                    requesterNotified:
-                                                        _requesterNotified,
-                                                  ),
-                                                ],
-
-                                                if (isCompact) ...[
-                                                  SizedBox(
-                                                    height: 48,
-                                                    child: IgnorePointer(
-                                                      ignoring: !canUploadNow,
-                                                      child: Opacity(
-                                                        opacity: canUploadNow
-                                                            ? 1.0
-                                                            : 0.55,
-                                                        child: addFilesBtn,
+                                                        ),
                                                       ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 10),
-                                                  SizedBox(
-                                                    height: 48,
-                                                    child: uploadBtn,
-                                                  ),
-                                                ] else ...[
-                                                  Row(
+                                                      const SizedBox(
+                                                        height: 10,
+                                                      ),
+                                                      SizedBox(
+                                                        height: 48,
+                                                        child: uploadBtn,
+                                                      ),
+                                                    ],
+                                                  )
+                                                : Row(
                                                     children: [
                                                       Expanded(
                                                         child: SizedBox(
@@ -1157,35 +1156,38 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                       ),
                                                     ],
                                                   ),
-                                                ],
+                                          ),
 
-                                                const SizedBox(height: 12),
-                                                Text(
-                                                  'Files are transmitted over an encrypted connection.',
-                                                  style: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: _kGray,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
-                                                ),
-                                                // ✅ Session-level completion banner (very bottom of uploads)
-                                                if (showSessionBanner) ...[
-                                                  const SizedBox(height: 12),
-                                                  _SessionCompletionBanner(
-                                                    notifyingRequester:
-                                                        _notifyingRequester,
-                                                    requesterNotified:
-                                                        _requesterNotified,
+                                          const SizedBox(height: 12),
+
+                                          _Reveal(
+                                            show: true,
+                                            child: Text(
+                                              'Files are not uploaded until you click “Upload selected”.',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: _kGray,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
-                                                ],
+                                            ),
+                                          ),
 
-                                                const SizedBox(height: 18),
+                                          _Reveal(
+                                            show: showSessionBanner,
+                                            child: Column(
+                                              children: [
+                                                const SizedBox(height: 12),
+                                                _SessionCompletionBanner(
+                                                  notifyingRequester:
+                                                      _notifyingRequester,
+                                                  requesterNotified:
+                                                      _requesterNotified,
+                                                ),
                                               ],
                                             ),
                                           ),
+
+                                          const SizedBox(height: 18),
                                         ],
                                       ),
                               ),
@@ -1233,6 +1235,35 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 // -----------------------------
 // Supporting Widgets
 // -----------------------------
+
+class _Reveal extends StatelessWidget {
+  final bool show;
+  final Widget child;
+
+  const _Reveal({required this.show, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.02),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
+      child: show ? child : const SizedBox.shrink(),
+    );
+  }
+}
 
 class _VerifiedLinkPill extends StatelessWidget {
   final bool loading;
@@ -1383,6 +1414,17 @@ class _QueuedFilesCard extends StatelessWidget {
     required this.requesterNotified,
   });
 
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1404,7 +1446,7 @@ class _QueuedFilesCard extends StatelessWidget {
               color: const Color(0xFF101828),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           ...files.asMap().entries.map((e) {
             final i = e.key;
             final f = e.value;
@@ -1441,9 +1483,11 @@ class _QueuedFilesCard extends StatelessWidget {
                 : (err ?? 'Upload failed');
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(
+                bottom: 2,
+              ), // ✅ tighter vertical spacing
               child: SizedBox(
-                height: 34, // ✅ compact, consistent row height
+                height: 32, // ✅ slightly more compact
                 child: Row(
                   children: [
                     const Icon(
@@ -1465,6 +1509,15 @@ class _QueuedFilesCard extends StatelessWidget {
                           ),
                           children: [
                             TextSpan(text: f.name),
+                            TextSpan(
+                              text: ' (${_formatFileSize(f.size)})',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(
+                                  0xFF98A2B3,
+                                ), // subtle, enterprise gray
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
 
                             // Queued (gray)
                             if (s == _UploadItemState.queued) ...[
@@ -1534,7 +1587,7 @@ class _QueuedFilesCard extends StatelessWidget {
 
                     // ✅ Inline status area (bar+% OR check OR spinner), no extra lines
                     SizedBox(
-                      width: 140,
+                      width: 210, // ✅ longer bar area
                       child: _buildInlineStatusRow(
                         state: s,
                         progress: p ?? 0.0,
@@ -1577,85 +1630,137 @@ class _QueuedFilesCard extends StatelessWidget {
     required _UploadItemState state,
     required double progress,
   }) {
-    // Nothing on the right when queued (status is next to name)
+    const double barHeight = 6;
+    const double rowHeight = 18;
+    const Color track = Color(0x14000000); // slightly stronger than 0.08
+
+    Widget bar(double value, {Color color = const Color(0xFF067647)}) {
+      return Align(
+        alignment: Alignment.center,
+        child: SizedBox(
+          height: barHeight, // ✅ hard cap thickness
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: value.clamp(0.0, 1.0),
+              backgroundColor: track,
+              color: color,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // No bar for queued (status is next to name)
     if (state == _UploadItemState.queued) {
       return const SizedBox.shrink();
     }
 
-    // ✅ Uploading: ALWAYS show a bar.
-    // If progress is still 0, show an indeterminate (animated) bar so it’s visible.
+    // ✅ Uploading: determinate bar + SMOOTH percent display
     if (state == _UploadItemState.uploading) {
-      final bool hasRealProgress = progress > 0.01; // threshold
-      final String pct = (progress * 100).clamp(0, 100).toStringAsFixed(0);
+      final target = progress.clamp(0.0, 1.0);
 
       return SizedBox(
-        height: 18,
+        height: rowHeight,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(end: target), // ✅ animates from previous value
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          builder: (context, v, _) {
+            final pct = (v * 100).round().clamp(0, 100);
+
+            return Row(
+              children: [
+                Expanded(child: bar(v)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 38, // ✅ matches 100% width
+                  child: Text(
+                    '$pct%',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF667085),
+                    ),
+                  ),
+                ),
+
+                // keep a small reserved space so layout doesn't shift when check appears
+                const SizedBox(width: 8),
+                const SizedBox(width: 18, height: 18),
+              ],
+            );
+          },
+        ),
+      );
+    }
+
+    // ✅ Finalizing: full bar, keep it same thickness (optional subtle “working” cue)
+    if (state == _UploadItemState.finalizing) {
+      return SizedBox(
+        height: rowHeight,
         child: Row(
           children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  // ✅ null => indeterminate animation (always visible)
-                  value: hasRealProgress ? progress.clamp(0.0, 1.0) : null,
-                  minHeight: 6,
-                  // Slightly stronger track so it can be seen on white/light gray
-                  backgroundColor: Colors.black.withOpacity(0.08),
-                  // ✅ Green as requested
-                  color: const Color(0xFF067647),
-                ),
-              ),
-            ),
+            Expanded(child: bar(1.0)),
             const SizedBox(width: 8),
-
-            // ✅ Only show % when we have real progress (otherwise it jumps around or shows 0%)
-            SizedBox(
-              width: 34,
+            const SizedBox(
+              width: 38,
               child: Text(
-                hasRealProgress ? '$pct%' : '',
+                '100%',
                 textAlign: TextAlign.right,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF667085),
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ],
         ),
       );
     }
 
-    // ✅ Finalizing: keep a subtle animated bar (still "working"), not a spinner
-    if (state == _UploadItemState.finalizing) {
+    // ✅ Success: keep full bar AND show checkmark on the right
+    if (state == _UploadItemState.success) {
       return SizedBox(
-        height: 18,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: null, // indeterminate
-            minHeight: 6,
-            backgroundColor: Colors.black.withOpacity(0.08),
-            color: const Color(0xFF067647),
-          ),
+        height: rowHeight,
+        child: Row(
+          children: [
+            Expanded(child: bar(1.0, color: const Color(0xFF05603A))),
+            const SizedBox(width: 8),
+            const SizedBox(
+              width: 38,
+              child: Text(
+                '100%',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF067647),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.check_circle, size: 18, color: Color(0xFF067647)),
+          ],
         ),
       );
     }
 
-    // ✅ Success: bar disappears; rely on the green “— Uploaded” next to filename.
-    // Optional check icon on far right:
-    if (state == _UploadItemState.success) {
-      return const Align(
-        alignment: Alignment.centerRight,
-        child: Icon(Icons.check_circle, size: 18, color: Color(0xFF067647)),
-      );
-      // If you want NO icon, return SizedBox.shrink() instead.
-    }
-
     // Failed
-    return const Align(
-      alignment: Alignment.centerRight,
-      child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
+    return SizedBox(
+      height: rowHeight,
+      child: const Align(
+        alignment: Alignment.centerRight,
+        child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
+      ),
     );
   }
 }
