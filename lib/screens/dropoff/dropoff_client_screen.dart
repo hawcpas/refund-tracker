@@ -463,6 +463,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     int uploaded = 0;
     final uploadedNames = <String>[];
+    final uploadedMeta = <Map<String, dynamic>>[];
 
     try {
       for (final f in pending) {
@@ -556,6 +557,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           // Mark success
           uploaded++;
           uploadedNames.add(f.name);
+          uploadedMeta.add({'name': f.name, 'sizeBytes': f.size});
 
           _uploadedSoFar = uploaded;
 
@@ -600,7 +602,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         if (uploadedNames.isNotEmpty) {
           await _functions
               .httpsCallable('notifyDropoffBatchUpload')
-              .call({'rid': _rid, 'token': _token, 'files': uploadedNames})
+              .call({
+                'rid': _rid,
+                'token': _token,
+                'files': uploadedMeta, // ✅ ONLY successfully uploaded files
+              })
               .timeout(const Duration(seconds: 20));
 
           if (mounted) {
