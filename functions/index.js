@@ -217,6 +217,18 @@ function renderActivationEmail({ appName, firstName, resetLink, verifyLink }) {
 function renderOtpEmail({ appName, code }) {
   return `
 <div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <!-- ✅ Preheader (shows in inbox preview / lock screen) -->
+<div style="
+  display:none;
+  max-height:0;
+  overflow:hidden;
+  mso-hide:all;
+  font-size:1px;
+  line-height:1px;
+  color:#ffffff;
+">
+  Your verification code is ${code}. Expires in 5 minutes.
+</div>
   <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
 
     <!-- Header -->
