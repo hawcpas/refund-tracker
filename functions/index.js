@@ -67,6 +67,24 @@ exports.checkEmailExists = onCall(
 // Helpers
 // ============================
 
+// ============================
+// Email branding (single source of truth)
+// ============================
+function getEmailLogoUrl() {
+  // Use APP_URL if set (keeps branding correct across domains),
+  // otherwise fall back to your Firebase Hosting domain.
+  const base = (APP_URL.value() || "https://axume-portal-6bfd3.web.app")
+    .toString()
+    .replace(/\/$/, "");
+
+  // You said: "newlonglogo.png"
+  // Put the file at: /icons/newlonglogo.png (recommended to match your existing pattern)
+  return `https://portal.axumecpas.com/icons/newlonglogo.png`;
+
+  // If you truly host it at the root instead, use this instead:
+  // return `${base}/newlonglogo.png`;
+}
+
 
 function hashOtp(code) {
   return crypto.createHash("sha256").update(code).digest("hex");
@@ -86,7 +104,7 @@ function renderActivationEmail({ appName, firstName, resetLink, verifyLink }) {
           <tr>
             <td>
               <img
-                src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+                src="${getEmailLogoUrl()}"
                 alt="Axume &amp; Associates CPAs"
                 width="360"
                 height="84"
@@ -235,7 +253,7 @@ function renderOtpEmail({ appName, code }) {
     <tr>
       <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
         <img
-          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          src="${getEmailLogoUrl()}"
           alt="Axume & Associates CPAs"
           width="360"
           style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
@@ -692,7 +710,7 @@ exports.notifyDropoffBatchUpload = onCall(
     <tr>
       <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
         <img
-          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          src="${getEmailLogoUrl()}"
           alt="Axume &amp; Associates CPAs"
           width="360"
           style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
@@ -1220,7 +1238,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
     <tr>
       <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
         <img
-          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          src="${getEmailLogoUrl()}"
           alt="Axume & Associates CPAs"
           width="360"
           style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"
@@ -1612,7 +1630,7 @@ exports.sendPasswordReset = onCall(
     <tr>
       <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
         <img
-          src="https://axume-portal-6bfd3.web.app/icons/axumecpaslogoold.png"
+          src="${getEmailLogoUrl()}"
           alt="Axume & Associates CPAs"
           width="360"
           style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;"

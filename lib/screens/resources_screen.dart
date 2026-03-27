@@ -86,6 +86,18 @@ class ResourcesScreen extends StatelessWidget {
             url: 'https://www.ipqualityscore.com/free-email-verifier',
             icon: Icons.mark_email_read_outlined,
           ),
+          _ResourceLink(
+            title: 'Website Reputation Checker (URLVoid)',
+            subtitle: 'Analyze websites for reputation and security risk',
+            url: 'https://www.urlvoid.com/',
+            icon: Icons.public_outlined,
+          ),
+          _ResourceLink(
+            title: 'VirusTotal',
+            subtitle: 'Scan URLs and files across multiple security engines',
+            url: 'https://www.virustotal.com/',
+            icon: Icons.security_outlined,
+          ),
         ],
       ),
     ];

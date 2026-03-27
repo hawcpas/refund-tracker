@@ -10,6 +10,8 @@ import '../widgets/login_legal_notice.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../screens/verify_email_screen.dart';
 import '../screens/otp_verify_screen.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import '../theme/brand_logo_svg.dart';
 
 enum LoginStep { email, password }
 
@@ -426,12 +428,10 @@ class _LoginScreenState extends State<LoginScreen>
                     const SizedBox(height: 12), // ✅ NEW: extra space above logo
                     // ✅ Logo INSIDE card (Intuit-style)
                     Center(
-                      child: ImageIcon(
-                        const AssetImage(
-                          'assets/icons/aa_logo_imageicon_256.png',
-                        ),
-                        size: 56,
-                        color: AppColors.brandBlue,
+                      child: SvgPicture.string(
+                        kBrandLogoSvg,
+                        height: 56,
+                        fit: BoxFit.contain,
                       ),
                     ),
 
@@ -913,54 +913,28 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
 }
 
 class _LoginLoadingScreen extends StatelessWidget {
-  const _LoginLoadingScreen({super.key}); // ✅ FIX
+  const _LoginLoadingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.pageBackgroundSoft,
       alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ✅ Brand mark
-          ImageIcon(
-            const AssetImage('assets/icons/aa_logo_imageicon_256.png'),
-            size: 48,
-            color: AppColors.brandBlue,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.9, end: 1),
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+        builder: (context, scale, child) {
+          return Transform.scale(scale: scale, child: child);
+        },
+        child: const SizedBox(
+          height: 28,
+          width: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandBlue),
           ),
-
-          const SizedBox(height: 20),
-
-          // ✅ Optional polish (spinner scale-in)
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.9, end: 1),
-            duration: const Duration(milliseconds: 420),
-            curve: Curves.easeOutCubic,
-            builder: (context, scale, child) {
-              return Transform.scale(scale: scale, child: child);
-            },
-            child: const SizedBox(
-              height: 24,
-              width: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandBlue),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          const Text(
-            'Loading secure sign‑in…',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B6C72),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

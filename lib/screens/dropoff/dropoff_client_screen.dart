@@ -10,11 +10,13 @@ import 'dart:async';
 
 import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import '../../theme/brand_logo_svg.dart';
 
 enum _UploadItemState { queued, uploading, finalizing, success, failed }
 
 const String _kFirmLogoUrl =
-    'https://portal.axumecpas.com/icons/aa_logo_imageicon_color.png';
+    'https://portal.axumecpas.com/icons/aa_logo_imageicon_color.svg';
 
 // -----------------------------
 // Brand colors (website palette)
@@ -906,11 +908,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                     child: ListView(
                       padding: const EdgeInsets.all(18),
                       children: [
-                        // ✅ Logo + external header (no sidebar / no portal feel)
-                        const _DropoffBrandHeader(),
-                        const SizedBox(height: 12),
-
-                        // ✅ Main secure card
                         // ✅ Main secure card
                         Container(
                           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
@@ -932,6 +929,13 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // =========================================================
+                              // ✅ BRAND HEADER (NOW INSIDE THE CARD)
+                              // =========================================================
+                              const _DropoffBrandHeader(dense: true),
+                              const SizedBox(height: 14),
+                              Divider(height: 1, color: Color(0xFFE4E7EC)),
+                              const SizedBox(height: 14),
+                              // =========================================================
                               // ✅ HEADER — ALWAYS VISIBLE
                               // =========================================================
                               Row(
@@ -946,7 +950,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           'Upload documents',
                                           style: theme.textTheme.titleLarge
                                               ?.copyWith(
-                                                fontWeight: FontWeight.w800,
+                                                fontWeight: FontWeight.w700,
                                                 color: _kDarkGray,
                                               ),
                                         ),
@@ -992,7 +996,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                     reverseCurve: Curves.easeInCubic,
                                   );
 
-                                  // ✅ "Fly-out downward": expand vertically from the top edge
                                   return ClipRect(
                                     child: FadeTransition(
                                       opacity: curved,
@@ -1000,7 +1003,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                         sizeFactor: curved,
                                         axis: Axis.vertical,
                                         axisAlignment:
-                                            -1.0, // ✅ anchor to top (expands downward)
+                                            -1.0, // expand downward from top
                                         child: child,
                                       ),
                                     ),
@@ -1009,27 +1012,54 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                 child: _loading
                                     ? const SizedBox(key: ValueKey('empty'))
-                                    : Column(
-                                        key: const ValueKey('validated'),
-
+                                    // =========================================================
+                                    // ✅ CLOSED / INVALID LINK — CONTEXT + NOTICE ONLY
+                                    // =========================================================
+                                    : !canUploadNow
+                                    ? Column(
+                                        key: const ValueKey('closed'),
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
                                           const SizedBox(height: 12),
 
-                                          // ✅ CONTEXT PANEL — reserved height still helps prevent jitter
+                                          // ✅ CONTEXT (For / Requested by)
                                           SizedBox(
                                             height: 78,
-                                            child: _Reveal(
-                                              show: true,
-                                              child: _BriefContextPanel(
-                                                info: _info,
-                                              ),
+                                            child: _BriefContextPanel(
+                                              info: _info,
                                             ),
                                           ),
 
                                           const SizedBox(height: 16),
 
+                                          // ✅ SINGLE SOURCE OF TRUTH — CLOSED NOTICE
+                                          _NoticeBanner.closed(_closedMsg),
+
+                                          const SizedBox(height: 18),
+                                        ],
+                                      )
+                                    // =========================================================
+                                    // ✅ OPEN LINK — FULL UPLOAD EXPERIENCE
+                                    // =========================================================
+                                    : Column(
+                                        key: const ValueKey('open'),
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const SizedBox(height: 12),
+
+                                          // ✅ CONTEXT PANEL
+                                          SizedBox(
+                                            height: 78,
+                                            child: _BriefContextPanel(
+                                              info: _info,
+                                            ),
+                                          ),
+
+                                          const SizedBox(height: 16),
+
+                                          // ✅ NON‑CLOSED ERRORS ONLY
                                           _Reveal(
                                             show: _error != null && !_isClosed,
                                             child: Column(
@@ -1042,6 +1072,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                             ),
                                           ),
 
+                                          // ✅ OPTIONAL REQUEST MESSAGE
                                           _Reveal(
                                             show: (_info?['message'] ?? '')
                                                 .toString()
@@ -1055,16 +1086,16 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                   ),
                                                   decoration: BoxDecoration(
                                                     color: const Color(
-                                                      0xFF0B1F33,
-                                                    ).withOpacity(0.06),
+                                                      0xFFF9FAFB,
+                                                    ),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           12,
                                                         ),
                                                     border: Border.all(
                                                       color: const Color(
-                                                        0xFF0B1F33,
-                                                      ).withOpacity(0.16),
+                                                        0xFFE4E7EC,
+                                                      ),
                                                     ),
                                                   ),
                                                   child: Text(
@@ -1079,7 +1110,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                           ),
                                                           height: 1.35,
                                                           fontWeight:
-                                                              FontWeight.w600,
+                                                              FontWeight.w500,
                                                         ),
                                                   ),
                                                 ),
@@ -1088,25 +1119,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                             ),
                                           ),
 
-                                          _Reveal(
-                                            show: !canUploadNow,
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 10,
-                                              ),
-                                              child: Text(
-                                                _closedMsg,
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      color:
-                                                          Colors.red.shade700,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
-
+                                          // ✅ QUEUED FILES
                                           _Reveal(
                                             show: _queuedFiles.isNotEmpty,
                                             child: _QueuedFilesCard(
@@ -1126,53 +1139,41 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                           const SizedBox(height: 12),
 
-                                          _Reveal(
-                                            show: true,
-                                            child: SizedBox(
-                                              height: 48,
-                                              child: Row(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.stretch,
-                                                children: [
-                                                  Expanded(
-                                                    child: IgnorePointer(
-                                                      ignoring: !canUploadNow,
-                                                      child: Opacity(
-                                                        opacity: canUploadNow
-                                                            ? 1.0
-                                                            : 0.75,
-                                                        child: SizedBox.expand(
-                                                          child:
-                                                              addFilesBtn, // ✅ critical fix
-                                                        ),
-                                                      ),
-                                                    ),
+                                          // ✅ ACTION BUTTONS
+                                          SizedBox(
+                                            height: 48,
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                Expanded(
+                                                  child: SizedBox.expand(
+                                                    child: addFilesBtn,
                                                   ),
-                                                  const SizedBox(width: 10),
-                                                  Expanded(
-                                                    child: SizedBox.expand(
-                                                      child: uploadBtn,
-                                                    ),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: SizedBox.expand(
+                                                    child: uploadBtn,
                                                   ),
-                                                ],
-                                              ),
+                                                ),
+                                              ],
                                             ),
                                           ),
 
                                           const SizedBox(height: 12),
 
-                                          _Reveal(
-                                            show: true,
-                                            child: Text(
-                                              'Files are not uploaded until you click “Upload selected”.',
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    color: _kGray,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                            ),
+                                          // ✅ FOOTNOTE (ONLY WHEN OPEN)
+                                          Text(
+                                            'Files are not uploaded until you click “Upload selected”.',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: _kGray,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                           ),
 
+                                          // ✅ SESSION COMPLETION
                                           _Reveal(
                                             show: showSessionBanner,
                                             child: Column(
@@ -1433,9 +1434,12 @@ class _QueuedFilesCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
+        // Slightly closer to white = quieter panel
+        color: const Color(0xFFFCFCFD),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+
+        // Use a neutral border token instead of black opacity
+        border: Border.all(color: const Color(0xFFE4E7EC)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1766,6 +1770,60 @@ class _QueuedFilesCard extends StatelessWidget {
   }
 }
 
+class _NoticeBanner extends StatelessWidget {
+  final String message;
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final Color border;
+
+  const _NoticeBanner({
+    required this.message,
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    required this.border,
+  });
+
+  factory _NoticeBanner.closed(String message) => _NoticeBanner(
+    message: message,
+    icon: Icons.lock_outline,
+    bg: const Color(0xFFFFFAEB), // warm neutral (not loud red)
+    fg: const Color(0xFFB54708), // amber/brown text
+    border: const Color(0xFFFEC84B), // subtle amber border
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: fg,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ErrorBanner extends StatelessWidget {
   final String message;
   const _ErrorBanner({required this.message});
@@ -1980,7 +2038,8 @@ class _MiniKVRow extends StatelessWidget {
 }
 
 class _DropoffBrandHeader extends StatelessWidget {
-  const _DropoffBrandHeader();
+  final bool dense;
+  const _DropoffBrandHeader({this.dense = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1989,33 +2048,13 @@ class _DropoffBrandHeader extends StatelessWidget {
     return Center(
       child: Column(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              _kFirmLogoUrl,
-              height: 56,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Container(
-                height: 56,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black.withOpacity(0.06)),
-                ),
-                child: Text(
-                  'Axume & Associates CPAs',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: const Color(0xFF101828),
-                  ),
-                ),
-              ),
-            ),
+          SvgPicture.string(
+            kBrandLogoSvg,
+            height: dense ? 48 : 56,
+            fit: BoxFit.contain,
           ),
 
-          const SizedBox(height: 10),
+          SizedBox(height: dense ? 8 : 10),
 
           // ✅ Primary brand line
           Text(
@@ -2027,7 +2066,7 @@ class _DropoffBrandHeader extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 2),
+          SizedBox(height: dense ? 1 : 2),
 
           // ✅ Secondary descriptor line
           Text(
