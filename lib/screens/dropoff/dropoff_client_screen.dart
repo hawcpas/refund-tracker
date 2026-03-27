@@ -748,19 +748,28 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           'Add files',
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: brand,
-          iconColor: brand,
-          side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
-          backgroundColor: brand.withOpacity(0.06), // lighter, more "secondary"
-          overlayColor: brand.withOpacity(0.10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          disabledForegroundColor: brand.withOpacity(0.45),
-          disabledBackgroundColor: Colors.transparent,
-        ),
+        style:
+            OutlinedButton.styleFrom(
+              foregroundColor: brand,
+              iconColor: brand,
+              side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
+              backgroundColor: brand.withOpacity(0.06),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              minimumSize: const Size.fromHeight(48),
+            ).copyWith(
+              overlayColor: MaterialStateProperty.resolveWith<Color?>((states) {
+                if (states.contains(MaterialState.hovered)) {
+                  return brand.withOpacity(0.08); // ✅ smooth hover
+                }
+                if (states.contains(MaterialState.pressed)) {
+                  return brand.withOpacity(0.12); // ✅ pressed feedback
+                }
+                return null;
+              }),
+            ),
       );
 
       // WebFileSelector is designed to fix iOS/iPadOS web picker behavior. [3](https://github.com/koichia/flutter_web_file_selector)
@@ -784,8 +793,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         child: baseBtn,
       );
     } else {
-      // ✅ Non‑iOS web/native: your original flow is fine
-      addFilesBtn = FilledButton.icon(
+      // ✅ Non‑iOS web/native: staged selection is fine
+      addFilesBtn = OutlinedButton.icon(
         onPressed: (canUploadNow && !_uploading)
             ? () async {
                 setState(() {
@@ -794,6 +803,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                   _success = null;
                 });
 
+                // ✅ Re-check server status right before letting user pick
                 final ok = await _refreshAndCheckCanUpload(showMessage: true);
                 if (!ok) {
                   if (!mounted) return;
@@ -813,19 +823,28 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           'Add files',
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: brand,
-          iconColor: brand,
-          side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
-          backgroundColor: brand.withOpacity(0.06),
-          overlayColor: brand.withOpacity(0.10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          disabledForegroundColor: brand.withOpacity(0.45),
-          disabledBackgroundColor: Colors.transparent,
-        ),
+        style:
+            OutlinedButton.styleFrom(
+              foregroundColor: brand,
+              iconColor: brand,
+              side: BorderSide(color: brand.withOpacity(0.85), width: 1.5),
+              backgroundColor: brand.withOpacity(0.06),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              minimumSize: const Size.fromHeight(48),
+            ).copyWith(
+              overlayColor: MaterialStateProperty.resolveWith<Color?>((states) {
+                if (states.contains(MaterialState.hovered)) {
+                  return brand.withOpacity(0.08); // ✅ smooth hover
+                }
+                if (states.contains(MaterialState.pressed)) {
+                  return brand.withOpacity(0.12); // ✅ pressed feedback
+                }
+                return null;
+              }),
+            ),
       );
     }
 
@@ -848,6 +867,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         style: const TextStyle(fontWeight: FontWeight.w900),
       ),
       style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
         backgroundColor: (!canUploadNow || _pendingCount == 0 || _uploading)
             ? Colors.grey.shade400
             : AppColors.brandBlue,
@@ -1102,60 +1122,35 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                           _Reveal(
                                             show: true,
-                                            child: isCompact
-                                                ? Column(
-                                                    children: [
-                                                      SizedBox(
-                                                        height: 48,
-                                                        child: IgnorePointer(
-                                                          ignoring:
-                                                              !canUploadNow,
-                                                          child: Opacity(
-                                                            opacity:
-                                                                canUploadNow
-                                                                ? 1.0
-                                                                : 0.55,
-                                                            child: addFilesBtn,
-                                                          ),
+                                            child: SizedBox(
+                                              height: 48,
+                                              child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.stretch,
+                                                children: [
+                                                  Expanded(
+                                                    child: IgnorePointer(
+                                                      ignoring: !canUploadNow,
+                                                      child: Opacity(
+                                                        opacity: canUploadNow
+                                                            ? 1.0
+                                                            : 0.75,
+                                                        child: SizedBox.expand(
+                                                          child:
+                                                              addFilesBtn, // ✅ critical fix
                                                         ),
                                                       ),
-                                                      const SizedBox(
-                                                        height: 10,
-                                                      ),
-                                                      SizedBox(
-                                                        height: 48,
-                                                        child: uploadBtn,
-                                                      ),
-                                                    ],
-                                                  )
-                                                : Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: SizedBox(
-                                                          height: 48,
-                                                          child: IgnorePointer(
-                                                            ignoring:
-                                                                !canUploadNow,
-                                                            child: Opacity(
-                                                              opacity:
-                                                                  canUploadNow
-                                                                  ? 1.0
-                                                                  : 0.55,
-                                                              child:
-                                                                  addFilesBtn,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 10),
-                                                      Expanded(
-                                                        child: SizedBox(
-                                                          height: 48,
-                                                          child: uploadBtn,
-                                                        ),
-                                                      ),
-                                                    ],
+                                                    ),
                                                   ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: SizedBox.expand(
+                                                      child: uploadBtn,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
                                           ),
 
                                           const SizedBox(height: 12),
