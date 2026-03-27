@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
 
 import '../widgets/page_scaffold.dart';
+import '../shell/app_shell.dart';
 
 class AccountSettingsScreen extends StatefulWidget {
   final bool embed;
@@ -501,6 +502,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
         _profileChanged = true;
       });
+
+      // ✅ Notify AppShell so avatar + flyouts update immediately
+      final shell = context.findAncestorStateOfType<AppShellState>();
+      await shell?.refreshProfile();
     } catch (e) {
       if (!mounted) return;
       setState(() => _savingPersonal = false);
