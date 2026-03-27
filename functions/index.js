@@ -417,10 +417,15 @@ exports.verifyLoginOtp = onCall(
       throw new HttpsError("permission-denied", "Invalid code.");
     }
 
-    // ✅ OTP success
+    const user = await admin.auth().getUser(uid);
+    const existingClaims = user.customClaims || {};
+
     await admin.auth().setCustomUserClaims(uid, {
+      ...existingClaims,
       otp_verified: true,
+      otp_verified_at: Date.now(), // ✅ milliseconds
     });
+
 
     await ref.delete();
 
@@ -487,6 +492,7 @@ exports.sendLoginOtp = onCall(
     await admin.auth().setCustomUserClaims(uid, {
       ...existingClaims,
       otp_verified: false,
+      otp_verified_at: 0,
     });
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -604,7 +610,7 @@ exports.notifyDropoffBatchUpload = onCall(
 
       // Build portal link (same as single-file email)
       const baseUrl = (APP_URL.value() || "").toString().replace(/\/$/, "");
-      const portalUrl = baseUrl ? `${baseUrl}/view-dropoffs` : "";
+      const portalUrl = baseUrl ? `${baseUrl}/generate-upload-link?rid=${rid}` : "";
 
       const subject = `${clientName} has uploaded files.`;
       // ✅ MULTI‑FILE LIST (this is the only difference)
@@ -676,7 +682,7 @@ exports.notifyDropoffBatchUpload = onCall(
         })
         .filter(Boolean)
         .join("") || `<li style="margin:0 0 6px 0;"><b>Files uploaded</b> <span style="color:#667085; font-weight:600;">(details unavailable)</span></li>`;
-        ``
+      ``
 
       const html = `
 <div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
@@ -732,7 +738,7 @@ exports.notifyDropoffBatchUpload = onCall(
             style="display:inline-block; padding:10px 16px; background:#0B1F33; color:#ffffff;
                    text-decoration:none; border-radius:6px; font-weight:600; font-size:14px;"
           >
-            Open drop‑off requests
+            Open upload details
           </a>
         </div>
         `
