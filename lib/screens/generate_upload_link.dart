@@ -1934,6 +1934,7 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                                     final path = (data['storagePath'] ?? '')
                                         .toString()
                                         .trim();
+
                                     if (isDeleted || path.isEmpty) continue;
 
                                     selectable[doc.id] = _BulkFile(
@@ -2405,6 +2406,48 @@ class _WhiteInset extends StatelessWidget {
   }
 }
 
+class _MiniStatePill extends StatelessWidget {
+  final String label;
+  final Color bg;
+  final Color fg;
+  final Color border;
+
+  const _MiniStatePill({
+    required this.label,
+    required this.bg,
+    required this.fg,
+    required this.border,
+  });
+
+  factory _MiniStatePill.deleted() => const _MiniStatePill(
+    label: 'Deleted',
+    bg: Color(0xFFF2F4F7),
+    fg: Color(0xFF667085),
+    border: Color(0xFFD0D5DD),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+          height: 1.0,
+        ),
+      ),
+    );
+  }
+}
+
 class _FileRow extends StatefulWidget {
   final Map<String, dynamic> data;
 
@@ -2449,6 +2492,7 @@ class _FileRowState extends State<_FileRow> {
     final name = (widget.data['originalName'] ?? 'Untitled').toString();
     final isDeleted = widget.data['deleted'] == true;
     final path = (widget.data['storagePath'] ?? '').toString();
+    final isActionable = !isDeleted && path.trim().isNotEmpty;
     final contentType = (widget.data['contentType'] ?? '').toString();
     final size = (widget.data['sizeBytes'] is num)
         ? (widget.data['sizeBytes'] as num).toInt()
@@ -2482,12 +2526,14 @@ class _FileRowState extends State<_FileRow> {
           child: Row(
             children: [
               // ✅ Selection checkbox (disabled when deleted/unavailable)
-              Checkbox(
-                value: widget.selected,
-                onChanged: (isDeleted || path.trim().isEmpty)
-                    ? null
-                    : (v) => widget.onSelected(v ?? false),
-              ),
+              // ✅ Selection checkbox — show ONLY when actionable
+              if (isActionable)
+                Checkbox(
+                  value: widget.selected,
+                  onChanged: (v) => widget.onSelected(v ?? false),
+                )
+              else
+                const SizedBox(width: 40), // keeps column alignment clean
 
               _fileTypeIcon(fileName: name, contentType: contentType),
               const SizedBox(width: 12),
@@ -2518,7 +2564,7 @@ class _FileRowState extends State<_FileRow> {
                               // ✅ Strikethrough when deleted (enterprise record state)
                               decoration: isDeleted
                                   ? TextDecoration.lineThrough
-                                  : (_hovered
+                                  : (isActionable && _hovered
                                         ? TextDecoration.underline
                                         : null),
 
@@ -2547,7 +2593,7 @@ class _FileRowState extends State<_FileRow> {
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
-                          'Deleted — This file was removed',
+                          'This file was removed',
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: const Color(0xFF667085), // neutral gray
                             fontWeight: FontWeight.w700,
@@ -2571,12 +2617,23 @@ class _FileRowState extends State<_FileRow> {
 
               const SizedBox(width: 8),
 
-              Icon(
-                Icons.download,
-                size: 18,
-                color: isDeleted
-                    ? const Color(0xFF98A2B3) // disabled gray
-                    : AppColors.brandBlue.withOpacity(_hovered ? 0.75 : 0.55),
+              // ✅ Right-side state / action slot (keeps alignment enterprise-clean)
+              SizedBox(
+                width: 86, // reserved space so rows align consistently
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: isActionable
+                      ? Icon(
+                          Icons.download,
+                          size: 18,
+                          color: AppColors.brandBlue.withOpacity(
+                            _hovered ? 0.75 : 0.55,
+                          ),
+                        )
+                      : (isDeleted
+                            ? _MiniStatePill.deleted()
+                            : const SizedBox.shrink()),
+                ),
               ),
             ],
           ),

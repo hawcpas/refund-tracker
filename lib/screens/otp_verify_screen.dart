@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/centered_form.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import '../theme/brand_logo_svg.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String? nextRoute;
@@ -381,10 +383,12 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const ImageIcon(
-              AssetImage('assets/icons/aa_logo_imageicon_256.png'),
-              size: 56,
-              color: AppColors.brandBlue,
+            Center(
+              child: SvgPicture.string(
+                kBrandLogoSvg,
+                height: 56,
+                fit: BoxFit.contain,
+              ),
             ),
             const SizedBox(height: 18),
             Text(
