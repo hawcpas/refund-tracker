@@ -1139,6 +1139,24 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
                                           const SizedBox(height: 12),
 
+                                          // ✅ SESSION COMPLETION
+                                          _Reveal(
+                                            show: showSessionBanner,
+                                            child: Column(
+                                              children: [
+        
+                                                _SessionCompletionBanner(
+                                                  notifyingRequester:
+                                                      _notifyingRequester,
+                                                  requesterNotified:
+                                                      _requesterNotified,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+
+                                          const SizedBox(height: 12),
+
                                           // ✅ ACTION BUTTONS
                                           SizedBox(
                                             height: 48,
@@ -1171,22 +1189,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                   color: _kGray,
                                                   fontWeight: FontWeight.w600,
                                                 ),
-                                          ),
-
-                                          // ✅ SESSION COMPLETION
-                                          _Reveal(
-                                            show: showSessionBanner,
-                                            child: Column(
-                                              children: [
-                                                const SizedBox(height: 12),
-                                                _SessionCompletionBanner(
-                                                  notifyingRequester:
-                                                      _notifyingRequester,
-                                                  requesterNotified:
-                                                      _requesterNotified,
-                                                ),
-                                              ],
-                                            ),
                                           ),
 
                                           const SizedBox(height: 18),
@@ -2152,11 +2154,20 @@ class _SessionCompletionBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            requesterNotified ? Icons.check_circle : Icons.info_outline,
-            color: accent,
-            size: 18,
-          ),
+          notifyingRequester
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF667085), // enterprise neutral
+                  ),
+                )
+              : Icon(
+                  requesterNotified ? Icons.check_circle : Icons.info_outline,
+                  color: accent,
+                  size: 18,
+                ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
