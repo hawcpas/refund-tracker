@@ -730,7 +730,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final status = (_info?['status'] ?? 'closed').toString();
     final canUploadNow = !_loading && status == 'open';
     final isCompact = _isCompact(context);
-    final showSessionBanner = _showCompletionNote && _allUploadsComplete;
+    // ✅ Show the completion/status banner as soon as uploads are done,
+    // even while we are still sending the email notification.
+    final showSessionBanner =
+        _showCompletionNote && (_notifyingRequester || _requesterNotified);
 
     final brand = AppColors.brandBlue;
 
@@ -860,7 +863,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       onPressed: canUploadNow && !_uploading && _pendingCount > 0
           ? _uploadQueuedFiles
           : null,
-      icon: _uploading
+      icon: (_uploading || _notifyingRequester)
           ? const SizedBox(
               height: 18,
               width: 18,
@@ -871,7 +874,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
             )
           : const Icon(Icons.upload_file),
       label: Text(
-        _uploading ? 'Uploading…' : 'Upload selected ($_pendingCount)',
+        _uploading
+            ? 'Uploading files…'
+            : _notifyingRequester
+            ? 'Sending email…'
+            : 'Upload selected ($_pendingCount)',
         style: const TextStyle(fontWeight: FontWeight.w900),
       ),
       style: FilledButton.styleFrom(
@@ -1144,7 +1151,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                             show: showSessionBanner,
                                             child: Column(
                                               children: [
-        
                                                 _SessionCompletionBanner(
                                                   notifyingRequester:
                                                       _notifyingRequester,
@@ -2128,10 +2134,10 @@ class _SessionCompletionBanner extends StatelessWidget {
     // Enterprise messaging: status-first, calm, no cheerleading.
     final String line1 = 'All files have been successfully uploaded.';
     final String line2 = notifyingRequester
-        ? 'Notifying the recipient…'
+        ? 'Preparing and sending the email notification. Please keep this page open.'
         : requesterNotified
         ? 'The recipient has been notified by email. You may upload additional files, or safely close this page.'
-        : 'You may upload additional files, or safely close this page.';
+        : '';
 
     // Color: green only when final state is reached
     final Color accent = requesterNotified
