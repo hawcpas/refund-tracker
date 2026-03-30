@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/centered_section.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
-import '../shell/app_shell.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -19,6 +18,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   bool _busy = false;
 
+  int get _selectedCount => _selectedUids.length;
+
+  final Set<String> _selectedUids = <String>{};
+  int _clearSelectionToken = 0; // tells _UsersPane to clear selection
+
   bool _roleLoading = true;
   String _role = '';
   String? _roleError;
@@ -27,6 +31,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   String get _userQuery => _userSearchCtrl.text.trim().toLowerCase();
 
   String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
+
+  void _clearSelection() {
+    if (_selectedUids.isEmpty) return;
+    setState(() {
+      _selectedUids.clear();
+      _clearSelectionToken++; // tells _UsersPane to clear its local selection too
+    });
+  }
 
   @override
   void initState() {
@@ -83,6 +95,126 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     return FirebaseFunctions.instanceFor(
       region: 'us-central1',
     ).httpsCallable(name);
+  }
+
+  Future<void> _bulkRemoveSelectedUsers() async {
+    if (_busy || _selectedUids.isEmpty) return;
+
+    // Confirm once
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove selected users'),
+        content: Text(
+          'You are about to permanently remove ${_selectedUids.length} user(s).\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _busy = true);
+
+    int deleted = 0;
+    int skipped = 0;
+
+    try {
+      // Safety: don't delete yourself
+      final myUid = _myUid;
+
+      // Safety: ensure at least 1 admin remains
+      final adminsSnap = await _db
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .get();
+      final adminCount = adminsSnap.size;
+
+      // Count selected admins
+      int selectedAdminCount = 0;
+      for (final uid in _selectedUids) {
+        final u = await _db.collection('users').doc(uid).get();
+        final role = ((u.data()?['role']) ?? '')
+            .toString()
+            .toLowerCase()
+            .trim();
+        if (role == 'admin') selectedAdminCount++;
+      }
+      if (adminCount - selectedAdminCount <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('At least one admin must remain.')),
+        );
+        return;
+      }
+
+      final callable = _callable('deleteUser');
+
+      // Execute deletes
+      for (final uid in _selectedUids.toList()) {
+        if (myUid != null && uid == myUid) {
+          skipped++;
+          continue;
+        }
+
+        final snap = await _db.collection('users').doc(uid).get();
+        if (!snap.exists) {
+          skipped++;
+          continue;
+        }
+
+        final data = snap.data() ?? {};
+        final email = (data['email'] ?? '').toString().trim();
+        final role = (data['role'] ?? '').toString().toLowerCase().trim();
+
+        // Extra safety: if deleting an admin, re-check remaining admins
+        if (role == 'admin') {
+          final currentAdmins = await _db
+              .collection('users')
+              .where('role', isEqualTo: 'admin')
+              .get();
+          if (currentAdmins.size <= 1) {
+            skipped++;
+            continue;
+          }
+        }
+
+        try {
+          await callable.call({'uid': uid, 'email': email});
+          deleted++;
+        } catch (_) {
+          skipped++;
+        }
+      }
+
+      // Clear selection everywhere (parent + child)
+      setState(() {
+        _selectedUids.clear();
+        _clearSelectionToken++; // tells UsersPane to clear
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            deleted > 0
+                ? 'Removed $deleted user(s)${skipped > 0 ? ' • Skipped $skipped' : ''}.'
+                : 'No users were removed${skipped > 0 ? ' • Skipped $skipped' : ''}.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _updateUser({
@@ -633,102 +765,165 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     return Stack(
       children: [
         Positioned.fill(
-          child: PageScaffold(
-            title: '',
-            hideHeader: true,
-            wrapInCard: false,
+          child: ColoredBox(
+            color: AppColors.pageCanvas,
+            child: SafeArea(
+              top: false, // AppShell already provides AppBar
+              child: LayoutBuilder(
+                builder: (context, pageConstraints) {
+                  final isDesktopWide = pageConstraints.maxWidth >= 1200;
 
-            // ✅ Same pattern as dashboard: header above command bar
-            preCommandBar: Padding(
-              padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Admin Console',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF111827),
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Manage firm users, roles, and account access.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF6B7280),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ✅ Same dashboard command bar system
-            commandBar: FluentCommandBar(
-              actions: [
-                FluentCommandAction(
-                  icon: Icons.person_add_alt_1,
-                  label: 'Invite user',
-                  onPressed: _busy ? null : _showInviteDialog,
-                  accent: false,
-                ),
-                FluentCommandAction(
-                  icon: Icons.refresh,
-                  label: 'Refresh',
-                  onPressed: _busy ? null : _loadMyRole,
-                  accent: false,
-                ),
-              ],
-              overflowActions: const [],
-            ),
-
-            // ✅ Content
-            child: LayoutBuilder(
-              builder: (context, pageConstraints) {
-                final isDesktopWide = pageConstraints.maxWidth >= 1200;
-
-                return CenteredSection(
-                  maxWidth: isDesktopWide ? 1600 : 1100,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isDesktopWide ? 24 : 16,
-                      vertical: 16,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-
-                        const SizedBox(height: 16),
-
-                        // ✅ Your existing users pane card (unchanged inside)
-                        Expanded(
-                          child: Card(
-                            clipBehavior: Clip.antiAlias,
-                            child: _UsersPane(
-                              db: _db,
-                              myUid: _myUid,
-                              busy: _busy,
-                              query: _userQuery,
-                              searchCtrl: _userSearchCtrl,
-                              onDeleteUser: _deleteUser,
-                              onEditUser: _showEditUserDialog,
-                              onResendInvite: _resendInvite,
-                              onSendPasswordReset: _sendPasswordReset,
-                              onSetDisabled: _setUserDisabled,
-                              promptReason: _promptReason,
+                  return CenteredSection(
+                    maxWidth: isDesktopWide ? 1600 : 1100,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isDesktopWide ? 24 : 16,
+                        vertical: 16,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // ✅ Header
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Admin Console',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF111827),
+                                        letterSpacing: -0.2,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Manage firm users, roles, and account access.',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: const Color(0xFF6B7280),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      ],
+
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            alignment: WrapAlignment.start,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: _busy ? null : _showInviteDialog,
+                                icon: const Icon(
+                                  Icons.person_add_alt_1,
+                                  size: 18,
+                                ),
+                                label: const Text('Invite user'),
+                              ),
+
+                              OutlinedButton.icon(
+                                onPressed: (_busy || _selectedCount == 0)
+                                    ? null
+                                    : _bulkRemoveSelectedUsers,
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _selectedCount == 0
+                                      ? Colors.grey
+                                      : Colors.red.shade700,
+                                  side: BorderSide(
+                                    color: _selectedCount == 0
+                                        ? Colors.grey.shade300
+                                        : Colors.red.shade300,
+                                  ),
+                                ),
+                                label: Text(
+                                  _selectedCount == 0
+                                      ? 'Remove users'
+                                      : 'Remove users ($_selectedCount)',
+                                ),
+                              ),
+
+                              // ✅ Subtle “Clear selection” link (only enabled when needed)
+                              TextButton(
+                                onPressed: (_busy || _selectedCount == 0)
+                                    ? null
+                                    : _clearSelection,
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 8,
+                                  ),
+                                  foregroundColor: Colors.grey.shade600,
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                child: const Text('Clear selection'),
+                              ),
+
+                              OutlinedButton.icon(
+                                onPressed: _busy ? null : _loadMyRole,
+                                icon: const Icon(Icons.refresh, size: 18),
+                                label: const Text('Refresh'),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // ✅ Users card
+                          Expanded(
+                            child: Card(
+                              clipBehavior: Clip.antiAlias,
+                              child: _UsersPane(
+                                db: _db,
+                                myUid: _myUid,
+                                busy: _busy,
+                                query: _userQuery,
+                                searchCtrl: _userSearchCtrl,
+                                onDeleteUser: _deleteUser,
+                                onEditUser: _showEditUserDialog,
+                                onResendInvite: _resendInvite,
+                                onSendPasswordReset: _sendPasswordReset,
+                                onSetDisabled: _setUserDisabled,
+                                promptReason: _promptReason,
+
+                                // ✅ NEW — required
+                                clearSelectionToken: _clearSelectionToken,
+
+                                // ✅ UPDATED — now receives Set<String>
+                                onSelectionChanged: (ids) {
+                                  setState(() {
+                                    _selectedUids
+                                      ..clear()
+                                      ..addAll(ids);
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ),
 
+        // ✅ Busy indicator overlay
         if (_busy)
           const Positioned(
             left: 0,
@@ -849,6 +1044,8 @@ class _UsersPane extends StatefulWidget {
   final bool busy;
   final String query;
   final TextEditingController searchCtrl;
+  final ValueChanged<Set<String>> onSelectionChanged;
+  final int clearSelectionToken; // NEW
 
   final Future<void> Function({
     required String uid,
@@ -901,6 +1098,8 @@ class _UsersPane extends StatefulWidget {
     required this.onSendPasswordReset,
     required this.onSetDisabled,
     required this.promptReason,
+    required this.onSelectionChanged,
+    required this.clearSelectionToken, // ✅ NEW
   });
 
   @override
@@ -908,10 +1107,30 @@ class _UsersPane extends StatefulWidget {
 }
 
 class _UsersPaneState extends State<_UsersPane> {
+  final Set<String> _selected = <String>{};
   String _statusFilter = 'all'; // all | active | invited
 
   String _formatDateOnly(BuildContext context, DateTime dt) {
     return MaterialLocalizations.of(context).formatShortDate(dt);
+  }
+
+  void _notifySelection() {
+    widget.onSelectionChanged(Set<String>.from(_selected));
+  }
+
+  int _lastClearToken = 0;
+
+  @override
+  void didUpdateWidget(covariant _UsersPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.clearSelectionToken != _lastClearToken) {
+      _lastClearToken = widget.clearSelectionToken;
+      if (_selected.isNotEmpty) {
+        setState(() => _selected.clear());
+        _notifySelection();
+      }
+    }
   }
 
   Widget _actionsMenu({
@@ -1050,7 +1269,7 @@ class _UsersPaneState extends State<_UsersPane> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.min, // ✅ allow the column to shrink
+      mainAxisSize: MainAxisSize.max, // ✅ IMPORTANT: give children real height
       children: [
         _SearchHeader(
           controller: widget.searchCtrl,
@@ -1059,9 +1278,8 @@ class _UsersPaneState extends State<_UsersPane> {
         ),
         const Divider(height: 1),
 
-        // ✅ Flexible(loose) allows panel to shrink when list is short
-        Flexible(
-          fit: FlexFit.loose,
+        // ✅ IMPORTANT: Expanded guarantees finite height for _UsersTable's Expanded
+        Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: widget.db.collection('users').snapshots(),
             builder: (context, snap) {
@@ -1113,272 +1331,197 @@ class _UsersPaneState extends State<_UsersPane> {
                 );
               }
 
-              return ListView.separated(
-                // ✅ key: shrink to content if short
-                shrinkWrap: true,
-                // ✅ don’t claim primary scroll controller (prevents weird sizing)
-                primary: false,
-                // ✅ still scrolls naturally when content grows
-                physics: const ClampingScrollPhysics(),
-                padding: const EdgeInsets.all(10),
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) => Divider(
-                  height: 16,
-                  thickness: 1,
-                  color: Theme.of(context).dividerColor.withOpacity(0.35),
-                  indent: 12,
-                  endIndent: 12,
-                ),
-                itemBuilder: (context, i) {
-                  final d = filtered[i];
-                  final data = d.data() as Map<String, dynamic>;
+              // ✅ STEP 2 — Decide layout based on screen width
+              final isPhone = MediaQuery.of(context).size.width < 520;
 
-                  final uid = d.id;
-                  final email = (data['email'] ?? '').toString();
-                  final firstName = (data['firstName'] ?? '').toString();
-                  final lastName = (data['lastName'] ?? '').toString();
-                  final displayName = (data['displayName'] ?? '').toString();
-                  final role = (data['role'] ?? 'associate').toString();
-                  final status = (data['status'] ?? '').toString();
+              if (isPhone) {
+                // ✅ MOBILE: keep existing card layout
+                return ListView.separated(
+                  shrinkWrap: true,
+                  primary: false,
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.all(10),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 16,
+                    thickness: 1,
+                    color: Theme.of(context).dividerColor.withOpacity(0.35),
+                    indent: 12,
+                    endIndent: 12,
+                  ),
+                  itemBuilder: (context, i) {
+                    final d = filtered[i];
+                    final data = d.data() as Map<String, dynamic>;
 
-                  final communications = Map<String, dynamic>.from(
-                    data['communications'] ?? {},
-                  );
-                  final wildixExt = (communications['wildixExtension'] ?? '')
-                      .toString()
-                      .trim();
-                  final clearflyNum =
-                      (communications['clearflySmsNumber'] ?? '')
-                          .toString()
-                          .trim();
+                    final uid = d.id;
+                    final email = (data['email'] ?? '').toString();
+                    final firstName = (data['firstName'] ?? '').toString();
+                    final lastName = (data['lastName'] ?? '').toString();
+                    final displayName = (data['displayName'] ?? '').toString();
+                    final role = (data['role'] ?? 'associate').toString();
+                    final status = (data['status'] ?? '').toString();
 
-                  final statusLower = status.toLowerCase().trim();
-                  final normalizedStatus = statusLower == 'inactive'
-                      ? 'disabled'
-                      : statusLower;
+                    final communications = Map<String, dynamic>.from(
+                      data['communications'] ?? {},
+                    );
+                    final wildixExt = (communications['wildixExtension'] ?? '')
+                        .toString()
+                        .trim();
+                    final clearflyNum =
+                        (communications['clearflySmsNumber'] ?? '')
+                            .toString()
+                            .trim();
 
-                  final isInvited = normalizedStatus == 'invited';
-                  final isDisabled =
-                      (data['disabled'] == true) ||
-                      normalizedStatus == 'disabled';
+                    final statusLower = status.toLowerCase().trim();
+                    final normalizedStatus = statusLower == 'inactive'
+                        ? 'disabled'
+                        : statusLower;
 
-                  DateTime? invitedDt;
-                  final invitedAt = data['invitedAt'];
-                  if (invitedAt is Timestamp) invitedDt = invitedAt.toDate();
+                    final isInvited = normalizedStatus == 'invited';
+                    final isDisabled =
+                        (data['disabled'] == true) ||
+                        normalizedStatus == 'disabled';
 
-                  DateTime? lastSignInDt;
-                  final lastSignInAt = data['lastSignInAt'];
-                  if (lastSignInAt is Timestamp)
-                    lastSignInDt = lastSignInAt.toDate();
+                    DateTime? invitedDt;
+                    final invitedAt = data['invitedAt'];
+                    if (invitedAt is Timestamp) invitedDt = invitedAt.toDate();
 
-                  final isMe = widget.myUid != null && uid == widget.myUid;
-                  final theme = Theme.of(context);
-                  final isPhone = MediaQuery.of(context).size.width < 520;
+                    DateTime? lastSignInDt;
+                    final lastSignInAt = data['lastSignInAt'];
+                    if (lastSignInAt is Timestamp)
+                      lastSignInDt = lastSignInAt.toDate();
 
-                  final nameLabel = displayName.isNotEmpty
-                      ? displayName
-                      : ('$firstName $lastName').trim();
-                  final titleName = nameLabel.isNotEmpty
-                      ? nameLabel
-                      : (email.isNotEmpty ? email : uid);
-                  final emailLine = email.isNotEmpty ? email : uid;
+                    final isMe = widget.myUid != null && uid == widget.myUid;
+                    final theme = Theme.of(context);
 
-                  final isLastAdmin =
-                      role.toLowerCase() == 'admin' && adminCount <= 1;
+                    final nameLabel = displayName.isNotEmpty
+                        ? displayName
+                        : ('$firstName $lastName').trim();
+                    final titleName = nameLabel.isNotEmpty
+                        ? nameLabel
+                        : (email.isNotEmpty ? email : uid);
+                    final emailLine = email.isNotEmpty ? email : uid;
 
-                  final metaLine = isInvited
-                      ? (invitedDt == null
-                            ? 'Invited • —'
-                            : 'Invited • ${_formatDateOnly(context, invitedDt)}')
-                      : (lastSignInDt == null
-                            ? 'Last sign-in • —'
-                            : 'Last sign-in • ${_formatDateOnly(context, lastSignInDt)}');
+                    final isLastAdmin =
+                        role.toLowerCase() == 'admin' && adminCount <= 1;
 
-                  return Material(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isPhone ? 12 : 14,
-                        vertical: 10,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (isPhone) ...[
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: theme.colorScheme.primary
-                                      .withOpacity(0.10),
-                                  child: Icon(
-                                    isMe
-                                        ? Icons.verified_user
-                                        : Icons.person_outline,
-                                    color: theme.colorScheme.primary,
-                                    size: 16,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    isMe ? '$titleName (You)' : titleName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 13.5,
-                                      height: 1.15,
+                    final metaLine = isInvited
+                        ? (invitedDt == null
+                              ? 'Invited • —'
+                              : 'Invited • ${_formatDateOnly(context, invitedDt)}')
+                        : (lastSignInDt == null
+                              ? 'Last sign-in • —'
+                              : 'Last sign-in • ${_formatDateOnly(context, lastSignInDt)}');
+
+                    final isSelected = _selected.contains(uid);
+
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: widget.busy
+                          ? null
+                          : () {
+                              setState(() {
+                                isSelected
+                                    ? _selected.remove(uid)
+                                    : _selected.add(uid);
+                              });
+                              _notifySelection();
+                            },
+                      child: Material(
+                        color: isSelected
+                            ? AppColors.brandBlue.withOpacity(0.06)
+                            : theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: theme.colorScheme.primary
+                                        .withOpacity(0.10),
+                                    child: Icon(
+                                      isMe
+                                          ? Icons.verified_user
+                                          : Icons.person_outline,
+                                      color: theme.colorScheme.primary,
+                                      size: 16,
                                     ),
                                   ),
-                                ),
-                                _actionsMenu(
-                                  isMe: isMe,
-                                  isInvited: isInvited,
-                                  isDisabled: isDisabled,
-                                  isLastAdmin: isLastAdmin,
-                                  uid: uid,
-                                  email: email,
-                                  role: role,
-                                  status: status,
-                                  titleName: titleName,
-
-                                  // ✅ NEW (required by your updated signature)
-                                  firstName: firstName,
-                                  lastName: lastName,
-                                  displayName: displayName,
-
-                                  communications: communications,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                _StatusPill(status: status),
-                                const SizedBox(width: 8),
-                                _MetaChip(
-                                  icon: Icons.admin_panel_settings_outlined,
-                                  text: role,
-                                ),
-                              ],
-                            ),
-                          ] else ...[
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: theme.colorScheme.primary
-                                      .withOpacity(0.10),
-                                  child: Icon(
-                                    isMe
-                                        ? Icons.verified_user
-                                        : Icons.person_outline,
-                                    color: theme.colorScheme.primary,
-                                    size: 16,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Flexible(
-                                  fit: FlexFit.loose,
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 520,
-                                    ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
                                     child: Text(
                                       isMe ? '$titleName (You)' : titleName,
-                                      maxLines: 1,
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.titleSmall
                                           ?.copyWith(
                                             fontWeight: FontWeight.w900,
-                                            fontSize: 14,
+                                            fontSize: 13.5,
+                                            height: 1.15,
                                           ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                _StatusPill(status: status),
-                                const SizedBox(width: 8),
-                                _MetaChip(
-                                  icon: Icons.admin_panel_settings_outlined,
-                                  text: role,
-                                ),
-                                const SizedBox(width: 6),
-                                _actionsMenu(
-                                  isMe: isMe,
-                                  isInvited: isInvited,
-                                  isDisabled: isDisabled,
-                                  isLastAdmin: isLastAdmin,
-                                  uid: uid,
-                                  email: email,
-                                  role: role,
-                                  status: status,
-                                  titleName: titleName,
-
-                                  // ✅ NEW (required by your updated signature)
-                                  firstName: firstName,
-                                  lastName: lastName,
-                                  displayName: displayName,
-
-                                  communications: communications,
-                                ),
-                              ],
-                            ),
-                          ],
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 520,
-                                ),
-                                child: Text(
-                                  emailLine,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: isPhone ? 12 : 12.5,
+                                  _actionsMenu(
+                                    isMe: isMe,
+                                    isInvited: isInvited,
+                                    isDisabled: isDisabled,
+                                    isLastAdmin: isLastAdmin,
+                                    uid: uid,
+                                    email: email,
+                                    role: role,
+                                    status: status,
+                                    titleName: titleName,
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    displayName: displayName,
+                                    communications: communications,
                                   ),
-                                ),
+                                ],
                               ),
-                              Text(
-                                metaLine,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: isPhone ? 11.5 : 12,
-                                ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  _StatusPill(status: status),
+                                  const SizedBox(width: 8),
+                                  _MetaChip(
+                                    icon: Icons.admin_panel_settings_outlined,
+                                    text: role,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          if (wildixExt.isNotEmpty ||
-                              clearflyNum.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 4,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                if (wildixExt.isNotEmpty)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.phone_in_talk_outlined,
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 4),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 4,
+                                children: [
+                                  Text(
+                                    emailLine,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    metaLine,
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                              if (wildixExt.isNotEmpty ||
+                                  clearflyNum.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 12,
+                                  children: [
+                                    if (wildixExt.isNotEmpty)
                                       Text(
                                         'Ext: $wildixExt',
                                         style: theme.textTheme.labelMedium
@@ -1386,14 +1529,7 @@ class _UsersPaneState extends State<_UsersPane> {
                                               fontWeight: FontWeight.w700,
                                             ),
                                       ),
-                                    ],
-                                  ),
-                                if (clearflyNum.isNotEmpty)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.sms_outlined, size: 14),
-                                      const SizedBox(width: 4),
+                                    if (clearflyNum.isNotEmpty)
                                       Text(
                                         'Clearfly/eFax: $clearflyNum',
                                         style: theme.textTheme.labelMedium
@@ -1401,21 +1537,498 @@ class _UsersPaneState extends State<_UsersPane> {
                                               fontWeight: FontWeight.w700,
                                             ),
                                       ),
-                                    ],
-                                  ),
+                                  ],
+                                ),
                               ],
-                            ),
-                          ],
-                        ],
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  },
+                );
+              }
+
+              // ✅ DESKTOP / WIDE: render enterprise table
+              return _UsersTable(
+                docs: filtered,
+                adminCount: adminCount,
+                myUid: widget.myUid,
+                busy: widget.busy,
+                selected: _selected,
+                onToggleSelected: (uid, v) {
+                  setState(() {
+                    v ? _selected.add(uid) : _selected.remove(uid);
+                  });
+                  _notifySelection();
                 },
+                onToggleAll: (v) {
+                  setState(() {
+                    if (v) {
+                      _selected.addAll(filtered.map((d) => d.id));
+                    } else {
+                      _selected.clear();
+                    }
+                  });
+                },
+                actionsMenuBuilder:
+                    ({
+                      required bool isMe,
+                      required bool isInvited,
+                      required bool isDisabled,
+                      required bool isLastAdmin,
+                      required String uid,
+                      required String email,
+                      required String role,
+                      required String status,
+                      required String titleName,
+                      required String firstName,
+                      required String lastName,
+                      required String displayName,
+                      required Map<String, dynamic> communications,
+                    }) {
+                      return _actionsMenu(
+                        isMe: isMe,
+                        isInvited: isInvited,
+                        isDisabled: isDisabled,
+                        isLastAdmin: isLastAdmin,
+                        uid: uid,
+                        email: email,
+                        role: role,
+                        status: status,
+                        titleName: titleName,
+                        firstName: firstName,
+                        lastName: lastName,
+                        displayName: displayName,
+                        communications: communications,
+                      );
+                    },
               );
             },
           ),
         ),
       ],
+    );
+  }
+}
+
+class _UsersTable extends StatelessWidget {
+  const _UsersTable({
+    required this.docs,
+    required this.adminCount,
+    required this.myUid,
+    required this.busy,
+    required this.selected,
+    required this.onToggleSelected,
+    required this.onToggleAll,
+    required this.actionsMenuBuilder,
+  });
+
+  static const double _wSelect = 44;
+  static const double _wName = 220;
+  static const double _wEmail = 210;
+  static const double _wWildix = 90;
+  static const double _wClearfly = 120;
+  static const double _wRole = 70;
+  static const double _wStatus = 80;
+  static const double _wActions = 52;
+
+  final List<QueryDocumentSnapshot> docs;
+  final int adminCount;
+  final String? myUid;
+  final bool busy;
+  final Set<String> selected;
+
+  final void Function(String uid, bool value) onToggleSelected;
+  final void Function(bool value) onToggleAll;
+
+  final Widget Function({
+    required bool isMe,
+    required bool isInvited,
+    required bool isDisabled,
+    required bool isLastAdmin,
+    required String uid,
+    required String email,
+    required String role,
+    required String status,
+    required String titleName,
+    required String firstName,
+    required String lastName,
+    required String displayName,
+    required Map<String, dynamic> communications,
+  })
+  actionsMenuBuilder;
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
+
+  String _prettyRole(String r) {
+    final v = r.toLowerCase().trim();
+    if (v.isEmpty) return '—';
+    return v[0].toUpperCase() + v.substring(1);
+  }
+
+  String _prettyStatus(String s) {
+    final v = s.toLowerCase().trim();
+    final normalized = (v == 'inactive')
+        ? 'disabled'
+        : (v == 'pending' ? 'invited' : v);
+    if (normalized.isEmpty) return '—';
+    return normalized[0].toUpperCase() + normalized.substring(1);
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toLowerCase().trim()) {
+      case 'active':
+        return Colors.green.shade800;
+      case 'invited':
+        return Colors.yellow.shade600;
+      case 'disabled':
+        return Colors.red.shade800;
+      default:
+        return const Color(0xFF475467);
+    }
+  }
+
+  Widget _headerCell(ThemeData theme, String label, double width) {
+    return SizedBox(
+      width: width,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontSize: 12,
+            color: const Color(0xFF475467),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusPillCompact(String rawStatus) {
+    final label = _prettyStatus(rawStatus);
+    final s = rawStatus.toLowerCase().trim();
+    final normalized = (s == 'inactive')
+        ? 'disabled'
+        : (s == 'pending' ? 'invited' : s);
+
+    Color bg;
+    Color border;
+    Color fg;
+
+    switch (normalized) {
+      case 'active':
+        bg = Colors.green.withOpacity(0.14);
+        border = Colors.green.shade700.withOpacity(0.30);
+        fg = Colors.green.shade900;
+        break;
+      case 'invited':
+        bg = Colors.amber.withOpacity(0.20);
+        border = Colors.amber.shade800.withOpacity(0.28);
+        fg = Colors.amber.shade900;
+        break;
+      case 'disabled':
+        bg = Colors.red.withOpacity(0.14);
+        border = Colors.red.shade700.withOpacity(0.28);
+        fg = Colors.red.shade900;
+        break;
+      default:
+        bg = Colors.grey.withOpacity(0.12);
+        border = Colors.grey.shade500.withOpacity(0.25);
+        fg = const Color(0xFF475467);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w900,
+          fontSize: 11, // ✅ compact for tight table column
+          height: 1.1,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final allSelected = docs.isNotEmpty && selected.length == docs.length;
+
+    return Column(
+      children: [
+        // ✅ Table header row (like screenshot)
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            border: Border(
+              bottom: BorderSide(color: Colors.black.withOpacity(0.06)),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: _wSelect,
+                child: Checkbox(
+                  value: allSelected,
+                  onChanged: busy ? null : (v) => onToggleAll(v == true),
+                ),
+              ),
+              _headerCell(theme, 'Name', _wName),
+              _headerCell(theme, 'Email', _wEmail),
+              _headerCell(theme, 'Wildix', _wWildix),
+              _headerCell(theme, 'Clearfly', _wClearfly),
+              _headerCell(theme, 'Role', _wRole),
+              _headerCell(theme, 'Status', _wStatus),
+              const SizedBox(width: _wActions),
+            ],
+          ),
+        ),
+
+        // ✅ Rows
+        Expanded(
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: docs.length,
+            separatorBuilder: (_, __) =>
+                Divider(height: 1, color: Colors.black.withOpacity(0.06)),
+            itemBuilder: (context, i) {
+              final d = docs[i];
+              final data = d.data() as Map<String, dynamic>;
+
+              final uid = d.id;
+              final email = _s(data['email']);
+              final firstName = _s(data['firstName']);
+              final lastName = _s(data['lastName']);
+              final displayName = _s(data['displayName']);
+              final role = _s(data['role']).isEmpty
+                  ? 'associate'
+                  : _s(data['role']);
+              final status = _s(data['status']);
+
+              final communications = Map<String, dynamic>.from(
+                data['communications'] ?? {},
+              );
+              final wildixExt = _s(communications['wildixExtension']);
+              final clearflyNum = _s(communications['clearflySmsNumber']);
+
+              final statusLower = status.toLowerCase().trim();
+              final normalizedStatus = statusLower == 'inactive'
+                  ? 'disabled'
+                  : statusLower;
+              final isInvited = normalizedStatus == 'invited';
+              final isDisabled =
+                  (data['disabled'] == true) || normalizedStatus == 'disabled';
+
+              final isMe = myUid != null && uid == myUid;
+              final isLastAdmin =
+                  role.toLowerCase() == 'admin' && adminCount <= 1;
+
+              final nameLabel = displayName.isNotEmpty
+                  ? displayName
+                  : ('$firstName $lastName').trim();
+              final titleName = nameLabel.isNotEmpty
+                  ? nameLabel
+                  : (email.isNotEmpty ? email : uid);
+
+              final isRowSelected = selected.contains(uid);
+
+              return InkWell(
+                onTap: busy
+                    ? null
+                    : () => onToggleSelected(uid, !isRowSelected),
+                child: Container(
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  color: isRowSelected
+                      ? AppColors.brandBlue.withOpacity(0.06)
+                      : Colors.transparent,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: _wSelect,
+                        child: Checkbox(
+                          value: isRowSelected,
+                          onChanged: busy
+                              ? null
+                              : (v) => onToggleSelected(uid, v == true),
+                        ),
+                      ),
+
+                      // Name (avatar + text)
+                      SizedBox(
+                        width: _wName,
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: theme.colorScheme.primary
+                                  .withOpacity(0.10),
+                              child: Icon(
+                                isMe
+                                    ? Icons.verified_user
+                                    : Icons.person_outline,
+                                size: 14,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                isMe ? '$titleName (You)' : titleName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF101828),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      SizedBox(
+                        width: _wEmail,
+                        child: Text(
+                          email.isEmpty ? '—' : email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF475467),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(
+                        width: _wWildix,
+                        child: Text(
+                          wildixExt.isEmpty ? '—' : wildixExt,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF475467),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(
+                        width: _wClearfly,
+                        child: Text(
+                          clearflyNum.isEmpty ? '—' : clearflyNum,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 12, // ✅ smaller text
+                            color: const Color(0xFF475467),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+
+                      // ✅ Role as plain text (no pill)
+                      SizedBox(
+                        width: _wRole,
+                        child: Text(
+                          role.isEmpty ? '—' : _prettyRole(role),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 12,
+                            color: const Color(0xFF475467),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+
+                      // ✅ Status column
+                      SizedBox(
+                        width: _wStatus,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FittedBox(
+                            fit: BoxFit
+                                .scaleDown, // ✅ ensures it never overflows
+                            alignment: Alignment.centerLeft,
+                            child: _statusPillCompact(status),
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(
+                        width: _wActions,
+                        child: actionsMenuBuilder(
+                          isMe: isMe,
+                          isInvited: isInvited,
+                          isDisabled: isDisabled,
+                          isLastAdmin: isLastAdmin,
+                          uid: uid,
+                          email: email,
+                          role: role,
+                          status: status,
+                          titleName: titleName,
+                          firstName: firstName,
+                          lastName: lastName,
+                          displayName: displayName,
+                          communications: communications,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({required this.role});
+  final String role;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = role.toLowerCase().trim();
+    final isAdmin = r == 'admin';
+
+    final bg = isAdmin
+        ? const Color(0xFF111827).withOpacity(0.08)
+        : AppColors.brandBlue.withOpacity(0.08);
+    final fg = isAdmin ? const Color(0xFF111827) : AppColors.brandBlue;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withOpacity(0.20)),
+      ),
+      child: Text(
+        isAdmin ? 'Admin' : 'Associate',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+      ),
     );
   }
 }

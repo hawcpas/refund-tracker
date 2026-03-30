@@ -19,7 +19,17 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
+import 'package:flutter_svg/flutter_svg.dart';
+import '../theme/brand_logo_svg.dart';
+
 const double kTopBarHeight = 48;
+
+// Admin routes
+const String kAdminUsersRoute = '/admin-users';
+const String kAdminAuditRoute = '/admin-audit';
+const String kAdminLinksRoute = '/admin-links';
+
+enum _NavSection { admin, home, files, requests }
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -33,6 +43,20 @@ class AppShell extends StatefulWidget {
 
   @override
   State<AppShell> createState() => AppShellState();
+}
+
+String _sectionTitle(_NavSection s) {
+  switch (s) {
+    case _NavSection.admin:
+      return 'Admin'; // ✅ ADD
+    case _NavSection.files:
+      return 'Files';
+    case _NavSection.requests:
+      return 'Requests';
+    case _NavSection.home:
+    default:
+      return 'Home';
+  }
 }
 
 class AppShellState extends State<AppShell> with TickerProviderStateMixin {
@@ -71,6 +95,31 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   late final AnimationController _accountSettingsAnim;
 
   bool get _isAccountSettingsOpen => _accountSettingsEntry != null;
+
+  _NavSection _section = _NavSection.home;
+
+  // Controls the BIG right-hand sidebar
+  bool _secondaryPaneCollapsed = false;
+
+  _NavSection _sectionForRoute(String route) {
+    if (route == kAdminUsersRoute ||
+        route == kAdminAuditRoute ||
+        route == kAdminLinksRoute) {
+      return _NavSection.admin;
+    }
+
+    if (route == '/admin-users') return _NavSection.admin; // ✅ ADD THIS
+
+    if (route == '/file-box') return _NavSection.files;
+
+    if (route == '/generate-upload-link' ||
+        route == '/create-upload-link' ||
+        route == '/dropoff-details') {
+      return _NavSection.requests;
+    }
+
+    return _NavSection.home;
+  }
 
   String _formatUsPhone10(String input) {
     final digits = input.replaceAll(RegExp(r'\D'), '');
@@ -689,6 +738,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _currentRoute = widget.initialRoute;
+    _section = _sectionForRoute(_currentRoute);
     // ✅ Deep-link support: open specific upload details from email link
     final rid = widget.deepLinkRid;
     if (rid != null &&
@@ -840,6 +890,14 @@ Please describe the issue below:
     if (_scaffoldKey.currentState?.isDrawerOpen == true) {
       Navigator.pop(context);
     }
+    // ✅ prevent accidental navigation to "coming soon" admin pages
+    if (route == kAdminAuditRoute || route == kAdminLinksRoute) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Coming soon.')));
+      return;
+    }
+
     if (route == '/admin-users' && !_isAdminUser) return;
 
     // Auto-open "More" when navigating to one of its routes (desktop + mobile)
@@ -857,7 +915,10 @@ Please describe the issue below:
     if (route == _currentRoute) return;
 
     // ✅ Swap content only — do NOT touch Navigator
-    setState(() => _currentRoute = route);
+    setState(() {
+      _currentRoute = route;
+      _section = _sectionForRoute(route);
+    });
   }
 
   Widget _buildContent() {
@@ -867,6 +928,12 @@ Please describe the issue below:
           requestId: _dropoffDetailsId!,
           onBack: _closeDropoffDetails,
         );
+      case kAdminAuditRoute:
+        return const Center(child: Text('Admin audit view (coming soon)'));
+
+      case kAdminLinksRoute:
+        return const Center(child: Text('Admin upload links (coming soon)'));
+
       case '/shared-files':
         return const SharedFilesScreen();
       case '/resources':
@@ -1164,23 +1231,571 @@ Please describe the issue below:
       body: Row(
         children: [
           if (!isMobileShell)
-            _SidebarNav(
+            _TwoPaneNav(
               currentRoute: _currentRoute,
-              onNavigate: _navigate,
-              collapsed: _sidebarCollapsed,
-              onToggleCollapse: () {
-                setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+              section: _section,
+              onSelectSection: (s) {
+                setState(() {
+                  _section = s;
+                  _secondaryPaneCollapsed = false;
+                });
+
+                switch (s) {
+                  case _NavSection.home:
+                    _navigate('/dashboard');
+                    break;
+                  case _NavSection.files:
+                    _navigate('/file-box');
+                    break;
+                  case _NavSection.requests:
+                    _navigate('/generate-upload-link');
+                    break;
+                  case _NavSection.admin:
+                    setState(() {
+                      _secondaryPaneCollapsed = false;
+                      _moreExpanded = false;
+                    });
+                    _navigate(kAdminUsersRoute);
+                    break;
+                }
               },
+              secondaryCollapsed: _secondaryPaneCollapsed,
+              onToggleSecondary: () {
+                setState(
+                  () => _secondaryPaneCollapsed = !_secondaryPaneCollapsed,
+                );
+              },
+              onNavigate: _navigate,
               showAdmin: _isAdminUser,
-              moreExpanded: _moreExpanded,
-              onToggleMore: () =>
-                  setState(() => _moreExpanded = !_moreExpanded),
+              onLogoTap: () => _navigate('/dashboard'),
             ),
 
           Expanded(child: _buildContent()),
         ],
       ),
     );
+  }
+}
+
+class _TwoPaneNav extends StatelessWidget {
+  const _TwoPaneNav({
+    required this.currentRoute,
+    required this.section,
+    required this.onSelectSection,
+    required this.secondaryCollapsed,
+    required this.onToggleSecondary,
+    required this.onNavigate,
+    required this.onLogoTap,
+    required this.showAdmin,
+  });
+
+  final String currentRoute;
+  final _NavSection section;
+  final ValueChanged<_NavSection> onSelectSection;
+
+  final bool secondaryCollapsed;
+  final VoidCallback onToggleSecondary;
+
+  final void Function(String route) onNavigate;
+  final VoidCallback onLogoTap;
+  final bool showAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _MiniRail(
+          active: section,
+          onSelect: onSelectSection,
+          onLogoTap: onLogoTap,
+          onToggleSecondary: onToggleSecondary,
+          secondaryCollapsed: secondaryCollapsed,
+          showAdmin: showAdmin, // ✅ PASS IT THROUGH
+        ),
+        if (!secondaryCollapsed)
+          _SecondaryPane(
+            title: _sectionTitle(section),
+            section: section,
+            currentRoute: currentRoute,
+            onNavigate: onNavigate,
+            showAdmin: showAdmin,
+          ),
+      ],
+    );
+  }
+}
+
+class _MiniRail extends StatelessWidget {
+  const _MiniRail({
+    required this.active,
+    required this.onSelect,
+    required this.onLogoTap,
+    required this.onToggleSecondary,
+    required this.secondaryCollapsed,
+    required this.showAdmin, // ✅ ADD THIS
+  });
+
+  final _NavSection active;
+  final ValueChanged<_NavSection> onSelect;
+  final VoidCallback onLogoTap;
+  final VoidCallback onToggleSecondary;
+  final bool secondaryCollapsed;
+  final bool showAdmin; // ✅ ADD THIS
+
+  static const double _w = 84;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _w,
+      decoration: BoxDecoration(
+        color: AppColors.navRail,
+        border: Border(
+          right: BorderSide(color: Colors.black.withOpacity(0.06)),
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+
+            // ✅ Clickable logo (go home)
+            InkWell(
+              onTap: onLogoTap,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: SizedBox(
+                  height: 34,
+                  width: 34,
+                  child: Center(
+                    child: SvgPicture.string(
+                      kBrandLogoSvg,
+                      height: 30, // slightly larger so the mark/text is visible
+                      fit: BoxFit.contain,
+                      allowDrawingOutsideViewBox:
+                          true, // prevents unexpected cropping on some SVGs
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            if (showAdmin) ...[
+              const SizedBox(height: 6),
+              Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+              const SizedBox(height: 6),
+
+              _MiniTile(
+                icon: Icons.admin_panel_settings_outlined,
+                label: 'Admin',
+                active: active == _NavSection.admin,
+                onTap: () => onSelect(_NavSection.admin),
+                accentOverride: const Color(
+                  0xFF111827,
+                ), // ✅ neutral “system” accent
+              ),
+
+              const SizedBox(height: 10),
+              Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            ],
+
+            _MiniTile(
+              icon: Icons.home_outlined,
+              label: 'Home',
+              active: active == _NavSection.home,
+              onTap: () => onSelect(_NavSection.home),
+            ),
+            const SizedBox(height: 6),
+
+            _MiniTile(
+              icon: Icons.folder_open_outlined,
+              label: 'Files',
+              active: active == _NavSection.files,
+              onTap: () => onSelect(_NavSection.files),
+            ),
+            const SizedBox(height: 6),
+
+            _MiniTile(
+              icon: Icons.request_page_outlined,
+              label: 'Request',
+              active: active == _NavSection.requests,
+              onTap: () => onSelect(_NavSection.requests),
+            ),
+
+            const Spacer(),
+
+            // ✅ Collapse / Expand the secondary pane
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: IconButton(
+                tooltip: secondaryCollapsed ? 'Expand menu' : 'Collapse menu',
+                icon: Icon(
+                  secondaryCollapsed ? Icons.chevron_right : Icons.chevron_left,
+                ),
+                onPressed: onToggleSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniTile extends StatelessWidget {
+  const _MiniTile({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.accentOverride, // ✅ ADD
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  final Color? accentOverride; // ✅ ADD
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = accentOverride ?? AppColors.brandBlue; // ✅
+    final bg = active ? accent.withOpacity(0.12) : Colors.transparent;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 64,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 22,
+              color: active ? accent : const Color(0xFF667085),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                color: active ? accent : const Color(0xFF475467),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SecondaryPane extends StatelessWidget {
+  const _SecondaryPane({
+    required this.title,
+    required this.section,
+    required this.currentRoute,
+    required this.onNavigate,
+    required this.showAdmin,
+  });
+
+  final String title;
+  final _NavSection section;
+  final String currentRoute;
+  final void Function(String route) onNavigate;
+  final bool showAdmin;
+
+  static const double _w = 260;
+
+  @override
+  Widget build(BuildContext context) {
+    List<_PaneItem> items;
+
+    switch (section) {
+      case _NavSection.admin:
+        items = const [
+          // ✅ ONLY clickable admin page
+          _PaneItem('Users', Icons.people_outline, kAdminUsersRoute),
+
+          // 🚫 Disabled (coming soon)
+          _PaneItem(
+            'Activity & Audit',
+            Icons.receipt_long_outlined,
+            kAdminAuditRoute,
+            enabled: false,
+            disabledHint: 'Coming soon',
+          ),
+
+          // 🚫 Disabled (coming soon)
+          _PaneItem(
+            'Upload Links',
+            Icons.link_outlined,
+            kAdminLinksRoute,
+            enabled: false,
+            disabledHint: 'Coming soon',
+          ),
+        ];
+        break;
+      case _NavSection.files:
+        items = const [
+          _PaneItem('All files', Icons.folder_open_outlined, '/file-box'),
+          _PaneItem(
+            'Upload Requests',
+            Icons.request_page_outlined,
+            '/generate-upload-link',
+          ),
+        ];
+        break;
+
+      case _NavSection.requests:
+        items = const [
+          _PaneItem(
+            'All requests',
+            Icons.request_page_outlined,
+            '/generate-upload-link',
+          ),
+          _PaneItem(
+            'Create request',
+            Icons.add_circle_outline,
+            '/create-upload-link',
+          ),
+        ];
+        break;
+
+      case _NavSection.home:
+      default:
+        items = const [
+          _PaneItem('Dashboard', Icons.home_outlined, '/dashboard'),
+          _PaneItem(
+            'Firm documents',
+            Icons.folder_shared_outlined,
+            '/shared-files',
+          ),
+          _PaneItem(
+            'Websites & Resources',
+            Icons.public_outlined,
+            '/resources',
+          ),
+          _PaneItem(
+            'Account settings',
+            Icons.person_outline,
+            '/account-settings',
+          ),
+        ];
+        break;
+    }
+
+    return Container(
+      width: _w,
+      decoration: BoxDecoration(
+        color: AppColors.navRail, // ✅ SAME as mini rail
+        border: Border(
+          right: BorderSide(color: Colors.black.withOpacity(0.06)),
+        ),
+      ),
+
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 10),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16, // ✅ slightly smaller
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF101828),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            const SizedBox(height: 4),
+
+            // Section items
+            ...items.map((it) {
+              final active = currentRoute == it.route;
+
+              return _PaneNavRow(
+                label: it.label,
+                icon: it.icon,
+                active: active,
+                enabled: it.enabled, // ✅ pass through
+                disabledHint: it.disabledHint, // ✅ pass through
+                onTap: () => onNavigate(it.route),
+              );
+            }),
+
+            const Spacer(),
+
+            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            const SizedBox(height: 6),
+
+            _PaneNavRow(
+              label: 'Sign out',
+              icon: Icons.logout,
+              active: false,
+              onTap: () => onNavigate('__logout__'),
+              danger: true,
+            ),
+
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaneItem {
+  final String label;
+  final IconData icon;
+  final String route;
+
+  // ✅ new
+  final bool enabled;
+  final String? disabledHint;
+
+  const _PaneItem(
+    this.label,
+    this.icon,
+    this.route, {
+    this.enabled = true,
+    this.disabledHint,
+  });
+}
+
+class _PaneNavRow extends StatefulWidget {
+  const _PaneNavRow({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    this.enabled = true, // ✅ add
+    this.disabledHint, // ✅ add
+    this.danger = false,
+    this.accentOverride,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  final bool enabled; // ✅ add
+  final String? disabledHint; // ✅ add
+
+  final bool danger;
+  final Color? accentOverride;
+
+  @override
+  State<_PaneNavRow> createState() => _PaneNavRowState();
+}
+
+class _PaneNavRowState extends State<_PaneNavRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = widget.enabled;
+
+    final accent =
+        widget.accentOverride ??
+        (widget.danger ? const Color(0xFFB42318) : AppColors.brandBlue);
+
+    // Disabled palette (enterprise subtle)
+    final disabledFg = const Color(0xFF98A2B3);
+    final disabledIcon = const Color(0xFFB0B7C3);
+
+    final bg = !enabled
+        ? Colors.transparent
+        : widget.active
+        ? accent.withOpacity(0.10)
+        : _hover
+        ? Colors.black.withOpacity(0.04)
+        : Colors.transparent;
+
+    final fg = !enabled
+        ? disabledFg
+        : widget.danger
+        ? const Color(0xFFB42318)
+        : (widget.active ? accent : const Color(0xFF344054));
+
+    final iconColor = !enabled
+        ? disabledIcon
+        : widget.danger
+        ? const Color(0xFFB42318)
+        : (widget.active ? accent : const Color(0xFF667085));
+
+    final row = InkWell(
+      onTap: enabled ? widget.onTap : null, // ✅ disables click
+      child: Container(
+        height: 36,
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(widget.icon, size: 18, color: iconColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: widget.active ? FontWeight.w700 : FontWeight.w500,
+                  color: fg,
+                ),
+              ),
+            ),
+
+            // ✅ optional "coming soon" hint
+            if (!enabled)
+              const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Icon(
+                  Icons.lock_outline,
+                  size: 16,
+                  color: Color(0xFFB0B7C3),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    // ✅ no hover behavior when disabled
+    final wrapped = MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: enabled ? (_) => setState(() => _hover = true) : null,
+      onExit: enabled ? (_) => setState(() => _hover = false) : null,
+      child: row,
+    );
+
+    // ✅ optional tooltip for disabled rows (nice enterprise cue)
+    if (!enabled && (widget.disabledHint?.trim().isNotEmpty ?? false)) {
+      return Tooltip(message: widget.disabledHint!, child: wrapped);
+    }
+
+    return wrapped;
   }
 }
 

@@ -251,7 +251,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Upload links
           FluentCommandAction(
             icon: Icons.link_outlined,
-            label: 'Rqquest',
+            label: 'Request',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/generate-upload-link')
                 : null,
