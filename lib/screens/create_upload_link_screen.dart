@@ -133,7 +133,7 @@ class _CreateUploadLinkScreenState extends State<CreateUploadLinkScreen> {
       }
 
       if (!mounted) return;
-      _toast('Client upload link created and copied.');
+      _toast('Request link created and copied.');
       widget.onCancel?.call();
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -188,7 +188,7 @@ class _CreateUploadLinkScreenState extends State<CreateUploadLinkScreen> {
                           children: [
                             // ===== Header =====
                             Text(
-                              'Create Client Upload Link',
+                              'Create Request Link',
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w900,
                                 color: const Color(0xFF101828),

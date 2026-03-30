@@ -44,6 +44,13 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   bool _isAdminUser = false;
   bool _authReady = false;
   bool _otpVerified = false;
+  bool _moreExpanded = false;
+
+  bool get _isMoreRoute =>
+      _currentRoute == '/shared-files' ||
+      _currentRoute == '/resources' ||
+      _currentRoute == '/account-settings';
+
   StreamSubscription<User?>? _tokenSub;
 
   late String _currentRoute;
@@ -749,16 +756,16 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       case '/account-settings':
         return 'Account Settings';
       case '/file-box':
-        return 'File Box';
+        return 'Files';
       case '/generate-upload-link':
-        return 'Client Upload Links';
+        return 'Requests';
       case '/admin-users':
         return 'Admin Console';
       case '/dropoff-details':
         return 'Upload Link Details';
       case '/dashboard':
       default:
-        return 'Dashboard';
+        return 'Home';
     }
   }
 
@@ -834,6 +841,13 @@ Please describe the issue below:
       Navigator.pop(context);
     }
     if (route == '/admin-users' && !_isAdminUser) return;
+
+    // Auto-open "More" when navigating to one of its routes (desktop + mobile)
+    if (route == '/shared-files' ||
+        route == '/resources' ||
+        route == '/account-settings') {
+      _moreExpanded = true;
+    }
 
     if (route == '__logout__') {
       await _logout();
@@ -1137,7 +1151,10 @@ Please describe the issue below:
                   onNavigate: _navigate,
                   collapsed: false,
                   onToggleCollapse: () {},
-                  showAdmin: _isAdminUser, // ✅ add
+                  showAdmin: _isAdminUser,
+                  moreExpanded: _moreExpanded,
+                  onToggleMore: () =>
+                      setState(() => _moreExpanded = !_moreExpanded),
                 ),
               ),
             )
@@ -1154,7 +1171,10 @@ Please describe the issue below:
               onToggleCollapse: () {
                 setState(() => _sidebarCollapsed = !_sidebarCollapsed);
               },
-              showAdmin: _isAdminUser, // ✅ add
+              showAdmin: _isAdminUser,
+              moreExpanded: _moreExpanded,
+              onToggleMore: () =>
+                  setState(() => _moreExpanded = !_moreExpanded),
             ),
 
           Expanded(child: _buildContent()),
@@ -1164,26 +1184,33 @@ Please describe the issue below:
   }
 }
 
-/// ============================
-/// Sidebar Navigation (single source of truth)
-/// ============================
 class _SidebarNav extends StatelessWidget {
   const _SidebarNav({
     required this.currentRoute,
     required this.onNavigate,
     required this.collapsed,
     required this.onToggleCollapse,
-    required this.showAdmin, // ✅ add
+    required this.showAdmin,
+    required this.moreExpanded,
+    required this.onToggleMore,
   });
 
   final String currentRoute;
   final void Function(String route) onNavigate;
   final bool collapsed;
   final VoidCallback onToggleCollapse;
-  final bool showAdmin; // ✅ add
+  final bool showAdmin;
+
+  final bool moreExpanded;
+  final VoidCallback onToggleMore;
 
   @override
   Widget build(BuildContext context) {
+    final bool isMoreActive =
+        currentRoute == '/shared-files' ||
+        currentRoute == '/resources' ||
+        currentRoute == '/account-settings';
+
     return Container(
       width: collapsed ? 64 : 210,
       padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
@@ -1203,6 +1230,9 @@ class _SidebarNav extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
+          // ======================
+          // ADMIN (optional)
+          // ======================
           if (showAdmin) ...[
             const SizedBox(height: 10),
             Divider(height: 1, color: Colors.black.withOpacity(0.08)),
@@ -1217,20 +1247,18 @@ class _SidebarNav extends StatelessWidget {
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.1,
-                    color: Color(0xFF111827), // ✅ different section color
+                    color: Color(0xFF111827),
                   ),
                 ),
               ),
 
             _SidebarNavItem(
               icon: Icons.admin_panel_settings_outlined,
-              label: 'Admin Console',
+              label: 'Admin',
               route: '/admin-users',
               currentRoute: currentRoute,
               onNavigate: onNavigate,
               collapsed: collapsed,
-
-              // ✅ use a distinct accent color for admin
               accentOverride: const Color(0xFF111827),
             ),
           ],
@@ -1239,9 +1267,12 @@ class _SidebarNav extends StatelessWidget {
           Divider(height: 1, color: Colors.black.withOpacity(0.08)),
           const SizedBox(height: 6),
 
+          // ======================
+          // PRIMARY
+          // ======================
           _SidebarNavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Dashboard',
+            icon: Icons.home_outlined, // ✅ better semantic fit
+            label: 'Home',
             route: '/dashboard',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
@@ -1250,8 +1281,8 @@ class _SidebarNav extends StatelessWidget {
           const SizedBox(height: 4),
 
           _SidebarNavItem(
-            icon: Icons.folder_open_outlined,
-            label: 'File Box',
+            icon: Icons.folder_open_outlined, // ✅ Files icon
+            label: 'Files',
             route: '/file-box',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
@@ -1260,8 +1291,8 @@ class _SidebarNav extends StatelessWidget {
           const SizedBox(height: 4),
 
           _SidebarNavItem(
-            icon: Icons.link_outlined,
-            label: 'Client Upload Links',
+            icon: Icons.request_page_outlined, // ✅ Request icon
+            label: 'Request',
             route: '/generate-upload-link',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
@@ -1269,36 +1300,54 @@ class _SidebarNav extends StatelessWidget {
           ),
           const SizedBox(height: 4),
 
-          _SidebarNavItem(
-            icon: Icons.folder_shared_outlined,
-            label: 'Firm Documents',
-            route: '/shared-files',
-            currentRoute: currentRoute,
-            onNavigate: onNavigate,
+          // ======================
+          // MORE (expands / popup)
+          // ======================
+          _SidebarMoreEntry(
             collapsed: collapsed,
-          ),
-          const SizedBox(height: 4),
-
-          _SidebarNavItem(
-            icon: Icons.link_outlined,
-            label: 'Websites & Resources',
-            route: '/resources',
-            currentRoute: currentRoute,
+            active: isMoreActive,
+            expanded: moreExpanded,
+            onToggleExpanded: onToggleMore,
             onNavigate: onNavigate,
-            collapsed: collapsed,
-          ),
-          const SizedBox(height: 4),
-
-          _SidebarNavItem(
-            icon: Icons.person_outline,
-            label: 'Account Settings',
-            route: '/account-settings',
-            currentRoute: currentRoute,
-            onNavigate: onNavigate,
-            collapsed: collapsed,
           ),
 
-          const SizedBox(height: 6),
+          if (!collapsed && moreExpanded) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 18),
+              child: Column(
+                children: [
+                  _SidebarNavItem(
+                    icon: Icons.folder_shared_outlined,
+                    label: 'Firm documents',
+                    route: '/shared-files',
+                    currentRoute: currentRoute,
+                    onNavigate: onNavigate,
+                    collapsed: false,
+                  ),
+                  _SidebarNavItem(
+                    icon: Icons.public_outlined,
+                    label: 'Websites & Resources',
+                    route: '/resources',
+                    currentRoute: currentRoute,
+                    onNavigate: onNavigate,
+                    collapsed: false,
+                  ),
+                  _SidebarNavItem(
+                    icon: Icons.person_outline,
+                    label: 'Account settings',
+                    route: '/account-settings',
+                    currentRoute: currentRoute,
+                    onNavigate: onNavigate,
+                    collapsed: false,
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const Spacer(),
+
           Divider(height: 1, color: Colors.black.withOpacity(0.08)),
           const SizedBox(height: 6),
 
@@ -1312,6 +1361,153 @@ class _SidebarNav extends StatelessWidget {
             collapsed: collapsed,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SidebarMoreEntry extends StatefulWidget {
+  const _SidebarMoreEntry({
+    required this.collapsed,
+    required this.active,
+    required this.expanded,
+    required this.onToggleExpanded,
+    required this.onNavigate,
+  });
+
+  final bool collapsed;
+  final bool active;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+  final void Function(String route) onNavigate;
+
+  @override
+  State<_SidebarMoreEntry> createState() => _SidebarMoreEntryState();
+}
+
+class _SidebarMoreEntryState extends State<_SidebarMoreEntry> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppColors.brandBlue;
+    final bg = widget.active
+        ? accent.withOpacity(0.10)
+        : _hover
+        ? Colors.black.withOpacity(0.06)
+        : Colors.transparent;
+
+    // When collapsed, show a popup menu instead of expanding
+    if (widget.collapsed) {
+      return MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: Container(
+          height: 42,
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: PopupMenuButton<String>(
+            tooltip: 'More',
+            padding: EdgeInsets.zero,
+            offset: const Offset(56, 0),
+            onSelected: (v) => widget.onNavigate(v),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: '/shared-files',
+                child: Text('Firm documents'),
+              ),
+              PopupMenuItem(
+                value: '/resources',
+                child: Text('Websites & Resources'),
+              ),
+              PopupMenuItem(
+                value: '/account-settings',
+                child: Text('Account settings'),
+              ),
+            ],
+            child: Row(
+              children: [
+                Container(
+                  width: 3,
+                  height: double.infinity,
+                  decoration: BoxDecoration(
+                    color: widget.active ? accent : Colors.transparent,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(6),
+                      bottomLeft: Radius.circular(6),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.more_horiz,
+                  size: 18,
+                  color: widget.active ? accent : const Color(0xFF667085),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Expanded sidebar: toggle open/close
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onToggleExpanded,
+        child: Container(
+          height: 42,
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: widget.active ? accent : Colors.transparent,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(6),
+                    bottomLeft: Radius.circular(6),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.more_horiz,
+                size: 18,
+                color: widget.active ? accent : const Color(0xFF667085),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'More',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF344054),
+                  ),
+                ),
+              ),
+              Icon(
+                widget.expanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+                color: const Color(0xFF667085),
+              ),
+              const SizedBox(width: 10),
+            ],
+          ),
+        ),
       ),
     );
   }

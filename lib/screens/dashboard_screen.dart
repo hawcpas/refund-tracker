@@ -241,7 +241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // File Box
           FluentCommandAction(
             icon: Icons.folder_open_outlined,
-            label: 'File Box',
+            label: 'Files',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/file-box')
                 : null,
@@ -251,7 +251,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Upload links
           FluentCommandAction(
             icon: Icons.link_outlined,
-            label: 'Upload links',
+            label: 'Rqquest',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/generate-upload-link')
                 : null,
@@ -288,10 +288,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   SizedBox(
                     width: isNarrow ? constraints.maxWidth : 420,
                     child: _DashboardActionCard(
-                      title: 'File Box',
+                      title: 'Files',
                       description:
                           'Review, manage, and securely store documents uploaded by clients.',
-                      buttonLabel: 'Open File Box',
+                      buttonLabel: 'Open files',
                       onPressed: _hasDropoffAccess
                           ? () => Navigator.pushNamed(context, '/file-box')
                           : () {},
@@ -301,10 +301,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   SizedBox(
                     width: isNarrow ? constraints.maxWidth : 420,
                     child: _DashboardActionCard(
-                      title: 'Create Upload Link',
+                      title: 'Requests',
                       description:
                           'Generate a secure upload link for clients to submit documents.',
-                      buttonLabel: 'Create link',
+                      buttonLabel: 'Request files',
                       onPressed: _hasDropoffAccess
                           ? () => Navigator.pushNamed(
                               context,
@@ -326,7 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: const [
                 _InfoRow(
                   text:
-                      'You do not currently have access to File Box or Upload links. '
+                      'You do not currently have access to Files or Request links. '
                       'Please contact an administrator if this is unexpected.',
                 ),
               ],
