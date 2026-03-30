@@ -161,7 +161,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Client upload link ${status == "open" ? "enabled" : "disabled"}',
+            'Request link ${status == "open" ? "enabled" : "disabled"}',
           ),
         ),
       );
@@ -216,7 +216,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Client upload link deleted.')),
+        const SnackBar(content: Text('Request link deleted.')),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -246,9 +246,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         title: const Text('Delete selected links'),
         content: Text(
           isArchived
-              ? 'Permanently delete ${requestIds.length} archived upload link(s)? '
+              ? 'Permanently delete ${requestIds.length} archived request link(s)? '
                     'This action cannot be undone.'
-              : 'Delete ${requestIds.length} client upload link(s)? '
+              : 'Delete ${requestIds.length} Request link(s)? '
                     'This will remove the request and all associated uploads.',
         ),
         actions: [
@@ -404,7 +404,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Client Upload Links',
+                                  'Request Links',
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w900,
                                     color: const Color(0xFF101828),
@@ -645,7 +645,7 @@ class _RequestsListState extends State<_RequestsList> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'View & Edit Upload Links',
+            'View & Edit Request Links',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: const Color(0xFF101828),
@@ -887,7 +887,7 @@ class _RequestsListState extends State<_RequestsList> {
                   return Center(
                     child: Text(
                       _q.isEmpty
-                          ? 'No client upload links yet.'
+                          ? 'No request links yet.'
                           : 'No results found.',
                       style: const TextStyle(color: Color(0xFF667085)),
                     ),
@@ -1347,7 +1347,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('Client upload link copied.'),
+                                content: Text('Request link copied.'),
                               ),
                             );
                           }
@@ -1684,7 +1684,7 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
       ).httpsCallable('deleteDropoffRequest').call({'requestId': requestId});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Client upload link deleted.')),
+        const SnackBar(content: Text('Request link deleted.')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1711,13 +1711,13 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                     TextButton.icon(
                       onPressed: _busy ? null : widget.onBack,
                       icon: const Icon(Icons.arrow_back),
-                      label: const Text('Back to Client Upload Links'),
+                      label: const Text('Back to Request Links'),
                     ),
                     const SizedBox(height: 8),
                   ],
 
                   Text(
-                    'Client Upload Link Details',
+                    'Request Link Details',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w900,
                       color: const Color(0xFF101828),

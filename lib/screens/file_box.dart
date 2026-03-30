@@ -618,7 +618,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     // ✅ Content-only screen (AppShell provides AppBar + sidebar)
 
     return PageScaffold(
-      title: 'File Box',
+      title: 'Files',
       subtitle: isAdmin
           ? 'All uploads across all client upload links.'
           : 'Uploads from associate-created client upload links.',
