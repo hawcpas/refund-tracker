@@ -321,6 +321,130 @@ function renderOtpEmail({ appName, code }) {
 `;
 }
 
+function renderEmailChangeVerificationEmail({ appName, confirmUrl }) {
+  return `
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <!-- ✅ Preheader (inbox / lock screen preview) -->
+  <div style="
+    display:none;
+    max-height:0;
+    overflow:hidden;
+    mso-hide:all;
+    font-size:1px;
+    line-height:1px;
+    color:#ffffff;
+  ">
+    Confirm your new email address for ${appName}. This link expires in 1 hour.
+  </div>
+
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="max-width:620px; margin:0 auto; background:#ffffff;">
+
+    <!-- Header / Logo -->
+    <tr>
+      <td style="padding:28px 24px 18px 24px;
+                 border-bottom:1px solid #E4E7EC;
+                 background:#F9FAFB;">
+        <img
+          src="${getEmailLogoUrl()}"
+          alt="Axume & Associates CPAs"
+          width="360"
+          style="display:block;border:0;outline:none;
+                 text-decoration:none;max-width:360px;height:auto;"
+        />
+      </td>
+    </tr>
+
+    <!-- Body -->
+    <tr>
+      <td style="padding:24px;">
+
+        <h2 style="margin:0 0 6px 0;
+                   font-size:20px;
+                   font-weight:700;
+                   color:#0B1F33;">
+          Email change confirmation required
+        </h2>
+
+        <p style="margin:0 0 18px 0;
+                  font-size:14px;
+                  color:#475467;">
+          ${appName}
+        </p>
+
+        <p style="margin:0 0 14px 0;">
+          A request was made to change the email address associated with your account.
+        </p>
+
+        <p style="margin:0 0 18px 0;">
+          To complete this change, please confirm the new email address by selecting
+          the button below.
+        </p>
+
+        <!-- Action -->
+        <div style="margin:20px 0 22px 0;
+                    padding:16px;
+                    border:1px solid #E4E7EC;
+                    border-radius:10px;
+                    background:#F9FAFB;
+                    text-align:center;">
+          <a
+            href="${confirmUrl}"
+            style="display:inline-block;
+                   padding:10px 16px;
+                   background:#0B1F33;
+                   color:#ffffff;
+                   text-decoration:none;
+                   border-radius:6px;
+                   font-weight:600;
+                   font-size:14px;">
+            Confirm email change
+          </a>
+        </div>
+
+        <p style="margin:0 0 14px 0;
+                  font-size:13px;
+                  color:#475467;">
+          This link expires in <b>1 hour</b> and can only be used once.
+        </p>
+
+        <p style="margin:0 0 14px 0;
+                  font-size:13px;
+                  color:#475467;">
+          If you did not request this change, no action is required and your
+          account will remain unchanged.
+        </p>
+
+        <!-- Support -->
+        <p style="margin:20px 0 0 0;">
+          Regards,<br/>
+          <b>Axume &amp; Associates CPAs</b><br/>
+          <span style="font-size:13px; color:#667085;">
+            Internal Systems Administration
+          </span>
+        </p>
+
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="padding:16px 24px;
+                 border-top:1px solid #E4E7EC;">
+        <p style="margin:0;
+                  font-size:12px;
+                  color:#667085;">
+          This message was generated automatically by the firm’s internal systems.
+          Please do not reply.
+        </p>
+      </td>
+    </tr>
+
+  </table>
+</div>
+`;
+}
+
 function safeFilename(name) {
   return (name || "")
     .toString()
@@ -956,6 +1080,160 @@ exports.inviteUser = onCall(
     }
   }
 );
+
+exports.requestEmailChange = onCall(
+  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign-in required.");
+    }
+
+    const uid = request.auth.uid;
+    const newEmail = String(request.data?.email || "").trim().toLowerCase();
+
+    if (!newEmail || !newEmail.includes("@")) {
+      throw new HttpsError("invalid-argument", "Valid email is required.");
+    }
+
+    const user = await admin.auth().getUser(uid);
+    const currentEmail = (user.email || "").toLowerCase();
+
+    if (newEmail === currentEmail) {
+      throw new HttpsError(
+        "failed-precondition",
+        "New email must be different from current email."
+      );
+    }
+
+    // ✅ Generate secure token
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const EXPIRES_MS = 60 * 60 * 1000; // 1 hour
+    const expiresAt = admin.firestore.Timestamp.fromMillis(
+      Date.now() + EXPIRES_MS
+    );
+
+    const emailChangeRef = admin
+      .firestore()
+      .collection("users")
+      .doc(uid)
+      .collection("emailChange")
+      .doc("pending");
+
+    await emailChangeRef.set({
+      pendingEmail: newEmail,
+      tokenHash,
+      expiresAt,
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // ✅ Build confirmation link
+    const baseUrl = APP_URL.value().replace(/\/$/, "");
+    const confirmUrl = `${baseUrl}/confirm-email-change?uid=${uid}&token=${token}`;
+
+    await sendAccountEmail({
+      to: newEmail,
+      subject: "Confirm your email address change",
+      html: renderEmailChangeVerificationEmail({
+        appName: APP_NAME.value(),
+        confirmUrl,
+      }),
+    });
+
+    // ✅ Audit log
+    await admin.firestore().collection("auditLogs").add({
+      type: "email_change_requested",
+      uid,
+      oldEmail: currentEmail,
+      newEmail,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true };
+  }
+);
+
+exports.confirmEmailChange = functions.https.onRequest(async (req, res) => {
+  try {
+    const uid = String(req.query.uid || "").trim();
+    const token = String(req.query.token || "").trim();
+
+    if (!uid || !token) {
+      return res.status(400).send("Invalid or missing parameters.");
+    }
+
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const emailChangeRef = admin
+      .firestore()
+      .collection("users")
+      .doc(uid)
+      .collection("emailChange")
+      .doc("pending");
+
+    const snap = await emailChangeRef.get();
+
+    if (!snap.exists) {
+      return res.status(410).send("This email change request is no longer valid.");
+    }
+
+    const data = snap.data();
+    const { pendingEmail, expiresAt } = data || {};
+
+    if (!pendingEmail || !expiresAt) {
+      return res.status(410).send("Invalid email change request.");
+    }
+
+    if (expiresAt.toMillis() < Date.now()) {
+      await emailChangeRef.delete();
+      return res.status(410).send("This email change request has expired.");
+    }
+
+    if (data.tokenHash !== tokenHash) {
+      return res.status(403).send("Invalid verification token.");
+    }
+
+    // ✅ Update Firebase Auth email
+    await admin.auth().updateUser(uid, {
+      email: pendingEmail,
+      emailVerified: true,
+    });
+
+    // ✅ Update Firestore user profile
+    await admin.firestore().collection("users").doc(uid).set(
+      {
+        email: pendingEmail,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // ✅ Cleanup
+    await emailChangeRef.delete();
+
+    // ✅ Audit log
+    await admin.firestore().collection("auditLogs").add({
+      type: "email_change_confirmed",
+      uid,
+      newEmail: pendingEmail,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // ✅ Redirect user back to portal
+    const redirectUrl = `${APP_URL.value().replace(/\/$/, "")}/account-settings?emailChanged=1`;
+    return res.redirect(302, redirectUrl);
+  } catch (err) {
+    console.error("confirmEmailChange failed:", err);
+    return res.status(500).send("Email confirmation failed.");
+  }
+});
 
 exports.finalizeDropoffUpload = onCall(
   { region: "us-central1" },
