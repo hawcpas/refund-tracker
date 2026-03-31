@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
@@ -486,7 +487,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
             handleCodeInApp: false,
           );
 
-          await user.verifyBeforeUpdateEmail(newEmail, acs);
+          final fn = FirebaseFunctions.instance.httpsCallable(
+            'requestEmailChange',
+          );
+          await fn.call({'email': newEmail});
 
           // ✅ Store as pending ONLY
           updates['pendingEmail'] = newEmail;

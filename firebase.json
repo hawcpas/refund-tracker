@@ -67,6 +67,10 @@
         "destination": "/icons/**"
       },
       {
+        "source": "/confirm-email-change",
+        "function": "confirmEmailChange"
+      },
+      {
         "source": "/auth/action",
         "destination": "/index.html"
       },
