@@ -752,28 +752,52 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
       if (!mounted) return;
 
+      // Signed out
       if (user == null) {
-        setState(() {
-          _authReady = true;
-          _otpVerified = false;
-        });
+        if (_authReady != true || _otpVerified != false) {
+          setState(() {
+            _authReady = true;
+            _otpVerified = false;
+          });
+        }
         return;
       }
-      final token = await user.getIdTokenResult(true);
+
+      // ✅ IMPORTANT: Do NOT force-refresh inside idTokenChanges (no recursion)
+      final token = await user.getIdTokenResult(); // <-- no "true"
       final claims = token.claims ?? {};
+
       final otp = claims['otp_verified'] == true;
 
+      // otp_verified_at (ms)
       final at = claims['otp_verified_at'];
-      final atMs = (at is int) ? at : (at is num ? at.toInt() : 0);
+      final otpAtMs = (at is int) ? at : (at is num ? at.toInt() : 0);
+
+      // auth_time (seconds since epoch) -> ms
+      final authTime = claims['auth_time'];
+      final authMs = (authTime is int)
+          ? authTime * 1000
+          : (authTime is num ? authTime.toInt() * 1000 : 0);
+
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-      // ✅ 1 hour validity
-      final otpFresh = otp && atMs > 0 && (nowMs - atMs) <= (60 * 60 * 1000);
+      // OTP must be after this login (allow 5s skew)
+      final otpAfterThisLogin = authMs == 0 || otpAtMs >= (authMs - 5000);
 
-      setState(() {
-        _authReady = true;
-        _otpVerified = otpFresh;
-      });
+      // 1 hour validity
+      final otpFresh =
+          otp &&
+          otpAtMs > 0 &&
+          otpAfterThisLogin &&
+          (nowMs - otpAtMs) <= (60 * 60 * 1000);
+
+      // ✅ Only setState when values actually change (prevents churn)
+      if (!_authReady || _otpVerified != otpFresh) {
+        setState(() {
+          _authReady = true;
+          _otpVerified = otpFresh;
+        });
+      }
     });
 
     _accountSettingsAnim = AnimationController(
@@ -913,6 +937,11 @@ Please describe the issue below:
     }
 
     if (route == _currentRoute) return;
+
+    if (route == '/account-settings') {
+      // Prevent stale loading loop when re-entering
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
 
     // ✅ Swap content only — do NOT touch Navigator
     setState(() {

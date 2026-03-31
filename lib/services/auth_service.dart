@@ -136,6 +136,29 @@ class AuthService {
     await _auth.currentUser?.getIdToken(true);
   }
 
+  bool get isOtpVerified {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    final claims = user.refreshToken == null
+        ? null
+        : user.providerData; // defensive
+
+    final token = user.metadata; // not used directly
+
+    final idTokenResult = _auth.currentUser?.getIdTokenResult();
+
+    // We cannot await here — use cached claims
+    final decoded = _auth.currentUser?.getIdTokenResult();
+
+    // ✅ SAFER: rely on cached claims already loaded
+    final claimsMap = (_auth.currentUser as dynamic)?._delegate?.claims;
+
+    return claimsMap != null &&
+        claimsMap['otp_verified'] == true &&
+        claimsMap['otp_verified_at'] is int;
+  }
+
   Future<void> markUserActiveIfInvited() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;

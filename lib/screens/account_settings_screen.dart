@@ -231,6 +231,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   String? _success;
 
   bool _profileChanged = false;
+  bool _didLoadOnce = false;
 
   late final TabController _tabController;
 
@@ -248,9 +249,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   @override
   void initState() {
     super.initState();
+
     _tabController = TabController(length: 2, vsync: this);
 
-    // ✅ Keep segmented control in sync when index changes
     _tabController.addListener(() {
       if (!mounted) return;
       if (!_tabController.indexIsChanging) {
@@ -258,9 +259,10 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       }
     });
 
-    // ✅ always reload when screen is entered
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future<void>.delayed(const Duration(milliseconds: 16));
+    // ✅ Load profile once after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_didLoadOnce) return;
+      _didLoadOnce = true;
       _loadProfile();
     });
   }
@@ -282,11 +284,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
   }
 
   Future<void> _loadProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
     try {
-      // 1) Get Firestore profile first (server source)
+      // ✅ Give Firebase Auth a moment to hydrate when navigating via shell
+      if (FirebaseAuth.instance.currentUser == null) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        // Still null after delay → bail gracefully
+        return;
+      }
+
+      // 1) Get Firestore profile
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -294,7 +304,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
 
       final data = Map<String, dynamic>.from(doc.data() ?? {});
 
-      // 2) Determine admin (kept as-is)
+      // 2) Determine admin
       final role = (data['role'] ?? '').toString().toLowerCase().trim();
       _isAdmin = role == 'admin';
 
@@ -303,9 +313,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       final refreshedUser = FirebaseAuth.instance.currentUser;
       final authEmail = (refreshedUser?.email ?? '').trim();
 
-      // 4) If we have a pending email AND Auth now equals it, sync Firestore
+      // 4) Sync pending email if verified
       final pendingEmail = (data['pendingEmail'] ?? '').toString().trim();
-
       if (pendingEmail.isNotEmpty &&
           authEmail.isNotEmpty &&
           authEmail == pendingEmail) {
@@ -315,12 +324,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        // Update our local copy so the UI reflects the sync immediately
         data['email'] = authEmail;
         data.remove('pendingEmail');
       }
 
-      // 5) Load name fields (your current logic)
+      // ✅ Step 2 — show pending email verification banner
+      final stillPending = (data['pendingEmail'] ?? '').toString().trim();
+      if (stillPending.isNotEmpty) {
+        _success =
+            'A verification email was sent to $stillPending. '
+            'Your login email will update after verification.';
+      }
+
+      // 5) Names
       final firstName = (data['firstName'] ?? '').toString().trim();
       final lastName = (data['lastName'] ?? '').toString().trim();
       final displayName = (data['displayName'] ?? '').toString().trim();
@@ -336,17 +352,19 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         lastNameController.text = lastName;
       }
 
-      // 6) Email field: prefer pending if still pending, else Firestore email, else Auth email
+      // 6) Email
       final pendingAfter = (data['pendingEmail'] ?? '').toString().trim();
-      emailController.text = pendingAfter.isNotEmpty
-          ? pendingAfter
-          : ((data['email'] ?? authEmail) ?? '').toString().trim();
+      emailController.text = (data['email'] ?? authEmail ?? '')
+          .toString()
+          .trim();
 
       // 7) Phone
       phoneController.text = (data['phone'] ?? '').toString().trim();
+    } catch (e) {
+      _error = 'Failed to load account settings.';
     } finally {
       if (!mounted) return;
-      setState(() => _loading = false);
+      setState(() => _loading = false); // ✅ ALWAYS clear loading
     }
   }
 
@@ -461,20 +479,36 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       final newEmail = emailController.text.trim();
 
       if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
-        // ✅ send verification email
-        await user.verifyBeforeUpdateEmail(newEmail);
+        // ✅ REAUTH REQUIRED (Firebase requirement)
+        try {
+          final acs = ActionCodeSettings(
+            url: 'https://portal.axumecpas.com/account-settings',
+            handleCodeInApp: false,
+          );
 
-        // ✅ store pending email (do NOT overwrite email yet)
-        updates['pendingEmail'] = newEmail;
-      }
+          await user.verifyBeforeUpdateEmail(newEmail, acs);
 
-      final first = firstNameController.text.trim();
-      final last = lastNameController.text.trim();
+          // ✅ Store as pending ONLY
+          updates['pendingEmail'] = newEmail;
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'requires-recent-login') {
+            _setBanner(
+              error:
+                  'For security reasons, please log in again to change your email.',
+              success: null,
+            );
+            await _auth.logout();
+            Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+            return;
+          }
 
-      if (first.isNotEmpty || last.isNotEmpty) {
-        updates['firstName'] = first;
-        updates['lastName'] = last;
-        updates['displayName'] = ('$first $last').trim();
+          _setBanner(
+            error:
+                'Email verification could not be sent (${e.code}). ${e.message ?? ''}',
+            success: null,
+          );
+          return;
+        }
       }
     }
 
