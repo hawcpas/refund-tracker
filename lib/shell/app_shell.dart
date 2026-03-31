@@ -23,6 +23,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/brand_logo_svg.dart';
 
 const double kTopBarHeight = 48;
+const double kUtilityControlHeight = 36;
 
 // Admin routes
 const String kAdminUsersRoute = '/admin-users';
@@ -244,7 +245,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
             ? '${parts.first[0]}${parts.last[0]}'.toUpperCase()
             : (parts.isNotEmpty ? parts.first[0].toUpperCase() : '?');
 
-        const double appBarHeight = kTopBarHeight;
+        const double appBarHeight = _ContentUtilityBar.height;
 
         return Stack(
           children: [
@@ -267,128 +268,142 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
               right: 12,
               child: Material(
                 color: Colors.transparent,
-                child: Container(
-                  width: 360, // ✅ wider so label/value never collide
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black.withOpacity(0.08)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.14),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
+                child: Builder(
+                  builder: (_) {
+                    final anim = CurvedAnimation(
+                      parent: _avatarAnim,
+                      curve: Curves.easeOutCubic,
+                      reverseCurve: Curves.easeInCubic,
+                    );
+
+                    return FadeTransition(
+                      opacity: anim,
+                      child: ScaleTransition(
+                        scale: Tween<double>(
+                          begin: 0.96,
+                          end: 1.0,
+                        ).animate(anim),
+                        alignment: Alignment.topRight,
+                        child: Container(
+                          width: 360, // ✅ wider so label/value never collide
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.black.withOpacity(0.08),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.14),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Top row: Org name + Sign out
+                                Row(
+                                  children: [
+                                    const Expanded(
+                                      child: Text(
+                                        'Axume & Associates CPAs, AAC',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: Color(0xFF101828),
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.brandBlue,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 8,
+                                        ),
+                                        textStyle: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      onPressed: () async {
+                                        _closeAvatarMenu();
+                                        await _logout();
+                                      },
+                                      child: const Text('Sign out'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Divider(
+                                  height: 1,
+                                  color: Colors.black.withOpacity(0.08),
+                                ),
+                                const SizedBox(height: 12),
+
+                                // Profile row: big initials left, info right
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _InitialsCircle(initials: initials),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            displayName,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 16,
+                                              color: Color(0xFF101828),
+                                              height: 1.15,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            email,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 12.5,
+                                              color: Color(0xFF475467),
+                                              height: 1.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          if (wildixExt.isNotEmpty)
+                                            _ProfileMetaInline(
+                                              label: 'Wildix extension',
+                                              value: wildixExt,
+                                            ),
+                                          if (clearflyNumber.isNotEmpty)
+                                            _ProfileMetaInline(
+                                              label: 'Clearfly / eFax',
+                                              value: clearflyNumber,
+                                            ),
+                                          const SizedBox(height: 12),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Top row: Org name + Sign out
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Axume & Associates CPAs, AAC',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
-                                  color: Color(0xFF101828),
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppColors.brandBlue,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              onPressed: () async {
-                                _closeAvatarMenu();
-                                await _logout();
-                              },
-                              child: const Text('Sign out'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Divider(
-                          height: 1,
-                          color: Colors.black.withOpacity(0.08),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Profile row: big initials left, info right
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _InitialsCircle(initials: initials),
-                            const SizedBox(width: 14),
-
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    displayName,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16,
-                                      color: Color(0xFF101828),
-                                      height: 1.15,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-
-                                  Text(
-                                    email,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12.5,
-                                      color: Color(0xFF475467),
-                                      height: 1.2,
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 8),
-
-                                  // ✅ Side-by-side label/value rows (no overlap)
-                                  if (wildixExt.isNotEmpty)
-                                    _ProfileMetaInline(
-                                      label: 'Wildix extension',
-                                      value: wildixExt,
-                                    ),
-
-                                  if (clearflyNumber.isNotEmpty)
-                                    _ProfileMetaInline(
-                                      label: 'Clearfly / eFax',
-                                      value: clearflyNumber,
-                                    ),
-
-                                  const SizedBox(height: 12),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        // ✅ Removed the old duplicate Communication section entirely
-                      ],
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -413,6 +428,10 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   }
 
   void _toggleAccountSettingsFlyout(BuildContext context) {
+    // ✅ prevent overlay stacking
+    _dismissAvatarMenuImmediate();
+    _dismissSettingsMenuImmediate();
+
     if (_isAccountSettingsOpen) {
       _closeAccountSettingsFlyout();
     } else {
@@ -950,6 +969,20 @@ Please describe the issue below:
     });
   }
 
+  void _onGlobalSearch(String query) {
+    // Temporary stub – safe and intentional
+    final q = query.trim();
+    if (q.isEmpty) return;
+
+    debugPrint('Global search: $q');
+
+    // ✅ Later this will:
+    // - Query files
+    // - Query upload links
+    // - Query activity / metadata
+    // - Show overlay results
+  }
+
   Widget _buildContent() {
     switch (_currentRoute) {
       case '/dropoff-details':
@@ -986,6 +1019,115 @@ Please describe the issue below:
       default:
         return const DashboardScreen();
     }
+  }
+
+  Widget _buildAvatarButton(bool isAdminConsole) {
+    return Builder(
+      builder: (ctx) {
+        final user = FirebaseAuth.instance.currentUser;
+        final email = user?.email ?? '';
+
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future: user == null
+              ? null
+              : FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .get(),
+          builder: (context, snapshot) {
+            String firstName = '';
+            String lastName = '';
+            String fallbackName = user?.displayName?.trim().isNotEmpty == true
+                ? user!.displayName!
+                : email;
+
+            if (snapshot.hasData && snapshot.data?.data() != null) {
+              final data = snapshot.data!.data()!;
+              firstName = (data['firstName'] ?? '').toString().trim();
+              lastName = (data['lastName'] ?? '').toString().trim();
+            }
+
+            final initials = _initialsFromProfile(
+              firstName: firstName,
+              lastName: lastName,
+              fallback: fallbackName,
+            );
+
+            return CompositedTransformTarget(
+              link: _avatarLink,
+              child: FocusableActionDetector(
+                mouseCursor: SystemMouseCursors.click,
+                onShowHoverHighlight: (hover) =>
+                    setState(() => _avatarHover = hover),
+                child: GestureDetector(
+                  onTap: () async {
+                    String wildix = '';
+                    String clearfly = '';
+
+                    if (user != null) {
+                      try {
+                        final doc = await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .get();
+
+                        final data = doc.data() ?? {};
+                        final comms = Map<String, dynamic>.from(
+                          data['communications'] ?? {},
+                        );
+                        wildix = (comms['wildixExtension'] ?? '')
+                            .toString()
+                            .trim();
+                        clearfly = _formatUsPhone10(
+                          (comms['clearflySmsNumber'] ?? '').toString().trim(),
+                        );
+                      } catch (_) {}
+                    }
+
+                    _toggleAvatarMenu(
+                      ctx: ctx,
+                      displayName: '$firstName $lastName'.trim().isNotEmpty
+                          ? '$firstName $lastName'
+                          : fallbackName,
+                      email: email,
+                      wildixExt: wildix,
+                      clearflyNumber: clearfly,
+                    );
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    margin: const EdgeInsets.only(right: 12),
+                    height: 28,
+                    width: 28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _avatarHover
+                          ? const Color(0xFFEFF4FF) // ✅ soft blue hover
+                          : const Color(
+                              0xFFF1F5F9,
+                            ), // ✅ visible neutral surface
+                      border: Border.all(color: Colors.black.withOpacity(0.08)),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      initials,
+                      style: TextStyle(
+                        color: isAdminConsole
+                            ? Colors.black
+                            : AppColors.brandBlue,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   String _initialsFromProfile({
@@ -1071,173 +1213,6 @@ Please describe the issue below:
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.pageCanvas, // ✅ Fluent canvas
-
-      appBar: AppBar(
-        toolbarHeight: kTopBarHeight,
-        titleSpacing: 16, // ✅ tighter horizontal rhythm
-
-        title: Text(
-          _titleFor(_currentRoute),
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            height: 1.1, // ✅ prevents vertical inflation
-          ),
-        ),
-
-        leading: leading,
-
-        backgroundColor: isAdminConsole ? Colors.black : AppColors.brandBlue,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-
-        actions: [
-          IconButton(
-            tooltip: 'Account settings',
-            icon: const Icon(Icons.settings_outlined, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: () {
-              // ✅ prevent stacked overlays
-              _dismissAvatarMenuImmediate();
-              _dismissSettingsMenuImmediate();
-
-              // ✅ Toggle Account Settings flyout (open/close)
-              if (_isAccountSettingsOpen) {
-                _closeAccountSettingsFlyout(); // reverse animation already implemented
-              } else {
-                _openAccountSettingsFlyout(context);
-              }
-            },
-          ),
-
-          IconButton(
-            tooltip: 'Support',
-            icon: const Icon(Icons.help_outline, size: 20),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: _openSupportEmail,
-          ),
-
-          const SizedBox(width: 6),
-
-          // =========================
-          // USER AVATAR + PROFILE FLYOUT
-          // =========================
-          Builder(
-            builder: (ctx) {
-              final user = FirebaseAuth.instance.currentUser;
-              final email = user?.email ?? '';
-
-              return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                future: user == null
-                    ? null
-                    : FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .get(),
-                builder: (context, snapshot) {
-                  String firstName = '';
-                  String lastName = '';
-                  String fallbackName =
-                      user?.displayName?.trim().isNotEmpty == true
-                      ? user!.displayName!
-                      : email;
-
-                  if (snapshot.hasData && snapshot.data?.data() != null) {
-                    final data = snapshot.data!.data()!;
-                    firstName = (data['firstName'] ?? '').toString().trim();
-                    lastName = (data['lastName'] ?? '').toString().trim();
-                  }
-
-                  final initials = _initialsFromProfile(
-                    firstName: firstName,
-                    lastName: lastName,
-                    fallback: fallbackName,
-                  );
-
-                  return CompositedTransformTarget(
-                    link: _avatarLink,
-                    child: FocusableActionDetector(
-                      autofocus: false,
-                      mouseCursor: SystemMouseCursors.click,
-                      onShowHoverHighlight: (hover) =>
-                          setState(() => _avatarHover = hover),
-                      child: GestureDetector(
-                        onTap: () async {
-                          final user = FirebaseAuth.instance.currentUser;
-                          String wildix = '';
-                          String clearfly = '';
-
-                          if (user != null) {
-                            try {
-                              final doc = await FirebaseFirestore.instance
-                                  .collection('users')
-                                  .doc(user.uid)
-                                  .get();
-
-                              final data = doc.data() ?? {};
-                              final comms = Map<String, dynamic>.from(
-                                data['communications'] ?? {},
-                              );
-                              wildix = (comms['wildixExtension'] ?? '')
-                                  .toString()
-                                  .trim();
-                              clearfly = _formatUsPhone10(
-                                (comms['clearflySmsNumber'] ?? '')
-                                    .toString()
-                                    .trim(),
-                              );
-                            } catch (_) {
-                              // Keep empty if load fails
-                            }
-                          }
-
-                          _toggleAvatarMenu(
-                            ctx: ctx,
-                            displayName:
-                                '$firstName $lastName'.trim().isNotEmpty
-                                ? '$firstName $lastName'
-                                : fallbackName,
-                            email: email,
-                            wildixExt: wildix,
-                            clearflyNumber: clearfly,
-                          );
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 120),
-                          margin: const EdgeInsets.only(right: 12),
-                          height: 28,
-                          width: 28,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _avatarHover
-                                ? Colors.white.withOpacity(0.15)
-                                : Colors.white,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            initials,
-                            style: TextStyle(
-                              color: isAdminConsole
-                                  ? Colors.black
-                                  : AppColors.brandBlue,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ],
-      ),
-
       // Drawer on mobile
       drawer: isMobileShell
           ? Drawer(
@@ -1299,7 +1274,199 @@ Please describe the issue below:
               onLogoTap: () => _navigate('/dashboard'),
             ),
 
-          Expanded(child: _buildContent()),
+          Expanded(
+            child: Container(
+              color: AppColors.contentCanvas, // ✅ paints behind utility bar too
+              child: Column(
+                children: [
+                  _ContentUtilityBar(
+                    onSearch: _onGlobalSearch,
+                    onCreateNew: _openCreateUploadLink,
+                    onOpenSettings: () => _toggleAccountSettingsFlyout(context),
+                    onOpenSupport: _openSupportEmail,
+                    avatar: _buildAvatarButton(isAdminConsole),
+                  ),
+                  Expanded(child: _buildContent()),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContentUtilityBar extends StatelessWidget {
+  const _ContentUtilityBar({
+    required this.onSearch,
+    required this.onCreateNew,
+    required this.onOpenSettings,
+    required this.onOpenSupport,
+    required this.avatar,
+  });
+
+  final ValueChanged<String> onSearch;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenSupport;
+  final VoidCallback onCreateNew;
+  final Widget avatar;
+
+  static const double height = 68; // ✅ adds top breathing room
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      //        left  top right bottom
+      decoration: const BoxDecoration(color: AppColors.contentCanvas),
+      child: Row(
+        children: [
+          // LEFT: New + Search (bounded so it can't push actions away)
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 760),
+                child: Row(
+                  children: [
+                    // ✅ + New
+                    PopupMenuButton<String>(
+                      tooltip: 'Create new',
+                      offset: const Offset(0, 40),
+                      onSelected: (v) {
+                        if (v == 'request') onCreateNew();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'request',
+                          child: Row(
+                            children: [
+                              Icon(Icons.request_page_outlined, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Request link',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      child: SizedBox(
+                        height: kUtilityControlHeight,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFFF9FAFB,
+                            ), // ✅ soft surface on white
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.black.withOpacity(0.10),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.add,
+                                  size: 18,
+                                  color: Color(0xFF344054),
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  'New',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF101828),
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Icon(
+                                  Icons.expand_more,
+                                  size: 18,
+                                  color: Color(0xFF667085),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    // ✅ Search (bounded width + expands nicely)
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 560),
+                        child: SizedBox(
+                          height: kUtilityControlHeight,
+                          child: TextField(
+                            onChanged: onSearch,
+                            textAlignVertical: TextAlignVertical.center,
+                            decoration: InputDecoration(
+                              hintText: 'Search files, requests, links…',
+                              hintStyle: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF667085),
+                              ),
+                              prefixIcon: const Icon(
+                                Icons.search,
+                                size: 18,
+                                color: Color(0xFF667085),
+                              ),
+                              isDense: true,
+                              filled: true,
+                              fillColor: const Color(
+                                0xFFF1F5F9,
+                              ), // ✅ clearer separation from canvas
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // RIGHT: persistent actions (will no longer get pushed offscreen)
+          IconButton(
+            icon: const Icon(
+              Icons.settings_outlined,
+              size: 20,
+              color: AppColors.iconNeutral,
+            ),
+            splashRadius: 20,
+            hoverColor: const Color(0xFFF1F5F9),
+
+            onPressed: onOpenSettings,
+          ),
+
+          IconButton(
+            icon: const Icon(
+              Icons.help_outline,
+              size: 20,
+              color: AppColors.iconNeutral,
+            ),
+            splashRadius: 20,
+            hoverColor: const Color(0xFFF1F5F9),
+            onPressed: onOpenSupport,
+          ),
+          const SizedBox(width: 8),
+          avatar,
         ],
       ),
     );
@@ -1452,7 +1619,6 @@ class _MiniRail extends StatelessWidget {
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
             ),*/
-
             const Spacer(),
 
             // ✅ Collapse / Expand the secondary pane
@@ -2292,7 +2458,7 @@ class RightSideFlyout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double appBarHeight = kTopBarHeight;
+    const double appBarHeight = _ContentUtilityBar.height;
 
     return Stack(
       children: [
