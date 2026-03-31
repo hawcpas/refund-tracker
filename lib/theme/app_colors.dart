@@ -5,16 +5,21 @@ class AppColors {
   // Fluent / Office 365 layout
   // =========================
 
-  /// Main app canvas (Office365 background)
-  static const Color pageCanvas = Color(0xFFDADADA); // ✅ #dadada
+  /// Legacy main app canvas (Office365 gray)
+  /// ⚠️ Keep for now — do NOT change yet
+  static const Color pageCanvas = Color(0xFFDADADA); // #dadada
+
+  /// ✅ NEW: Light content canvas (modern enterprise)
+  /// Used for main page content backgrounds
+  static const Color contentCanvas = Color(0xFFFCFCFD); // near-white
 
   /// Left navigation rail background
-  static const Color navRail = Color(0xFFE9E9E9); // ✅ #e9e9e9
+  static const Color navRail = Color(0xFFE9E9E9); // #e9e9e9
 
   /// Card / surface background
   static const Color cardBackground = Colors.white;
 
-  /// Standard dividers
+  /// Standard dividers (safe on white)
   static const Color divider = Color(0xFFE5E7EB);
 
   // =========================
@@ -26,6 +31,9 @@ class AppColors {
 
   /// Secondary / muted text (Fluent)
   static const Color mutedText = Color(0xFF605E5C);
+
+  /// ✅ NEW: Icon color optimized for white / light canvases
+  static const Color iconNeutral = Color(0xFF667085);
 
   // =========================
   // Brand

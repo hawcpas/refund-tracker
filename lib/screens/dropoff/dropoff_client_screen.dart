@@ -15,9 +15,6 @@ import '../../theme/brand_logo_svg.dart';
 
 enum _UploadItemState { queued, uploading, finalizing, success, failed }
 
-const String _kFirmLogoUrl =
-    'https://portal.axumecpas.com/icons/aa_logo_imageicon_color.svg';
-
 // -----------------------------
 // Brand colors (website palette)
 // -----------------------------
