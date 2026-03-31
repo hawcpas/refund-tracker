@@ -471,57 +471,79 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    final newEmail = emailController.text.trim();
+    final currentEmail = (user.email ?? '').trim();
+
+    final wantsEmailChange =
+        _isAdmin && newEmail.isNotEmpty && newEmail != currentEmail;
+
+    // ✅ Start UI feedback immediately (no dead air)
+    setState(() {
+      _savingPersonal = true;
+      _error = null;
+      _success = wantsEmailChange
+          ? 'Sending verification email…'
+          : 'Saving changes…';
+    });
+
     final updates = <String, dynamic>{
       'phone': phoneController.text.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (_isAdmin) {
-      final newEmail = emailController.text.trim();
+    // ✅ Email change path: show progress immediately, then confirm "sent"
+    if (wantsEmailChange) {
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable(
+          'requestEmailChange',
+        );
 
-      if (newEmail.isNotEmpty && newEmail != (user.email ?? '')) {
-        // ✅ REAUTH REQUIRED (Firebase requirement)
-        try {
-          final acs = ActionCodeSettings(
-            url: 'https://portal.axumecpas.com/account-settings',
-            handleCodeInApp: false,
-          );
+        // Cloud Function can be slow (cold start) — UI already shows “Sending…”
+        await fn.call({'email': newEmail});
 
-          final fn = FirebaseFunctions.instance.httpsCallable(
-            'requestEmailChange',
-          );
-          await fn.call({'email': newEmail});
+        updates['pendingEmail'] = newEmail;
 
-          // ✅ Store as pending ONLY
-          updates['pendingEmail'] = newEmail;
-        } on FirebaseAuthException catch (e) {
-          if (e.code == 'requires-recent-login') {
-            _setBanner(
-              error:
-                  'For security reasons, please log in again to change your email.',
-              success: null,
-            );
-            await _auth.logout();
-            Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
-            return;
-          }
+        // ✅ As soon as the function completes, upgrade the message immediately
+        if (mounted) {
+          setState(() {
+            _success =
+                'A verification email was sent to $newEmail. '
+                'Your login email will update after verification.';
+          });
+        }
+      } on FirebaseAuthException catch (e) {
+        // Stop spinner here because we’re bailing out
+        if (mounted) setState(() => _savingPersonal = false);
 
+        if (e.code == 'requires-recent-login') {
           _setBanner(
             error:
-                'Email verification could not be sent (${e.code}). ${e.message ?? ''}',
+                'For security reasons, please log in again to change your email.',
             success: null,
           );
+          await _auth.logout();
+          if (!mounted) return;
+          Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
           return;
         }
+
+        _setBanner(
+          error:
+              'Email verification could not be sent (${e.code}). ${e.message ?? ''}',
+          success: null,
+        );
+        return;
+      } catch (e) {
+        if (mounted) setState(() => _savingPersonal = false);
+        _setBanner(
+          error: 'Email verification could not be sent. Please try again.',
+          success: null,
+        );
+        return;
       }
     }
 
-    setState(() {
-      _savingPersonal = true;
-      _error = null;
-      _success = null;
-    });
-
+    // ✅ Persist updates (email pending + phone) after the email request
     try {
       await FirebaseFirestore.instance
           .collection('users')
@@ -529,19 +551,21 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
           .set(updates, SetOptions(merge: true));
 
       if (!mounted) return;
+
+      // ✅ Finish spinner quickly — message already shown
       setState(() {
         _savingPersonal = false;
 
         final pending = updates['pendingEmail'];
         _success = pending != null
-            ? 'Name/phone updated. Verification email sent to $pending. '
+            ? 'A verification email was sent to $pending. '
                   'Your login email will update after verification.'
             : 'Profile updated successfully.';
 
         _profileChanged = true;
       });
 
-      // ✅ Notify AppShell so avatar + flyouts update immediately
+      // ✅ Refresh AppShell UI (avatar + flyouts), but after spinner stops
       final shell = context.findAncestorStateOfType<AppShellState>();
       await shell?.refreshProfile();
     } catch (e) {

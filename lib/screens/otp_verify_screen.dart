@@ -70,6 +70,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
   // VERIFY CODE
   // =========================
   Future<void> _verify() async {
+    if (_loading) return; // ✅ prevents double-tap / rapid taps
     final code = _controller.text.trim();
 
     if (code.length != 6) {
@@ -361,7 +362,10 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
   // =========================
   Widget _otpCard(ThemeData theme) {
     final enabled = !_loading && !_resending;
-    final bool canContinue = !_loading && _controller.text.trim().length == 6;
+
+    final bool verifying = _loading; // verification in progress
+    final bool fieldEnabled = !_resending; // keep the field styled as enabled
+    final bool canContinue = !verifying && _controller.text.trim().length == 6;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
@@ -411,33 +415,56 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
             ),
             const SizedBox(height: 18),
 
-            TextField(
-              controller: _controller,
-              enabled: enabled,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              maxLength: 6,
-              autofillHints: const [AutofillHints.oneTimeCode],
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(6),
-              ],
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 2.5,
-                color: Color(0xFF393A3D),
+            AbsorbPointer(
+              absorbing:
+                  verifying, // ✅ blocks edits while verifying (no visual dim)
+              child: TweenAnimationBuilder<Color?>(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                // ✅ Key trick: only set END; Flutter animates from current value smoothly
+                tween: ColorTween(
+                  end: verifying
+                      ? const Color(0xFFB0B3B8) // dimmed digits
+                      : const Color(0xFF393A3D), // normal digits
+                ),
+                builder: (context, color, _) {
+                  return TextField(
+                    controller: _controller,
+
+                    // ✅ Keep field looking normal (border/label/helper stay consistent)
+                    enabled: fieldEnabled,
+
+                    // ✅ Prevent typing + cursor during verification without greying field
+                    readOnly: verifying,
+                    showCursor: !verifying,
+
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    maxLength: 6,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2.5,
+                      color: color,
+                    ),
+                    onChanged: (_) {
+                      if (_error != null) {
+                        setState(() => _error = null);
+                      }
+                    },
+                    onSubmitted: (_) => canContinue ? _verify() : null,
+                    decoration: _codeDecoration(
+                      enabled: fieldEnabled,
+                    ).copyWith(counterText: ''),
+                  );
+                },
               ),
-              onChanged: (_) {
-                if (_error != null) {
-                  setState(() => _error = null);
-                }
-              },
-              onSubmitted: (_) => canContinue ? _verify() : null,
-              decoration: _codeDecoration(
-                enabled: enabled,
-              ).copyWith(counterText: ''),
             ),
 
             if (_error != null) ...[
