@@ -1371,7 +1371,7 @@ class _MiniRail extends StatelessWidget {
   final bool secondaryCollapsed;
   final bool showAdmin; // ✅ ADD THIS
 
-  static const double _w = 84;
+  static const double _w = 96;
 
   @override
   Widget build(BuildContext context) {
@@ -1391,20 +1391,18 @@ class _MiniRail extends StatelessWidget {
             // ✅ Clickable logo (go home)
             InkWell(
               onTap: onLogoTap,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
+              hoverColor: Colors.black.withOpacity(0.06),
               child: Padding(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 child: SizedBox(
-                  height: 34,
-                  width: 34,
-                  child: Center(
-                    child: SvgPicture.string(
-                      kBrandLogoSvg,
-                      height: 30, // slightly larger so the mark/text is visible
-                      fit: BoxFit.contain,
-                      allowDrawingOutsideViewBox:
-                          true, // prevents unexpected cropping on some SVGs
-                    ),
+                  height: 48,
+                  width: 48,
+                  child: SvgPicture.string(
+                    kBrandLogoSvg,
+                    height: 44,
+                    fit: BoxFit.contain,
+                    allowDrawingOutsideViewBox: true,
                   ),
                 ),
               ),
@@ -1447,12 +1445,13 @@ class _MiniRail extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
+            /*
             _MiniTile(
               icon: Icons.request_page_outlined,
               label: 'Request',
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
-            ),
+            ),*/
 
             const Spacer(),
 
