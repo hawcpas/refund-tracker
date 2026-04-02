@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../widgets/centered_section.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
 
@@ -729,13 +728,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Content-only screen. AppShell provides AppBar + sidebar.
-    if (_roleLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    Widget body;
 
-    if (_roleError != null) {
-      return Center(
+    if (_roleLoading) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (_roleError != null) {
+      body = Center(
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -756,183 +754,83 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           ),
         ),
       );
-    }
-
-    if (_role != 'admin') {
-      return const Center(child: Text('Admin access required.'));
-    }
-
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: ColoredBox(
-            color: AppColors.pageCanvas,
-            child: SafeArea(
-              top: false, // AppShell already provides AppBar
-              child: LayoutBuilder(
-                builder: (context, pageConstraints) {
-                  final isDesktopWide = pageConstraints.maxWidth >= 1200;
-
-                  return CenteredSection(
-                    maxWidth: isDesktopWide ? 1600 : 1100,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isDesktopWide ? 24 : 16,
-                        vertical: 16,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // ✅ Header
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Admin Console',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineSmall
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFF111827),
-                                        letterSpacing: -0.2,
-                                      ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Manage firm users, roles, and account access.',
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: const Color(0xFF6B7280),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            alignment: WrapAlignment.start,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              FilledButton.icon(
-                                onPressed: _busy ? null : _showInviteDialog,
-                                icon: const Icon(
-                                  Icons.person_add_alt_1,
-                                  size: 18,
-                                ),
-                                label: const Text('Invite user'),
-                              ),
-
-                              OutlinedButton.icon(
-                                onPressed: (_busy || _selectedCount == 0)
-                                    ? null
-                                    : _bulkRemoveSelectedUsers,
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  size: 18,
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: _selectedCount == 0
-                                      ? Colors.grey
-                                      : Colors.red.shade700,
-                                  side: BorderSide(
-                                    color: _selectedCount == 0
-                                        ? Colors.grey.shade300
-                                        : Colors.red.shade300,
-                                  ),
-                                ),
-                                label: Text(
-                                  _selectedCount == 0
-                                      ? 'Remove users'
-                                      : 'Remove users ($_selectedCount)',
-                                ),
-                              ),
-
-                              // ✅ Subtle “Clear selection” link (only enabled when needed)
-                              TextButton(
-                                onPressed: (_busy || _selectedCount == 0)
-                                    ? null
-                                    : _clearSelection,
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 8,
-                                  ),
-                                  foregroundColor: Colors.grey.shade600,
-                                  textStyle: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                child: const Text('Clear selection'),
-                              ),
-
-                              OutlinedButton.icon(
-                                onPressed: _busy ? null : _loadMyRole,
-                                icon: const Icon(Icons.refresh, size: 18),
-                                label: const Text('Refresh'),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          // ✅ Users card
-                          Expanded(
-                            child: Card(
-                              clipBehavior: Clip.antiAlias,
-                              child: _UsersPane(
-                                db: _db,
-                                myUid: _myUid,
-                                busy: _busy,
-                                query: _userQuery,
-                                searchCtrl: _userSearchCtrl,
-                                onDeleteUser: _deleteUser,
-                                onEditUser: _showEditUserDialog,
-                                onResendInvite: _resendInvite,
-                                onSendPasswordReset: _sendPasswordReset,
-                                onSetDisabled: _setUserDisabled,
-                                promptReason: _promptReason,
-
-                                // ✅ NEW — required
-                                clearSelectionToken: _clearSelectionToken,
-
-                                // ✅ UPDATED — now receives Set<String>
-                                onSelectionChanged: (ids) {
-                                  setState(() {
-                                    _selectedUids
-                                      ..clear()
-                                      ..addAll(ids);
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
+    } else if (_role != 'admin') {
+      body = const Center(child: Text('Admin access required.'));
+    } else {
+      body = PageScaffold(
+        title: 'Admin Console',
+        subtitle: 'Manage firm users, roles, and account access.',
+        wrapInCard: false,
+        scrollable: false, // ✅ CRITICAL FIX
+        // ✅ All admin actions now live in the command bar
+        commandBar: FluentCommandBar(
+          actions: [
+            FluentCommandAction(
+              icon: Icons.person_add_alt_1,
+              label: 'Invite user',
+              onPressed: _busy ? null : _showInviteDialog,
             ),
-          ),
+            FluentCommandAction(
+              icon: Icons.delete_outline,
+              label: _selectedCount == 0
+                  ? 'Remove users'
+                  : 'Remove users ($_selectedCount)',
+              onPressed: (_busy || _selectedCount == 0)
+                  ? null
+                  : _bulkRemoveSelectedUsers,
+            ),
+            FluentCommandAction(
+              icon: Icons.refresh,
+              label: 'Refresh',
+              onPressed: _busy ? null : _loadMyRole,
+            ),
+          ],
         ),
 
-        // ✅ Busy indicator overlay
-        if (_busy)
-          const Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: LinearProgressIndicator(minHeight: 2),
+        child: Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: _UsersPane(
+                    db: _db,
+                    myUid: _myUid,
+                    busy: _busy,
+                    query: _userQuery,
+                    searchCtrl: _userSearchCtrl,
+                    onDeleteUser: _deleteUser,
+                    onEditUser: _showEditUserDialog,
+                    onResendInvite: _resendInvite,
+                    onSendPasswordReset: _sendPasswordReset,
+                    onSetDisabled: _setUserDisabled,
+                    promptReason: _promptReason,
+                    clearSelectionToken: _clearSelectionToken,
+                    onSelectionChanged: (ids) {
+                      setState(() {
+                        _selectedUids
+                          ..clear()
+                          ..addAll(ids);
+                      });
+                    },
+                  ),
+                ),
+              ),
+
+              if (_busy)
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+            ],
           ),
-      ],
-    );
+        ),
+      );
+    }
+
+    return body;
   }
 }
 

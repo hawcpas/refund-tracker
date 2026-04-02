@@ -290,7 +290,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Colors.black.withOpacity(0.08),
+                              color: (_avatarHover || _isAvatarMenuOpen)
+                                  ? AppColors.brandBlue.withOpacity(
+                                      0.45,
+                                    ) // ✅ active ring
+                                  : Colors.black.withOpacity(0.12),
+                              width: 1.25,
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -1276,7 +1281,7 @@ Please describe the issue below:
 
           Expanded(
             child: Container(
-              color: AppColors.contentCanvas, // ✅ paints behind utility bar too
+              color: AppColors.contentCanvas, // ✅ #f7f5f2
               child: Column(
                 children: [
                   _ContentUtilityBar(
@@ -1318,9 +1323,11 @@ class _ContentUtilityBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.fromLTRB(32, 12, 24, 8),
       //        left  top right bottom
-      decoration: const BoxDecoration(color: AppColors.contentCanvas),
+      decoration: const BoxDecoration(
+        color: AppColors.contentCanvas, // ✅ exact same white
+      ),
       child: Row(
         children: [
           // LEFT: New + Search (bounded so it can't push actions away)
@@ -1328,7 +1335,7 @@ class _ContentUtilityBar extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
+                constraints: const BoxConstraints(maxWidth: 820),
                 child: Row(
                   children: [
                     // ✅ + New
@@ -1357,12 +1364,13 @@ class _ContentUtilityBar extends StatelessWidget {
                         height: kUtilityControlHeight,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: const Color(
-                              0xFFF9FAFB,
-                            ), // ✅ soft surface on white
+                            // ✅ subtle brand‑tinted surface
+                            color: AppColors.brandBlue.withOpacity(0.06),
                             borderRadius: BorderRadius.circular(10),
+
+                            // ✅ stronger outline so it reads as an action
                             border: Border.all(
-                              color: Colors.black.withOpacity(0.10),
+                              color: AppColors.brandBlue.withOpacity(0.35),
                             ),
                           ),
                           child: Padding(
@@ -1373,7 +1381,8 @@ class _ContentUtilityBar extends StatelessWidget {
                                 Icon(
                                   Icons.add,
                                   size: 18,
-                                  color: Color(0xFF344054),
+                                  color:
+                                      AppColors.brandBlue, // ✅ brand emphasis
                                 ),
                                 SizedBox(width: 6),
                                 Text(
@@ -1421,15 +1430,36 @@ class _ContentUtilityBar extends StatelessWidget {
                               ),
                               isDense: true,
                               filled: true,
-                              fillColor: const Color(
-                                0xFFF1F5F9,
-                              ), // ✅ clearer separation from canvas
+
+                              // ✅ Slightly brighter than canvas so it reads as a control
+                              fillColor: const Color(0xFFF8FAFC),
+
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12,
                               ),
+
+                              // ✅ Default outline (always visible)
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide.none,
+                                borderSide: BorderSide(
+                                  color: Colors.black.withOpacity(0.14),
+                                ),
+                              ),
+
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: Colors.black.withOpacity(0.14),
+                                ),
+                              ),
+
+                              // ✅ Focused = brand blue (clear affordance)
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.brandBlue,
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                           ),
@@ -1538,17 +1568,15 @@ class _MiniRail extends StatelessWidget {
   final bool secondaryCollapsed;
   final bool showAdmin; // ✅ ADD THIS
 
-  static const double _w = 96;
+  static const double _w = 80;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: _w,
       decoration: BoxDecoration(
-        color: AppColors.navRail,
-        border: Border(
-          right: BorderSide(color: Colors.black.withOpacity(0.06)),
-        ),
+        color: AppColors.navigationCanvas,
+        border: Border(right: BorderSide(color: AppColors.divider)),
       ),
       child: SafeArea(
         child: Column(
@@ -1612,13 +1640,13 @@ class _MiniRail extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
-            /*
+            
             _MiniTile(
               icon: Icons.request_page_outlined,
-              label: 'Request',
+              label: 'Requests',
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
-            ),*/
+            ),
             const Spacer(),
 
             // ✅ Collapse / Expand the secondary pane
@@ -1708,7 +1736,7 @@ class _SecondaryPane extends StatelessWidget {
   final void Function(String route) onNavigate;
   final bool showAdmin;
 
-  static const double _w = 260;
+  static const double _w = 220;
 
   @override
   Widget build(BuildContext context) {
@@ -1791,7 +1819,7 @@ class _SecondaryPane extends StatelessWidget {
     return Container(
       width: _w,
       decoration: BoxDecoration(
-        color: AppColors.navRail, // ✅ SAME as mini rail
+        color: AppColors.navigationCanvas,
         border: Border(
           right: BorderSide(color: Colors.black.withOpacity(0.06)),
         ),
@@ -1801,10 +1829,10 @@ class _SecondaryPane extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 10),
+            const SizedBox(height: 24), // ✅ matches reference spacing
 
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
               child: Text(
                 title,
                 style: const TextStyle(
@@ -1816,7 +1844,7 @@ class _SecondaryPane extends StatelessWidget {
             ),
 
             const SizedBox(height: 8),
-            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: 4),
 
             // Section items
@@ -1835,7 +1863,7 @@ class _SecondaryPane extends StatelessWidget {
 
             const Spacer(),
 
-            Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+            Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: 6),
 
             _PaneNavRow(
