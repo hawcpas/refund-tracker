@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import 'page_header.dart';
 
 class PageScaffold extends StatelessWidget {
   final String title;
@@ -38,6 +40,7 @@ class PageScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
     final width = MediaQuery.of(context).size.width;
 
     final bool isMobile = width < 700;
@@ -79,7 +82,7 @@ class PageScaffold extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: appTheme.contentBackground,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.black.withOpacity(0.06)),
             ),
@@ -94,11 +97,11 @@ class PageScaffold extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!hideHeader) header,
+            if (!hideHeader) PageHeader(child: header),
 
             // ✅ Optional content ABOVE command bar (Dashboard welcome)
             if (preCommandBar != null) ...[
-              preCommandBar!,
+              PageHeader(child: preCommandBar!),
               const SizedBox(height: 8),
             ],
 
@@ -117,14 +120,14 @@ class PageScaffold extends StatelessWidget {
     // ✅ Scrollable scaffold (default)
     if (scrollable) {
       return Container(
-        color: backgroundColor ?? AppColors.pageBackgroundSoft,
+        color: backgroundColor ?? appTheme.contentBackground,
         child: ListView(padding: pagePadding, children: [inner]),
       );
     }
 
     // ✅ Non-scroll scaffold (pages with their own scrolling)
     return Container(
-      color: backgroundColor ?? AppColors.pageBackgroundSoft,
+      color: backgroundColor ?? appTheme.contentBackground,
       padding: pagePadding,
       child: inner,
     );
@@ -168,6 +171,7 @@ class FluentCommandBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
 
     // ✅ Office365-style breakpoint
     final bool isNarrow = width < 720;
@@ -185,7 +189,7 @@ class FluentCommandBar extends StatelessWidget {
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: appTheme.contentBackground,
         borderRadius: BorderRadius.circular(3),
         border: Border.all(color: Colors.black.withOpacity(0.12), width: 1),
         boxShadow: const [

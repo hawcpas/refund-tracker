@@ -30,6 +30,8 @@ import 'screens/privacy_policy_screen.dart';
 import 'screens/security_screen.dart';
 import 'screens/legal_screen.dart';
 
+import 'theme/app_theme.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -214,6 +216,16 @@ class _MyAppState extends State<MyApp> {
 
         // ✅ Office 365 page background
         scaffoldBackgroundColor: AppColors.pageCanvas,
+
+        // ✅ REGISTER APP THEME (THIS IS THE KEY)
+        extensions: const [
+          AppTheme(
+            pageBackground: AppColors.pageCanvas, // #F7F5F2
+            contentBackground: AppColors.contentCanvas, // #FFFFFF
+            navigationBackground: AppColors.navigationCanvas,
+            divider: AppColors.divider,
+          ),
+        ],
 
         // ✅ Fluent / Microsoft typography ramp (KEEP — this is good)
         textTheme: ThemeData.light().textTheme.copyWith(
