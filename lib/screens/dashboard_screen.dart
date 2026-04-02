@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
 import '../shell/app_shell.dart';
+import '../theme/app_theme.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -28,10 +29,11 @@ class _DashboardActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
     return Container(
       constraints: const BoxConstraints(minHeight: 220), // ✅ taller card
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: appTheme.contentBackground,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: Colors.black.withOpacity(0.08)),
         boxShadow: const [
@@ -128,31 +130,28 @@ class _DashboardIntroHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF111827),
+            letterSpacing: -0.2,
+          ),
+        ),
+        if (subtitle != null && subtitle!.isNotEmpty) ...[
+          const SizedBox(height: 4),
           Text(
-            title,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF111827),
-              letterSpacing: -0.2,
+            subtitle!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF6B7280),
+              fontWeight: FontWeight.w500,
             ),
           ),
-          if (subtitle != null && subtitle!.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle!,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF6B7280),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
         ],
-      ),
+      ],
     );
   }
 }
@@ -219,6 +218,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
     final theme = Theme.of(context);
     final isAdmin = !_loadingProfile && _role == 'admin';
     final welcomeText = _fullName.isNotEmpty
@@ -372,6 +372,7 @@ class _SurfaceTableState extends State<_SurfaceTable> {
 
   @override
   Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -380,7 +381,7 @@ class _SurfaceTableState extends State<_SurfaceTable> {
         curve: Curves.easeOut,
         decoration: BoxDecoration(
           // ✅ Noticeable hover background (same language as command bar)
-          color: _hover ? const Color(0xFFF0F0F0) : AppColors.cardBackground,
+          color: _hover ? const Color(0xFFF0F0F0) : appTheme.contentBackground,
 
           // ✅ Sharper, enterprise-style corners
           borderRadius: BorderRadius.circular(3),

@@ -69,6 +69,7 @@ class AccountSettingsContent extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.success,
+    required this.onDismissSuccess, // ✅ ADD
     required this.tabController,
     required this.onSavePersonal,
     required this.onChangePassword,
@@ -87,6 +88,7 @@ class AccountSettingsContent extends StatelessWidget {
     required this.passwordPanel,
   });
 
+  final VoidCallback onDismissSuccess; // ✅ ADD
   final bool loading;
   final String? error;
   final String? success;
@@ -203,6 +205,11 @@ class AccountSettingsContent extends StatelessWidget {
             ),
           ),
         ),
+        IconButton(
+          icon: const Icon(Icons.close, size: 16),
+          splashRadius: 16,
+          onPressed: onDismissSuccess, // ✅ FIX
+        ),
       ],
     ),
   );
@@ -211,6 +218,7 @@ class AccountSettingsContent extends StatelessWidget {
 class _AccountSettingsScreenState extends State<AccountSettingsScreen>
     with SingleTickerProviderStateMixin {
   final AuthService _auth = AuthService();
+  static const Duration _pendingEmailBannerTTL = Duration(minutes: 1);
 
   // Personal Info
   final firstNameController = TextEditingController();
@@ -330,11 +338,28 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       }
 
       // ✅ Step 2 — show pending email verification banner
-      final stillPending = (data['pendingEmail'] ?? '').toString().trim();
-      if (stillPending.isNotEmpty) {
-        _success =
-            'A verification email was sent to $stillPending. '
-            'Your login email will update after verification.';
+      final sentAt = data['pendingEmailSentAt'];
+
+      if (pendingEmail.isNotEmpty && sentAt is Timestamp) {
+        final sentTime = sentAt.toDate();
+        final isFresh =
+            DateTime.now().difference(sentTime) < _pendingEmailBannerTTL;
+
+        if (isFresh) {
+          _success =
+              'A verification email was sent to $pendingEmail. '
+              'Your login email will update after verification.';
+
+          // ✅ Auto‑dismiss after TTL
+          Future.delayed(
+            _pendingEmailBannerTTL - DateTime.now().difference(sentTime),
+            () {
+              if (mounted && _success != null) {
+                setState(() => _success = null);
+              }
+            },
+          );
+        }
       }
 
       // 5) Names
@@ -376,62 +401,6 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       _success = success;
     });
   }
-
-  Widget _errorBanner(ThemeData theme, String msg) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Colors.red.withOpacity(0.08),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.red.withOpacity(0.20)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.error_outline, color: Color(0xFFB42318), size: 18),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            msg,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: const Color(0xFFB42318),
-              fontWeight: FontWeight.w700,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  Widget _successBanner(ThemeData theme, String msg) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Colors.green.withOpacity(0.10),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.green.withOpacity(0.25)),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          Icons.check_circle_outline,
-          color: Colors.green.shade800,
-          size: 18,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            msg,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: Colors.green.shade800,
-              fontWeight: FontWeight.w800,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 
   Widget _primaryButton({
     required String label,
@@ -502,6 +471,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
         await fn.call({'email': newEmail});
 
         updates['pendingEmail'] = newEmail;
+        updates['pendingEmailSentAt'] = FieldValue.serverTimestamp();
 
         // ✅ As soon as the function completes, upgrade the message immediately
         if (mounted) {
@@ -884,6 +854,9 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
                 loading: _loading,
                 error: _error,
                 success: _success,
+                onDismissSuccess: () {
+                  setState(() => _success = null);
+                },
                 tabController: _tabController,
                 isAdmin: _isAdmin,
                 savingPersonal: _savingPersonal,

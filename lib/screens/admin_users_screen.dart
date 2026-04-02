@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/centered_section.dart';
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
+import '../theme/app_theme.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   const AdminUsersScreen({super.key});
@@ -729,6 +730,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
     // ✅ Content-only screen. AppShell provides AppBar + sidebar.
     if (_roleLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -766,7 +768,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       children: [
         Positioned.fill(
           child: ColoredBox(
-            color: AppColors.pageCanvas,
+            color: appTheme.contentBackground,
             child: SafeArea(
               top: false, // AppShell already provides AppBar
               child: LayoutBuilder(
@@ -785,7 +787,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         children: [
                           // ✅ Header
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 8, 4, 12),
+                            padding: const EdgeInsets.only(top: 8, bottom: 12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
