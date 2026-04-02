@@ -9,6 +9,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../theme/app_colors.dart';
 import '../widgets/centered_section.dart';
 
+import '../widgets/page_scaffold.dart';
+import '../theme/app_theme.dart';
+
 /// ============================
 /// FILE TYPE ICON HELPER
 /// ============================
@@ -122,9 +125,56 @@ class GenerateUploadLinkScreen extends StatefulWidget {
       _GenerateUploadLinkScreenState();
 }
 
+class _FieldHeader extends StatelessWidget {
+  final String label;
+  final String? helper;
+
+  const _FieldHeader(this.label, {this.helper});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final appTheme = theme.extension<AppTheme>()!;
+
+    // Compact typography (enterprise density)
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+      fontSize: 12.5,
+      color: const Color(0xFF344054),
+      height: 1.1,
+    );
+
+    final helperStyle = theme.textTheme.bodySmall?.copyWith(
+      fontSize: 11.5,
+      color: const Color(0xFF667085),
+      fontWeight: FontWeight.w600,
+      height: 1.15,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: labelStyle),
+          if (helper != null && helper!.trim().isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(helper!, style: helperStyle),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+  final List<String> _businessNames = <String>[];
+  final List<String> _clientEmails = <String>[];
+  final List<_MessageTemplate> _messageTemplates = <_MessageTemplate>[];
+  bool _templatesLoaded = false;
+  bool _suggestionsLoaded = false;
 
   static _LinksView _lastView = _LinksView.active;
   late _LinksView _view;
@@ -134,7 +184,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   @override
   void initState() {
     super.initState();
-    _view = _lastView; // ✅ restore last selected tab
+    _view = _lastView;
+    _loadSuggestions();
+    _loadTemplates(); // ✅ add this
   }
 
   HttpsCallable _callable(String name) => _functions.httpsCallable(name);
@@ -185,6 +237,67 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     }
   }
 
+  void _loadTemplates() {
+    _messageTemplates
+      ..clear()
+      ..addAll([
+        _MessageTemplate(
+          id: 'tax_docs',
+          title: 'Tax documents request',
+          body:
+              'Dear Client,\n\nPlease upload your tax documents using the secure link below.\n\nThank you,\nAxume & Associates CPAs',
+        ),
+        _MessageTemplate(
+          id: 'general',
+          title: 'General document request',
+          body:
+              'Dear Client,\n\nPlease upload the requested documents using the secure link below.\n\nBest regards,\nAxume & Associates CPAs',
+        ),
+      ]);
+
+    setState(() => _templatesLoaded = true);
+  }
+
+  Future<void> _loadSuggestions() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+
+      final snap = await FirebaseFirestore.instance
+          .collection('dropoff_requests')
+          .where('createdByUid', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .get();
+
+      final business = <String>{};
+      final emails = <String>{};
+
+      for (final d in snap.docs) {
+        final data = d.data();
+        final b = (data['businessName'] ?? '').toString().trim();
+        final e = (data['clientEmail'] ?? '').toString().trim();
+
+        if (b.isNotEmpty) business.add(b);
+        if (e.isNotEmpty) emails.add(e);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _businessNames
+          ..clear()
+          ..addAll(business);
+        _clientEmails
+          ..clear()
+          ..addAll(emails);
+        _suggestionsLoaded = true;
+      });
+    } catch (_) {
+      // Best-effort only (never block modal)
+      if (!mounted) return;
+      setState(() => _suggestionsLoaded = true);
+    }
+  }
+
   Future<void> _purgeDropoffRequest(String requestId) async {
     setState(() => _busy = true);
     try {
@@ -215,9 +328,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       await _deleteDropoffCallable.call({'requestId': requestId});
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Request link deleted.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Request link deleted.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -304,222 +417,569 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     }
   }
 
-  Future<void> _downloadFile({
-    required String storagePath,
-    required String filename,
-    String? contentType,
-    required String requestId,
-    required String fileId,
-  }) async {
-    setState(() => _busy = true);
-    try {
-      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getDropoffDownloadUrl')
-          .call({
-            'storagePath': storagePath,
-            'filename': filename,
-            'contentType': (contentType ?? '').toString(),
-            'requestId': requestId,
-            'fileId': fileId,
-          });
+  Future<void> _openCreateRequestDialog() async {
+    final firstCtrl = TextEditingController();
+    final lastCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final businessCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
 
-      final data = Map<String, dynamic>.from(res.data as Map);
-      final url = (data['url'] ?? '').toString();
+    String? selectedTemplateId;
 
-      if (url.isEmpty) {
-        throw Exception('Could not generate download link.');
-      }
+    bool submitting = false;
 
-      final uri = Uri.parse(url);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !submitting,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final appTheme = theme.extension<AppTheme>()!;
 
-      if (!mounted) return;
+        Future<void> submit(StateSetter setLocalState) async {
+          final first = firstCtrl.text.trim();
+          final last = lastCtrl.text.trim();
+          final email = emailCtrl.text.trim().toLowerCase();
+          final business = businessCtrl.text.trim();
+          final message = messageCtrl.text.trim();
 
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Download ready'),
-          content: Text(filename),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                await launchUrl(uri, webOnlyWindowName: '_self');
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Download'),
-            ),
-          ],
-        ),
-      );
+          if (first.isEmpty || last.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('First and last name are required.'),
+              ),
+            );
+            return;
+          }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Downloading $filename…')));
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      final details = e.details == null ? '' : '\nDetails: ${e.details}';
-      final msg = 'Download failed: ${e.code} ${e.message ?? ''}$details';
-      debugPrint(msg);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+          if (email.isNotEmpty && !email.contains('@')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Enter a valid client email (or leave it blank).',
+                ),
+              ),
+            );
+            return;
+          }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+          setLocalState(() => submitting = true);
+          setState(() => _busy = true);
 
-    // ✅ Content-only screen: AppShell provides AppBar + sidebar.
-    // We keep all existing layout and functionality, but remove the nested Scaffold/AppBar.
+          try {
+            final callable = FirebaseFunctions.instanceFor(
+              region: 'us-central1',
+            ).httpsCallable('createDropoffRequest');
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 1100;
+            final res = await callable.call({
+              'firstName': first,
+              'lastName': last,
+              'clientEmail': email,
+              'businessName': business,
+              'message': message,
+            });
 
-              return CenteredSection(
-                maxWidth: isWide ? 1400 : 1100,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // ✅ Enterprise header row (replaces the old AppBar action)
-                      Row(
-                        children: [
-                          Expanded(
+            final data = Map<String, dynamic>.from(res.data as Map);
+            final requestId = (data['requestId'] ?? '').toString().trim();
+            final url = (data['url'] ?? '').toString().trim();
+
+            if (url.isNotEmpty) {
+              await Clipboard.setData(ClipboardData(text: url));
+            }
+
+            if (!mounted) return;
+            Navigator.pop(ctx);
+
+            // ✅ Calm enterprise feedback + optional “View” action
+            final snack = SnackBar(
+              content: Text(
+                url.isNotEmpty
+                    ? 'Request link created and copied to clipboard.'
+                    : 'Request created.',
+              ),
+              action: requestId.isEmpty
+                  ? null
+                  : SnackBarAction(
+                      label: 'View',
+                      onPressed: () {
+                        if (widget.onOpenDetails != null) {
+                          widget.onOpenDetails!(requestId);
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                DropoffDetailScreen(requestId: requestId),
+                          ),
+                        );
+                      },
+                    ),
+            );
+
+            ScaffoldMessenger.of(context).showSnackBar(snack);
+          } on FirebaseFunctionsException catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Create failed: ${e.code} ${e.message ?? ''}'),
+              ),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
+          } finally {
+            if (mounted) setState(() => _busy = false);
+            setLocalState(() => submitting = false);
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            return Theme(
+              data: theme.copyWith(
+                // Compact text inside the dialog only
+                textTheme: theme.textTheme.copyWith(
+                  bodyMedium: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 13,
+                  ),
+                  bodySmall: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                  labelSmall: theme.textTheme.labelSmall?.copyWith(
+                    fontSize: 11,
+                  ),
+                ),
+                // Compact input styling for all fields in this dialog
+                inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: appTheme.divider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: appTheme.divider),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: AppColors.brandBlue.withOpacity(0.90),
+                      width: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+
+              child: Dialog(
+                backgroundColor:
+                    appTheme.contentBackground, // ✅ app theme surface
+                insetPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 24,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header row with close "X"
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Create new request',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                  color: const Color(0xFF101828),
+                                  height: 1.1,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Close',
+                              onPressed: submitting
+                                  ? null
+                                  : () => Navigator.pop(ctx),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Divider(
+                          color: appTheme.divider, // ✅ app theme divider token
+                          height: 1,
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Form
+                        // ✅ Form (scrollable area so footer stays visible)
+                        Flexible(
+                          child: SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Request Links',
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    color: const Color(0xFF101828),
-                                    letterSpacing: -0.2,
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const _FieldHeader(
+                                            'Client first name',
+                                          ),
+                                          TextField(
+                                            controller: firstCtrl,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Enter first name',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const _FieldHeader(
+                                            'Client last name',
+                                          ),
+                                          TextField(
+                                            controller: lastCtrl,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Enter last name',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Create and manage secure upload links for clients.',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: const Color(0xFF475467),
-                                    height: 1.25,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+
+                                const SizedBox(height: 10),
+
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _FieldHeader(
+                                      'Business name (optional)',
+                                      helper: _suggestionsLoaded
+                                          ? 'Start typing to see suggestions'
+                                          : null,
+                                    ),
+                                    Autocomplete<String>(
+                                      optionsBuilder: (value) {
+                                        final q = value.text.toLowerCase();
+                                        if (q.isEmpty)
+                                          return const Iterable<String>.empty();
+                                        return _businessNames.where(
+                                          (b) => b.toLowerCase().contains(q),
+                                        );
+                                      },
+                                      onSelected: (v) {
+                                        businessCtrl.text = v;
+                                        FocusScope.of(ctx).nextFocus();
+                                      },
+                                      fieldViewBuilder:
+                                          (_, ctrl, focusNode, __) {
+                                            ctrl.addListener(
+                                              () =>
+                                                  businessCtrl.text = ctrl.text,
+                                            );
+                                            if (ctrl.text !=
+                                                businessCtrl.text) {
+                                              ctrl.text = businessCtrl.text;
+                                              ctrl.selection =
+                                                  TextSelection.collapsed(
+                                                    offset: ctrl.text.length,
+                                                  );
+                                            }
+                                            return TextField(
+                                              controller: ctrl,
+                                              focusNode: focusNode,
+                                              textInputAction:
+                                                  TextInputAction.next,
+                                              enabled: !submitting,
+                                              decoration: const InputDecoration(
+                                                hintText:
+                                                    'Business / entity name',
+                                              ),
+                                            );
+                                          },
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _FieldHeader(
+                                      'Client email (optional)',
+                                      helper: _suggestionsLoaded
+                                          ? 'Type 3+ characters to see suggestions'
+                                          : null,
+                                    ),
+                                    Autocomplete<String>(
+                                      optionsBuilder: (value) {
+                                        final q = value.text.toLowerCase();
+                                        if (q.length < 3)
+                                          return const Iterable<String>.empty();
+                                        return _clientEmails.where(
+                                          (e) => e.toLowerCase().contains(q),
+                                        );
+                                      },
+                                      onSelected: (v) {
+                                        emailCtrl.text = v;
+                                        FocusScope.of(ctx).nextFocus();
+                                      },
+                                      fieldViewBuilder:
+                                          (_, ctrl, focusNode, __) {
+                                            ctrl.addListener(
+                                              () => emailCtrl.text = ctrl.text,
+                                            );
+                                            if (ctrl.text != emailCtrl.text) {
+                                              ctrl.text = emailCtrl.text;
+                                              ctrl.selection =
+                                                  TextSelection.collapsed(
+                                                    offset: ctrl.text.length,
+                                                  );
+                                            }
+                                            return TextField(
+                                              controller: ctrl,
+                                              focusNode: focusNode,
+                                              keyboardType:
+                                                  TextInputType.emailAddress,
+                                              textInputAction:
+                                                  TextInputAction.next,
+                                              enabled: !submitting,
+                                              decoration: const InputDecoration(
+                                                hintText: 'name@domain.com',
+                                              ),
+                                            );
+                                          },
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _FieldHeader(
+                                      'Message template',
+                                      helper: _templatesLoaded
+                                          ? 'Select a template to auto-fill the description'
+                                          : null,
+                                    ),
+                                    DropdownButtonFormField<String>(
+                                      value: selectedTemplateId,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Choose a template',
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem<String>(
+                                          value: '__none__',
+                                          child: Text('— No template —'),
+                                        ),
+                                        ..._messageTemplates.map(
+                                          (t) => DropdownMenuItem<String>(
+                                            value: t.id,
+                                            child: Text(t.title),
+                                          ),
+                                        ),
+                                      ],
+                                      onChanged: submitting
+                                          ? null
+                                          : (id) {
+                                              if (id == null) return;
+
+                                              if (id == '__none__') {
+                                                selectedTemplateId = null;
+                                                setLocalState(() {});
+                                                return;
+                                              }
+
+                                              selectedTemplateId = id;
+
+                                              final t = _messageTemplates
+                                                  .firstWhere(
+                                                    (e) => e.id == id,
+                                                  );
+
+                                              // ✅ Safe: only fill if empty
+                                              if (messageCtrl.text
+                                                  .trim()
+                                                  .isEmpty) {
+                                                messageCtrl.text = t.body;
+                                              }
+
+                                              setLocalState(() {});
+                                            },
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 10),
+
+                                // ✅ Give Description more visible space
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const _FieldHeader(
+                                      'Description (optional)',
+                                    ),
+                                    TextField(
+                                      controller: messageCtrl,
+                                      minLines: 6,
+                                      maxLines: 10,
+                                      decoration: const InputDecoration(
+                                        hintText:
+                                            'Explain what documents are needed',
+                                        alignLabelWithHint: true,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            height: 40,
-                            child: FilledButton.icon(
-                              onPressed: widget.onCreate,
-                              icon: const Icon(Icons.add_link, size: 18),
-                              label: const Text('Create link'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.brandBlue,
-                                foregroundColor: Colors.white,
-                                textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
 
-                      const SizedBox(height: 14),
+                        const SizedBox(height: 16),
+                        Divider(
+                          color: appTheme.divider, // ✅ app theme divider token
+                          height: 1,
+                        ),
+                        const SizedBox(height: 12),
 
-                      // ✅ Main layout (same as before, just no Scaffold/AppBar)
-                      Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        // Actions
+                        Row(
                           children: [
-                            Expanded(
-                              flex: 5,
-                              child: _WhiteCard(
-                                child: _RequestsList(
-                                  db: _db,
-                                  busy: _busy,
-
-                                  // ✅ REQUIRED: pass current view
-                                  view: _view,
-
-                                  // ✅ ADD THIS EXACT BLOCK
-                                  onViewChanged: (v) => setState(() {
-                                    _view = v;
-                                    _lastView =
-                                        v; // ✅ persists across screen rebuilds
-                                  }),
-
-                                  onSelect: (rid) {
-                                    if (widget.onOpenDetails != null) {
-                                      widget.onOpenDetails!(rid);
-                                      return;
-                                    }
-
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            DropoffDetailScreen(requestId: rid),
-                                      ),
-                                    );
-                                  },
-                                  onSetStatus: _setDropoffStatus,
-                                  onBulkDelete: _bulkDeleteDropoffRequests,
-                                  onArchive: _deleteDropoffRequest,
-                                  onPurge: _purgeDropoffRequest,
-                                ),
+                            Text(
+                              submitting ? 'Creating…' : '',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                            if (isWide) ...[
-                              const SizedBox(width: 16),
-                              Expanded(
-                                flex: 2,
-                                child: _WhiteCard(
-                                  child: _HelpPanel(
-                                    onCreate: _busy ? null : widget.onCreate,
+                            const Spacer(),
+                            TextButton(
+                              onPressed: submitting
+                                  ? null
+                                  : () => Navigator.pop(ctx),
+                              child: const Text('Cancel'),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              height: 36,
+                              child: FilledButton(
+                                onPressed: submitting
+                                    ? null
+                                    : () => submit(setLocalState),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.brandBlue,
+                                  foregroundColor: theme.colorScheme.onPrimary,
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
+                                child: const Text('Create'),
                               ),
-                            ],
+                            ),
                           ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              );
-            },
-          ),
-        ),
+              ),
+            );
+          },
+        );
+      },
+    );
 
-        if (_busy)
-          const Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: LinearProgressIndicator(minHeight: 2),
-          ),
-      ],
+    firstCtrl.dispose();
+    lastCtrl.dispose();
+    emailCtrl.dispose();
+    businessCtrl.dispose();
+    messageCtrl.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PageScaffold(
+      title: 'Request Links',
+      subtitle: 'Create and manage secure upload links for clients.',
+      wrapInCard: false,
+      scrollable: false,
+      child: Expanded(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: _WhiteCard(
+                child: _RequestsList(
+                  db: _db,
+                  busy: _busy,
+                  view: _view,
+                  onViewChanged: (v) => setState(() {
+                    _view = v;
+                    _lastView = v;
+                  }),
+                  onSelect: (rid) {
+                    if (widget.onOpenDetails != null) {
+                      widget.onOpenDetails!(rid);
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DropoffDetailScreen(requestId: rid),
+                      ),
+                    );
+                  },
+                  onSetStatus: _setDropoffStatus,
+                  onBulkDelete: _bulkDeleteDropoffRequests,
+                  onArchive: _deleteDropoffRequest,
+                  onPurge: _purgeDropoffRequest,
+                  onCreate: _busy ? null : _openCreateRequestDialog,
+                ),
+              ),
+            ),
+            if (_busy)
+              const Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -529,6 +989,8 @@ class _RequestsList extends StatefulWidget {
   final bool busy;
   final _LinksView view;
   final ValueChanged<_LinksView> onViewChanged;
+
+  final VoidCallback? onCreate; // ✅ ADD
   final void Function(String requestId) onSelect;
   final Future<void> Function(String requestId, String status) onSetStatus;
   final Future<void> Function(
@@ -551,6 +1013,7 @@ class _RequestsList extends StatefulWidget {
     // ✅ ADD THESE
     required this.onArchive,
     required this.onPurge,
+    this.onCreate, // ✅ ADD
   });
 
   @override
@@ -644,56 +1107,61 @@ class _RequestsListState extends State<_RequestsList> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'View & Edit Request Links',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF101828),
-              letterSpacing: -0.2,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Select a link to view received uploads.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF475467),
-              height: 1.25,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
 
-          const SizedBox(height: 12),
-
-          // ✅ Active / Archived toggle (enterprise pill switch)
-          Wrap(
-            spacing: 10,
+          Row(
             children: [
-              ChoiceChip(
-                label: const Text('Active'),
-                selected: widget.view == _LinksView.active,
-                onSelected: (v) {
-                  if (!v) return;
-                  widget.onViewChanged(_LinksView.active);
-                  setState(() {
-                    _selected.clear();
-                    _q = '';
-                    _searchCtrl.clear();
-                  });
-                },
+              Wrap(
+                spacing: 10,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Active'),
+                    selected: widget.view == _LinksView.active,
+                    onSelected: (v) {
+                      if (!v) return;
+                      widget.onViewChanged(_LinksView.active);
+                      setState(() {
+                        _selected.clear();
+                        _q = '';
+                        _searchCtrl.clear();
+                      });
+                    },
+                  ),
+                  ChoiceChip(
+                    label: const Text('Archived'),
+                    selected: widget.view == _LinksView.archived,
+                    onSelected: (v) {
+                      if (!v) return;
+                      widget.onViewChanged(_LinksView.archived);
+                      setState(() {
+                        _selected.clear();
+                        _q = '';
+                        _searchCtrl.clear();
+                      });
+                    },
+                  ),
+                ],
               ),
-              ChoiceChip(
-                label: const Text('Archived'),
-                selected: widget.view == _LinksView.archived,
-                onSelected: (v) {
-                  if (!v) return;
-                  widget.onViewChanged(_LinksView.archived);
-                  setState(() {
-                    _selected.clear();
-                    _q = '';
-                    _searchCtrl.clear();
-                  });
-                },
+
+              const Spacer(),
+
+              SizedBox(
+                height: 36,
+                child: FilledButton.icon(
+                  onPressed: widget.busy ? null : widget.onCreate,
+                  icon: const Icon(Icons.add_link, size: 18),
+                  label: const Text(
+                    'Create link',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.brandBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1683,9 +2151,9 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
         region: 'us-central1',
       ).httpsCallable('deleteDropoffRequest').call({'requestId': requestId});
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Request link deleted.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Request link deleted.')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

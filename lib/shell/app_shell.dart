@@ -1640,13 +1640,13 @@ class _MiniRail extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
-            /*
+            
             _MiniTile(
               icon: Icons.request_page_outlined,
-              label: 'Request',
+              label: 'Requests',
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
-            ),*/
+            ),
             const Spacer(),
 
             // ✅ Collapse / Expand the secondary pane
