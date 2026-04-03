@@ -11,79 +11,7 @@ import '../widgets/centered_section.dart';
 
 import '../widgets/page_scaffold.dart';
 import '../theme/app_theme.dart';
-
-/// ============================
-/// FILE TYPE ICON HELPER
-/// ============================
-Icon _fileTypeIcon({required String fileName, required String contentType}) {
-  final name = fileName.toLowerCase();
-  final type = contentType.toLowerCase();
-
-  if (name.endsWith('.pdf') || type.contains('pdf')) {
-    return const Icon(
-      Icons.picture_as_pdf_outlined,
-      color: Color(0xFFD92D20),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.doc') ||
-      name.endsWith('.docx') ||
-      type.contains('word')) {
-    return const Icon(
-      Icons.description_outlined,
-      color: Color(0xFF1570EF),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.xls') ||
-      name.endsWith('.xlsx') ||
-      name.endsWith('.csv') ||
-      type.contains('excel') ||
-      type.contains('spreadsheet')) {
-    return const Icon(
-      Icons.table_chart_outlined,
-      color: Color(0xFF027A48),
-      size: 20,
-    );
-  }
-
-  if (type.startsWith('image/') ||
-      name.endsWith('.png') ||
-      name.endsWith('.jpg') ||
-      name.endsWith('.jpeg') ||
-      name.endsWith('.gif') ||
-      name.endsWith('.webp')) {
-    return const Icon(Icons.image_outlined, color: Color(0xFF2E90FA), size: 20);
-  }
-
-  if (name.endsWith('.txt') || name.endsWith('.log')) {
-    return const Icon(
-      Icons.article_outlined,
-      color: Color(0xFF0E7090),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.ps1')) {
-    return const Icon(
-      Icons.terminal_outlined,
-      color: Color(0xFF6941C6),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.cmd') || name.endsWith('.bat')) {
-    return const Icon(Icons.code_outlined, color: Color(0xFF475467), size: 20);
-  }
-
-  return const Icon(
-    Icons.insert_drive_file_outlined,
-    color: Color(0xFF667085),
-    size: 20,
-  );
-}
+import '../screens/dropoff_detail_screen.dart';
 
 String formatDateTimeCompact(DateTime dt) {
   final m = dt.month.toString().padLeft(2, '0');
@@ -201,6 +129,63 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   HttpsCallable get _purgeDropoffCallable =>
       _functions.httpsCallable('purgeDropoffRequest');
 
+  String _resolveClientName({
+    required TextEditingController firstCtrl,
+    required TextEditingController lastCtrl,
+  }) {
+    final first = firstCtrl.text.trim();
+    final last = lastCtrl.text.trim();
+    final full = ('$first $last').trim();
+
+    if (full.isNotEmpty) return full;
+    if (first.isNotEmpty) return first; // fallback
+    return 'Client';
+  }
+
+  Future<String> _resolveSenderName() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return 'Axume & Associates CPAs';
+
+      final dn = (user.displayName ?? '').trim();
+      if (dn.isNotEmpty) return dn;
+
+      // If you store staff names in /users/{uid}
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = snap.data();
+      if (data != null) {
+        final first = (data['firstName'] ?? '').toString().trim();
+        final last = (data['lastName'] ?? '').toString().trim();
+        final full = ('$first $last').trim();
+        if (full.isNotEmpty) return full;
+
+        final displayName = (data['displayName'] ?? '').toString().trim();
+        if (displayName.isNotEmpty) return displayName;
+      }
+
+      final email = (user.email ?? '').trim();
+      if (email.isNotEmpty) return email;
+
+      return 'Axume & Associates CPAs';
+    } catch (_) {
+      return 'Axume & Associates CPAs';
+    }
+  }
+
+  String _applyTemplateTokens(
+    String text, {
+    required String senderName,
+    required String clientName,
+  }) {
+    return text
+        .replaceAll('{{senderName}}', senderName)
+        .replaceAll('{{clientName}}', clientName);
+  }
+
   Future<void> _setDropoffStatus(String requestId, String status) async {
     setState(() => _busy = true);
     try {
@@ -245,13 +230,19 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
           id: 'tax_docs',
           title: 'Tax documents request',
           body:
-              'Dear Client,\n\nPlease upload your tax documents using the secure link below.\n\nThank you,\nAxume & Associates CPAs',
+              'Dear {{clientName}},\n\n'
+              'Please upload your tax documents using the Upload button on this page.\n\n'
+              '{{senderName}}\n'
+              'Axume & Associates CPAs',
         ),
         _MessageTemplate(
           id: 'general',
           title: 'General document request',
           body:
-              'Dear Client,\n\nPlease upload the requested documents using the secure link below.\n\nBest regards,\nAxume & Associates CPAs',
+              'Dear {{clientName}},\n\n'
+              'Please upload the requested documents using the Upload button on this page.\n\n'
+              '{{senderName}}\n'
+              'Axume & Associates CPAs',
         ),
       ]);
 
@@ -423,9 +414,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final emailCtrl = TextEditingController();
     final businessCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool triedSubmit = false; // controls when errors appear
 
     String? selectedTemplateId;
-
     bool submitting = false;
 
     await showDialog<void>(
@@ -435,12 +427,34 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         final theme = Theme.of(ctx);
         final appTheme = theme.extension<AppTheme>()!;
 
+        Widget sectionLabel(String text) => Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 6),
+          child: Text(
+            text.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.8,
+              color: const Color(0xFF667085),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        );
+
         Future<void> submit(StateSetter setLocalState) async {
           final first = firstCtrl.text.trim();
           final last = lastCtrl.text.trim();
           final email = emailCtrl.text.trim().toLowerCase();
           final business = businessCtrl.text.trim();
-          final message = messageCtrl.text.trim();
+          final senderName = await _resolveSenderName();
+          final clientName = _resolveClientName(
+            firstCtrl: firstCtrl,
+            lastCtrl: lastCtrl,
+          );
+
+          final message = _applyTemplateTokens(
+            messageCtrl.text.trim(),
+            senderName: senderName,
+            clientName: clientName,
+          );
 
           if (first.isEmpty || last.isEmpty) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -481,42 +495,188 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
             final data = Map<String, dynamic>.from(res.data as Map);
             final requestId = (data['requestId'] ?? '').toString().trim();
             final url = (data['url'] ?? '').toString().trim();
+            final urlController = TextEditingController(text: url);
 
-            if (url.isNotEmpty) {
-              await Clipboard.setData(ClipboardData(text: url));
+            Future<void> _showShareLinkDialog(
+              BuildContext context,
+              String url,
+            ) async {
+              final theme = Theme.of(context);
+              final appTheme = theme.extension<AppTheme>()!;
+
+              await showDialog<void>(
+                context: context,
+                builder: (ctx) {
+                  return Dialog(
+                    backgroundColor: appTheme.contentBackground,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    insetPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 24,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Header
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Share this link with your client',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: const Color(0xFF101828),
+                                        ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Close',
+                                  onPressed: () => Navigator.pop(ctx),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            Text(
+                              'Anyone with this link can upload files securely.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            // Link box (fixed width, truncated like Dropbox)
+                            Row(
+                              children: [
+                                // ✅ URL field (single rectangle only)
+                                Expanded(
+                                  child: Container(
+                                    height: 44,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: appTheme.contentBackground,
+                                      border: Border.all(
+                                        color: appTheme.divider,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.03),
+                                          blurRadius: 2,
+                                          offset: const Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                    alignment: Alignment.centerLeft,
+                                    child: Focus(
+                                      onFocusChange: (hasFocus) {
+                                        if (hasFocus) {
+                                          urlController.selection =
+                                              TextSelection(
+                                                baseOffset: 0,
+                                                extentOffset:
+                                                    urlController.text.length,
+                                              );
+                                        }
+                                      },
+                                      child: TextField(
+                                        controller: urlController,
+                                        readOnly: true,
+                                        maxLines: 1,
+                                        enableInteractiveSelection: true,
+                                        showCursor: false,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: const Color(0xFF101828),
+                                            ),
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          border: InputBorder.none,
+                                          contentPadding: EdgeInsets.zero,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(width: 10),
+
+                                // ✅ Copy button OUTSIDE the rectangle
+                                SizedBox(
+                                  height: 44,
+                                  child: OutlinedButton(
+                                    onPressed: () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(text: url),
+                                      );
+                                      if (!ctx.mounted) return;
+                                      ScaffoldMessenger.of(ctx).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Link copied to clipboard',
+                                          ),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      side: BorderSide(color: appTheme.divider),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    child: const Text('Copy'),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 18),
+
+                            // Footer
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Done'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
             }
 
             if (!mounted) return;
             Navigator.pop(ctx);
 
-            // ✅ Calm enterprise feedback + optional “View” action
-            final snack = SnackBar(
-              content: Text(
-                url.isNotEmpty
-                    ? 'Request link created and copied to clipboard.'
-                    : 'Request created.',
-              ),
-              action: requestId.isEmpty
-                  ? null
-                  : SnackBarAction(
-                      label: 'View',
-                      onPressed: () {
-                        if (widget.onOpenDetails != null) {
-                          widget.onOpenDetails!(requestId);
-                          return;
-                        }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                DropoffDetailScreen(requestId: requestId),
-                          ),
-                        );
-                      },
-                    ),
-            );
-
-            ScaffoldMessenger.of(context).showSnackBar(snack);
+            if (url.isNotEmpty) {
+              await _showShareLinkDialog(context, url);
+            }
           } on FirebaseFunctionsException catch (e) {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
@@ -537,6 +697,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
+            final canCreate =
+                firstCtrl.text.trim().isNotEmpty &&
+                lastCtrl.text.trim().isNotEmpty &&
+                !submitting;
             return Theme(
               data: theme.copyWith(
                 // Compact text inside the dialog only
@@ -626,242 +790,292 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                         // ✅ Form (scrollable area so footer stays visible)
                         Flexible(
                           child: SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const _FieldHeader(
-                                            'Client first name',
-                                          ),
-                                          TextField(
-                                            controller: firstCtrl,
-                                            textInputAction:
-                                                TextInputAction.next,
-                                            decoration: const InputDecoration(
-                                              hintText: 'Enter first name',
+                            child: Form(
+                              key: formKey,
+                              autovalidateMode: triedSubmit
+                                  ? AutovalidateMode.onUserInteraction
+                                  : AutovalidateMode.disabled,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const _FieldHeader(
+                                              'Client first name',
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const _FieldHeader(
-                                            'Client last name',
-                                          ),
-                                          TextField(
-                                            controller: lastCtrl,
-                                            textInputAction:
-                                                TextInputAction.next,
-                                            decoration: const InputDecoration(
-                                              hintText: 'Enter last name',
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _FieldHeader(
-                                      'Business name (optional)',
-                                      helper: _suggestionsLoaded
-                                          ? 'Start typing to see suggestions'
-                                          : null,
-                                    ),
-                                    Autocomplete<String>(
-                                      optionsBuilder: (value) {
-                                        final q = value.text.toLowerCase();
-                                        if (q.isEmpty)
-                                          return const Iterable<String>.empty();
-                                        return _businessNames.where(
-                                          (b) => b.toLowerCase().contains(q),
-                                        );
-                                      },
-                                      onSelected: (v) {
-                                        businessCtrl.text = v;
-                                        FocusScope.of(ctx).nextFocus();
-                                      },
-                                      fieldViewBuilder:
-                                          (_, ctrl, focusNode, __) {
-                                            ctrl.addListener(
-                                              () =>
-                                                  businessCtrl.text = ctrl.text,
-                                            );
-                                            if (ctrl.text !=
-                                                businessCtrl.text) {
-                                              ctrl.text = businessCtrl.text;
-                                              ctrl.selection =
-                                                  TextSelection.collapsed(
-                                                    offset: ctrl.text.length,
-                                                  );
-                                            }
-                                            return TextField(
-                                              controller: ctrl,
-                                              focusNode: focusNode,
+                                            TextFormField(
+                                              controller: firstCtrl,
                                               textInputAction:
                                                   TextInputAction.next,
-                                              enabled: !submitting,
                                               decoration: const InputDecoration(
-                                                hintText:
-                                                    'Business / entity name',
+                                                hintText: 'Enter first name',
                                               ),
-                                            );
-                                          },
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _FieldHeader(
-                                      'Client email (optional)',
-                                      helper: _suggestionsLoaded
-                                          ? 'Type 3+ characters to see suggestions'
-                                          : null,
-                                    ),
-                                    Autocomplete<String>(
-                                      optionsBuilder: (value) {
-                                        final q = value.text.toLowerCase();
-                                        if (q.length < 3)
-                                          return const Iterable<String>.empty();
-                                        return _clientEmails.where(
-                                          (e) => e.toLowerCase().contains(q),
-                                        );
-                                      },
-                                      onSelected: (v) {
-                                        emailCtrl.text = v;
-                                        FocusScope.of(ctx).nextFocus();
-                                      },
-                                      fieldViewBuilder:
-                                          (_, ctrl, focusNode, __) {
-                                            ctrl.addListener(
-                                              () => emailCtrl.text = ctrl.text,
-                                            );
-                                            if (ctrl.text != emailCtrl.text) {
-                                              ctrl.text = emailCtrl.text;
-                                              ctrl.selection =
-                                                  TextSelection.collapsed(
-                                                    offset: ctrl.text.length,
-                                                  );
-                                            }
-                                            return TextField(
-                                              controller: ctrl,
-                                              focusNode: focusNode,
-                                              keyboardType:
-                                                  TextInputType.emailAddress,
+                                              validator: (v) {
+                                                if ((v ?? '').trim().isEmpty) {
+                                                  return 'First name is required.';
+                                                }
+                                                return null;
+                                              },
+                                              onChanged: (_) =>
+                                                  setLocalState(() {}),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const _FieldHeader(
+                                              'Client last name',
+                                            ),
+                                            TextFormField(
+                                              controller: lastCtrl,
                                               textInputAction:
                                                   TextInputAction.next,
-                                              enabled: !submitting,
                                               decoration: const InputDecoration(
-                                                hintText: 'name@domain.com',
+                                                hintText: 'Enter last name',
                                               ),
-                                            );
-                                          },
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _FieldHeader(
-                                      'Message template',
-                                      helper: _templatesLoaded
-                                          ? 'Select a template to auto-fill the description'
-                                          : null,
-                                    ),
-                                    DropdownButtonFormField<String>(
-                                      value: selectedTemplateId,
-                                      isExpanded: true,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Choose a template',
+                                              validator: (v) {
+                                                if ((v ?? '').trim().isEmpty) {
+                                                  return 'Last name is required.';
+                                                }
+                                                return null;
+                                              },
+                                              onChanged: (_) =>
+                                                  setLocalState(() {}),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                      items: [
-                                        const DropdownMenuItem<String>(
-                                          value: '__none__',
-                                          child: Text('— No template —'),
-                                        ),
-                                        ..._messageTemplates.map(
-                                          (t) => DropdownMenuItem<String>(
-                                            value: t.id,
-                                            child: Text(t.title),
-                                          ),
-                                        ),
-                                      ],
-                                      onChanged: submitting
-                                          ? null
-                                          : (id) {
-                                              if (id == null) return;
+                                    ],
+                                  ),
 
-                                              if (id == '__none__') {
-                                                selectedTemplateId = null;
-                                                setLocalState(() {});
-                                                return;
+                                  const SizedBox(height: 10),
+
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _FieldHeader(
+                                        'Business name (optional)',
+                                        helper: _suggestionsLoaded
+                                            ? 'Start typing to see suggestions'
+                                            : null,
+                                      ),
+                                      Autocomplete<String>(
+                                        optionsBuilder: (value) {
+                                          final q = value.text.toLowerCase();
+                                          if (q.isEmpty)
+                                            return const Iterable<
+                                              String
+                                            >.empty();
+                                          return _businessNames.where(
+                                            (b) => b.toLowerCase().contains(q),
+                                          );
+                                        },
+                                        onSelected: (v) {
+                                          businessCtrl.text = v;
+                                          FocusScope.of(ctx).nextFocus();
+                                        },
+                                        fieldViewBuilder:
+                                            (_, ctrl, focusNode, __) {
+                                              ctrl.addListener(
+                                                () => businessCtrl.text =
+                                                    ctrl.text,
+                                              );
+                                              if (ctrl.text !=
+                                                  businessCtrl.text) {
+                                                ctrl.text = businessCtrl.text;
+                                                ctrl.selection =
+                                                    TextSelection.collapsed(
+                                                      offset: ctrl.text.length,
+                                                    );
                                               }
-
-                                              selectedTemplateId = id;
-
-                                              final t = _messageTemplates
-                                                  .firstWhere(
-                                                    (e) => e.id == id,
-                                                  );
-
-                                              // ✅ Safe: only fill if empty
-                                              if (messageCtrl.text
-                                                  .trim()
-                                                  .isEmpty) {
-                                                messageCtrl.text = t.body;
-                                              }
-
-                                              setLocalState(() {});
+                                              return TextField(
+                                                controller: ctrl,
+                                                focusNode: focusNode,
+                                                textInputAction:
+                                                    TextInputAction.next,
+                                                enabled: !submitting,
+                                                decoration: const InputDecoration(
+                                                  hintText:
+                                                      'Business / entity name',
+                                                ),
+                                              );
                                             },
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 10),
-
-                                // ✅ Give Description more visible space
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const _FieldHeader(
-                                      'Description (optional)',
-                                    ),
-                                    TextField(
-                                      controller: messageCtrl,
-                                      minLines: 6,
-                                      maxLines: 10,
-                                      decoration: const InputDecoration(
-                                        hintText:
-                                            'Explain what documents are needed',
-                                        alignLabelWithHint: true,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _FieldHeader(
+                                        'Client email (optional)',
+                                        helper: _suggestionsLoaded
+                                            ? 'Type 3+ characters to see suggestions'
+                                            : null,
+                                      ),
+                                      Autocomplete<String>(
+                                        optionsBuilder: (value) {
+                                          final q = value.text.toLowerCase();
+                                          if (q.length < 3)
+                                            return const Iterable<
+                                              String
+                                            >.empty();
+                                          return _clientEmails.where(
+                                            (e) => e.toLowerCase().contains(q),
+                                          );
+                                        },
+                                        onSelected: (v) {
+                                          emailCtrl.text = v;
+                                          FocusScope.of(ctx).nextFocus();
+                                        },
+                                        fieldViewBuilder:
+                                            (_, ctrl, focusNode, __) {
+                                              ctrl.addListener(
+                                                () =>
+                                                    emailCtrl.text = ctrl.text,
+                                              );
+                                              if (ctrl.text != emailCtrl.text) {
+                                                ctrl.text = emailCtrl.text;
+                                                ctrl.selection =
+                                                    TextSelection.collapsed(
+                                                      offset: ctrl.text.length,
+                                                    );
+                                              }
+                                              return TextField(
+                                                controller: ctrl,
+                                                focusNode: focusNode,
+                                                keyboardType:
+                                                    TextInputType.emailAddress,
+                                                textInputAction:
+                                                    TextInputAction.next,
+                                                enabled: !submitting,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      hintText:
+                                                          'name@domain.com',
+                                                    ),
+                                              );
+                                            },
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 14),
+                                  Divider(color: appTheme.divider),
+                                  const SizedBox(height: 12),
+                                  sectionLabel('Message'),
+
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _FieldHeader(
+                                        'Message template',
+                                        helper: _templatesLoaded
+                                            ? 'Select a template to auto-fill the description'
+                                            : null,
+                                      ),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedTemplateId,
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(
+                                          hintText: 'Choose a template',
+                                        ),
+                                        items: [
+                                          const DropdownMenuItem<String>(
+                                            value: '__none__',
+                                            child: Text('— No template —'),
+                                          ),
+                                          ..._messageTemplates.map(
+                                            (t) => DropdownMenuItem<String>(
+                                              value: t.id,
+                                              child: Text(t.title),
+                                            ),
+                                          ),
+                                        ],
+                                        onChanged: submitting
+                                            ? null
+                                            : (id) async {
+                                                if (id == null) return;
+
+                                                if (id == '__none__') {
+                                                  selectedTemplateId = null;
+                                                  setLocalState(() {});
+                                                  return;
+                                                }
+
+                                                selectedTemplateId = id;
+
+                                                final t = _messageTemplates
+                                                    .firstWhere(
+                                                      (e) => e.id == id,
+                                                    );
+
+                                                // ✅ Build token values
+                                                final senderName =
+                                                    await _resolveSenderName();
+                                                final clientName =
+                                                    _resolveClientName(
+                                                      firstCtrl: firstCtrl,
+                                                      lastCtrl: lastCtrl,
+                                                    );
+
+                                                // ✅ Safe: only fill if empty
+                                                if (messageCtrl.text
+                                                    .trim()
+                                                    .isEmpty) {
+                                                  messageCtrl.text =
+                                                      _applyTemplateTokens(
+                                                        t.body,
+                                                        senderName: senderName,
+                                                        clientName: clientName,
+                                                      );
+                                                }
+
+                                                setLocalState(() {});
+                                              },
+                                      ),
+                                    ],
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  // ✅ Give Description more visible space
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _FieldHeader(
+                                        'Description (optional)',
+                                      ),
+                                      TextField(
+                                        controller: messageCtrl,
+                                        minLines: 6,
+                                        maxLines: 10,
+                                        decoration: const InputDecoration(
+                                          hintText:
+                                              'Explain what documents are needed',
+                                          alignLabelWithHint: true,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -894,9 +1108,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                             SizedBox(
                               height: 36,
                               child: FilledButton(
-                                onPressed: submitting
-                                    ? null
-                                    : () => submit(setLocalState),
+                                onPressed: canCreate
+                                    ? () => submit(setLocalState)
+                                    : null,
                                 style: FilledButton.styleFrom(
                                   backgroundColor: AppColors.brandBlue,
                                   foregroundColor: theme.colorScheme.onPrimary,
@@ -1907,845 +2121,6 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
   }
 }
 
-class DropoffDetailScreen extends StatefulWidget {
-  final String requestId;
-  final VoidCallback? onBack; // AppShell can provide this
-
-  const DropoffDetailScreen({super.key, required this.requestId, this.onBack});
-
-  @override
-  State<DropoffDetailScreen> createState() => _DropoffDetailScreenState();
-}
-
-class _BulkFile {
-  final String fileId;
-  final String storagePath;
-  final String filename;
-  final String? contentType;
-
-  const _BulkFile({
-    required this.fileId,
-    required this.storagePath,
-    required this.filename,
-    required this.contentType,
-  });
-}
-
-class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
-  bool _busy = false;
-  final Set<String> _selectedFileIds = <String>{};
-  final Map<String, _BulkFile> _selectedFiles = <String, _BulkFile>{};
-
-  Future<void> _downloadFile({
-    required String storagePath,
-    required String filename,
-    String? contentType,
-    required String requestId,
-    required String fileId,
-  }) async {
-    setState(() => _busy = true);
-    try {
-      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getDropoffDownloadUrl')
-          .call({
-            'storagePath': storagePath,
-            'filename': filename,
-            'contentType': (contentType ?? '').toString(),
-            'requestId': requestId,
-            'fileId': fileId,
-          });
-
-      final data = Map<String, dynamic>.from(res.data as Map);
-      final url = (data['url'] ?? '').toString();
-      if (url.isEmpty) throw Exception('Could not generate download link.');
-
-      final uri = Uri.parse(url);
-
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Download ready'),
-          content: Text(filename),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                await launchUrl(uri, webOnlyWindowName: '_self');
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: const Text('Download'),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _showPreparingZipDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false, // ✅ cannot dismiss
-      builder: (_) => AlertDialog(
-        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-        content: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 3),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Preparing ZIP…',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Collecting and packaging selected files for download.',
-                    style: TextStyle(
-                      color: Color(0xFF667085),
-                      fontWeight: FontWeight.w600,
-                      height: 1.25,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _closePreparingZipDialog() {
-    if (Navigator.of(context, rootNavigator: true).canPop()) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-  }
-
-  Future<void> _bulkDownloadSelected() async {
-    if (_selectedFiles.isEmpty) return;
-
-    final files = _selectedFiles.values.toList(growable: false);
-
-    // ✅ If only one file selected → use existing single-download flow
-    if (files.length == 1) {
-      final f = files.first;
-      await _downloadFile(
-        storagePath: f.storagePath,
-        filename: f.filename,
-        contentType: f.contentType,
-        requestId: widget.requestId,
-        fileId: f.fileId,
-      );
-      return;
-    }
-
-    // ✅ If 2+ files selected → create ZIP on server and download it
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Download ZIP'),
-        content: Text(
-          'Create a ZIP containing ${files.length} files and download it?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Download ZIP (${files.length})'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _busy = true);
-    _showPreparingZipDialog();
-
-    try {
-      final fileIds = files.map((f) => f.fileId).toList(growable: false);
-
-      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getDropoffZipDownloadUrl')
-          .call({'requestId': widget.requestId, 'fileIds': fileIds});
-
-      _closePreparingZipDialog();
-
-      final data = Map<String, dynamic>.from(res.data as Map);
-      final url = (data['url'] ?? '').toString();
-      if (url.isEmpty) {
-        throw Exception('Could not generate ZIP download link.');
-      }
-
-      final uri = Uri.parse(url);
-
-      if (!mounted) return;
-
-      // ✅ Web: open same tab to avoid popup blockers
-      if (kIsWeb) {
-        await launchUrl(uri, webOnlyWindowName: '_self');
-      } else {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-
-      final count = (data['fileCount'] ?? files.length).toString();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Downloading ZIP ($count files)…')),
-      );
-    } on FirebaseFunctionsException catch (e) {
-      _closePreparingZipDialog();
-      if (!mounted) return;
-
-      // ✅ Extract real backend cause
-      String? cause;
-      final details = e.details;
-      if (details is Map && details['cause'] != null) {
-        cause = details['cause'].toString();
-      }
-
-      debugPrint(
-        'ZIP ERROR → code=${e.code}, message=${e.message}, cause=$cause',
-      );
-
-      final uiMessage = cause == null || cause.isEmpty
-          ? 'ZIP download failed. Please try again.'
-          : 'ZIP download failed: $cause';
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(uiMessage)));
-    } catch (e) {
-      _closePreparingZipDialog();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('ZIP download failed: $e')));
-    } finally {
-      // Always close dialog (even if something threw before closing)
-      _closePreparingZipDialog();
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _deleteDropoffRequest(String requestId) async {
-    setState(() => _busy = true);
-    try {
-      await FirebaseFunctions.instanceFor(
-        region: 'us-central1',
-      ).httpsCallable('deleteDropoffRequest').call({'requestId': requestId});
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Request link deleted.')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final db = FirebaseFirestore.instance;
-    final theme = Theme.of(context);
-
-    return Stack(
-      children: [
-        ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            CenteredSection(
-              maxWidth: 1100,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ✅ Optional in-body back button (enterprise)
-                  if (widget.onBack != null) ...[
-                    TextButton.icon(
-                      onPressed: _busy ? null : widget.onBack,
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Back to Request Links'),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-
-                  Text(
-                    'Request Link Details',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: const Color(0xFF101828),
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  _WhiteCard(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        stream: db
-                            .collection('dropoff_requests')
-                            .doc(widget.requestId)
-                            .snapshots(),
-                        builder: (context, reqSnap) {
-                          if (!reqSnap.hasData) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 22),
-                              child: Center(child: CircularProgressIndicator()),
-                            );
-                          }
-
-                          final reqData = reqSnap.data?.data() ?? {};
-                          final dropoffUrl = (reqData['url'] ?? '')
-                              .toString()
-                              .trim();
-                          final status = (reqData['status'] ?? 'open')
-                              .toString()
-                              .toLowerCase()
-                              .trim();
-                          final canDelete = status == 'open';
-
-                          final clientName = (reqData['clientName'] ?? '')
-                              .toString()
-                              .trim();
-                          final clientEmail = (reqData['clientEmail'] ?? '')
-                              .toString()
-                              .trim();
-                          final businessName = (reqData['businessName'] ?? '')
-                              .toString()
-                              .trim();
-                          final createdAt = reqData['createdAt'];
-                          final createdByUid = (reqData['createdByUid'] ?? '')
-                              .toString();
-                          final createdText = createdAt is Timestamp
-                              ? formatDateTimeCompact(createdAt.toDate())
-                              : '';
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Upload Link Information',
-                                      style: theme.textTheme.titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                            color: const Color(0xFF101828),
-                                          ),
-                                    ),
-                                  ),
-                                  _StatusPill(status: status),
-                                  const SizedBox(width: 12),
-                                  if (status == 'open' || status == 'closed')
-                                    SizedBox(
-                                      height: 32,
-                                      child: OutlinedButton(
-                                        onPressed: _busy
-                                            ? null
-                                            : () async {
-                                                await FirebaseFunctions.instanceFor(
-                                                      region: 'us-central1',
-                                                    )
-                                                    .httpsCallable(
-                                                      'setDropoffStatus',
-                                                    )
-                                                    .call({
-                                                      'requestId':
-                                                          widget.requestId,
-                                                      'status': status == 'open'
-                                                          ? 'closed'
-                                                          : 'open',
-                                                    });
-                                              },
-                                        child: Text(
-                                          status == 'open'
-                                              ? 'Disable link'
-                                              : 'Enable link',
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Divider(
-                                color: Colors.black.withOpacity(0.06),
-                                height: 1,
-                              ),
-                              const SizedBox(height: 12),
-
-                              _WhiteInset(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (clientName.isNotEmpty)
-                                      _KeyValueRow(
-                                        label: 'Client',
-                                        value: clientName,
-                                      ),
-                                    if (businessName.isNotEmpty)
-                                      _KeyValueRow(
-                                        label: 'Business',
-                                        value: businessName,
-                                      ),
-                                    if (clientEmail.isNotEmpty)
-                                      _KeyValueRow(
-                                        label: 'Email',
-                                        value: clientEmail,
-                                      ),
-                                    if (createdText.isNotEmpty)
-                                      _KeyValueRow(
-                                        label: 'Created',
-                                        value: createdText,
-                                      ),
-                                    if (createdByUid.isNotEmpty)
-                                      FutureBuilder<String>(
-                                        future: _resolveCreatedByName(
-                                          createdByUid,
-                                        ),
-                                        builder: (context, snap) =>
-                                            _KeyValueRow(
-                                              label: 'Created by',
-                                              value: snap.data ?? 'Loading…',
-                                            ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-
-                              if (dropoffUrl.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                const _SectionHeader(
-                                  title: 'Access link',
-                                  subtitle:
-                                      'Share this link to allow clients to submit documents securely.',
-                                ),
-                                const SizedBox(height: 8),
-                                _WhiteInset(
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: SelectableText(dropoffUrl),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.copy, size: 18),
-                                        onPressed: () async {
-                                          await Clipboard.setData(
-                                            ClipboardData(text: dropoffUrl),
-                                          );
-                                          if (!context.mounted) return;
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Link copied to clipboard.',
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-
-                              const SizedBox(height: 14),
-                              const _SectionHeader(title: 'Uploads'),
-                              const SizedBox(height: 8),
-
-                              StreamBuilder<
-                                QuerySnapshot<Map<String, dynamic>>
-                              >(
-                                stream: db
-                                    .collection('dropoff_requests')
-                                    .doc(widget.requestId)
-                                    .collection('files')
-                                    .orderBy('createdAt', descending: true)
-                                    .snapshots(),
-                                builder: (context, snap) {
-                                  if (!snap.hasData) {
-                                    return const Center(
-                                      child: CircularProgressIndicator(),
-                                    );
-                                  }
-                                  final docs = snap.data!.docs;
-                                  if (docs.isEmpty) {
-                                    return const _InlineMessage(
-                                      text: 'No uploads have been received.',
-                                      tone: _InlineTone.neutral,
-                                    );
-                                  }
-
-                                  // ✅ Build selectable map (only non-deleted with a storagePath)
-                                  final selectable = <String, _BulkFile>{};
-
-                                  for (final doc in docs) {
-                                    final data = doc.data();
-                                    final isDeleted = data['deleted'] == true;
-                                    final path = (data['storagePath'] ?? '')
-                                        .toString()
-                                        .trim();
-
-                                    if (isDeleted || path.isEmpty) continue;
-
-                                    selectable[doc.id] = _BulkFile(
-                                      fileId: doc.id,
-                                      storagePath: path,
-                                      filename:
-                                          (data['originalName'] ?? 'Untitled')
-                                              .toString(),
-                                      contentType: (data['contentType'] ?? '')
-                                          .toString(),
-                                    );
-                                  }
-
-                                  final selectableIds = selectable.keys.toSet();
-
-                                  // ✅ Keep selection clean as stream changes (enterprise-grade)
-                                  _selectedFileIds.removeWhere(
-                                    (id) => !selectableIds.contains(id),
-                                  );
-                                  _selectedFiles.removeWhere(
-                                    (id, _) => !selectableIds.contains(id),
-                                  );
-
-                                  final allSelected =
-                                      selectableIds.isNotEmpty &&
-                                      _selectedFileIds.containsAll(
-                                        selectableIds,
-                                      );
-
-                                  return _WhiteInset(
-                                    padding: EdgeInsets.zero,
-                                    child: Column(
-                                      children: [
-                                        // ✅ Bulk actions header row
-                                        Container(
-                                          height: 44,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF9FAFB),
-                                            border: Border(
-                                              bottom: BorderSide(
-                                                color: Colors.black.withOpacity(
-                                                  0.06,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Checkbox(
-                                                value: allSelected,
-                                                onChanged:
-                                                    (_busy ||
-                                                        selectableIds.isEmpty)
-                                                    ? null
-                                                    : (v) {
-                                                        setState(() {
-                                                          if (v == true) {
-                                                            _selectedFileIds
-                                                              ..clear()
-                                                              ..addAll(
-                                                                selectableIds,
-                                                              );
-                                                            _selectedFiles
-                                                              ..clear()
-                                                              ..addAll(
-                                                                selectable,
-                                                              );
-                                                          } else {
-                                                            _selectedFileIds
-                                                                .clear();
-                                                            _selectedFiles
-                                                                .clear();
-                                                          }
-                                                        });
-                                                      },
-                                              ),
-                                              Text(
-                                                _selectedFileIds.isEmpty
-                                                    ? 'Select files'
-                                                    : '${_selectedFileIds.length} selected',
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      color: const Color(
-                                                        0xFF475467,
-                                                      ),
-                                                    ),
-                                              ),
-                                              const Spacer(),
-                                              SizedBox(
-                                                height: 34,
-                                                child: FilledButton.icon(
-                                                  onPressed:
-                                                      (_busy ||
-                                                          _selectedFiles
-                                                              .isEmpty)
-                                                      ? null
-                                                      : _bulkDownloadSelected,
-                                                  icon: const Icon(
-                                                    Icons.download_for_offline,
-                                                    size: 18,
-                                                  ),
-                                                  label: Text(
-                                                    _selectedFiles.length <= 1
-                                                        ? 'Download'
-                                                        : 'Download ZIP (${_selectedFiles.length})',
-                                                  ),
-                                                  style: FilledButton.styleFrom(
-                                                    backgroundColor:
-                                                        AppColors.brandBlue,
-                                                    foregroundColor:
-                                                        Colors.white,
-                                                    textStyle: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-
-                                        // ✅ File rows
-                                        for (
-                                          int i = 0;
-                                          i < docs.length;
-                                          i++
-                                        ) ...[
-                                          Builder(
-                                            builder: (context) {
-                                              final d = docs[i];
-                                              final data = d.data();
-
-                                              final isDeleted =
-                                                  data['deleted'] == true;
-                                              final path =
-                                                  (data['storagePath'] ?? '')
-                                                      .toString()
-                                                      .trim();
-                                              final name =
-                                                  (data['originalName'] ??
-                                                          'Untitled')
-                                                      .toString();
-                                              final type =
-                                                  (data['contentType'] ?? '')
-                                                      .toString();
-
-                                              return Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                    ),
-                                                child: _FileRow(
-                                                  data: data,
-                                                  requestId: widget.requestId,
-                                                  fileId: d.id,
-
-                                                  // ✅ selection state
-                                                  selected: _selectedFileIds
-                                                      .contains(d.id),
-
-                                                  // ✅ selection handler
-                                                  onSelected: (v) {
-                                                    if (isDeleted ||
-                                                        path.isEmpty)
-                                                      return;
-
-                                                    setState(() {
-                                                      if (v) {
-                                                        _selectedFileIds.add(
-                                                          d.id,
-                                                        );
-                                                        _selectedFiles[d.id] =
-                                                            _BulkFile(
-                                                              fileId: d.id,
-                                                              storagePath: path,
-                                                              filename: name,
-                                                              contentType: type,
-                                                            );
-                                                      } else {
-                                                        _selectedFileIds.remove(
-                                                          d.id,
-                                                        );
-                                                        _selectedFiles.remove(
-                                                          d.id,
-                                                        );
-                                                      }
-                                                    });
-                                                  },
-
-                                                  // ✅ single download still works
-                                                  onDownload:
-                                                      (
-                                                        p,
-                                                        n,
-                                                        t,
-                                                        requestId,
-                                                        fileId,
-                                                      ) => _downloadFile(
-                                                        storagePath: p,
-                                                        filename: n,
-                                                        contentType: t,
-                                                        requestId: requestId,
-                                                        fileId: fileId,
-                                                      ),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          if (i != docs.length - 1)
-                                            Divider(
-                                              color: Colors.black.withOpacity(
-                                                0.06,
-                                              ),
-                                              height: 1,
-                                            ),
-                                        ],
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-
-                              if (canDelete) ...[
-                                const SizedBox(height: 20),
-                                Divider(color: Colors.black.withOpacity(0.06)),
-                                const SizedBox(height: 8),
-
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Delete upload link'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: const Color(0xFFB42318),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    onPressed: _busy
-                                        ? null
-                                        : () async {
-                                            final confirm = await showDialog<bool>(
-                                              context: context,
-                                              builder: (ctx) => AlertDialog(
-                                                title: const Text(
-                                                  'Delete upload link',
-                                                ),
-                                                content: const Text(
-                                                  'This will permanently remove the upload link and all associated uploads. This action cannot be undone.',
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          ctx,
-                                                          false,
-                                                        ),
-                                                    child: const Text('Cancel'),
-                                                  ),
-                                                  FilledButton(
-                                                    style:
-                                                        FilledButton.styleFrom(
-                                                          backgroundColor:
-                                                              const Color(
-                                                                0xFFB42318,
-                                                              ),
-                                                        ),
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          ctx,
-                                                          true,
-                                                        ),
-                                                    child: const Text('Delete'),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-
-                                            if (confirm != true) return;
-
-                                            await _deleteDropoffRequest(
-                                              widget.requestId,
-                                            );
-                                            widget.onBack?.call();
-                                          },
-                                  ),
-                                ),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-
-        if (_busy)
-          const Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: LinearProgressIndicator(minHeight: 2),
-          ),
-      ],
-    );
-  }
-
-  Future<String> _resolveCreatedByName(String uid) async {
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      final data = snap.data();
-      if (data == null) return '—';
-      final first = (data['firstName'] ?? '').toString().trim();
-      final last = (data['lastName'] ?? '').toString().trim();
-      final full = ('$first $last').trim();
-      if (full.isNotEmpty) return full;
-      final dn = (data['displayName'] ?? '').toString().trim();
-      if (dn.isNotEmpty) return dn;
-      final email = (data['email'] ?? '').toString().trim();
-      if (email.isNotEmpty) return email;
-      return '—';
-    } catch (_) {
-      return '—';
-    }
-  }
-}
-
 /// ======= Enterprise helpers (compact, reusable) =======
 
 class _SectionHeader extends StatelessWidget {
@@ -2911,270 +2286,6 @@ class _MiniStatePill extends StatelessWidget {
           fontSize: 11,
           height: 1.0,
         ),
-      ),
-    );
-  }
-}
-
-class _FileRow extends StatefulWidget {
-  final Map<String, dynamic> data;
-
-  final String requestId;
-  final String fileId;
-
-  final void Function(
-    String storagePath,
-    String filename,
-    String? contentType,
-    String requestId,
-    String fileId,
-  )
-  onDownload;
-
-  // ✅ NEW
-  final bool selected;
-  final ValueChanged<bool> onSelected;
-
-  const _FileRow({
-    required this.data,
-    required this.requestId,
-    required this.fileId,
-    required this.onDownload,
-
-    // ✅ NEW
-    required this.selected,
-    required this.onSelected,
-  });
-
-  @override
-  State<_FileRow> createState() => _FileRowState();
-}
-
-class _FileRowState extends State<_FileRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final name = (widget.data['originalName'] ?? 'Untitled').toString();
-    final isDeleted = widget.data['deleted'] == true;
-    final path = (widget.data['storagePath'] ?? '').toString();
-    final isActionable = !isDeleted && path.trim().isNotEmpty;
-    final contentType = (widget.data['contentType'] ?? '').toString();
-    final size = (widget.data['sizeBytes'] is num)
-        ? (widget.data['sizeBytes'] as num).toInt()
-        : 0;
-
-    final createdAtRaw = widget.data['createdAt'];
-    final uploadedAt = createdAtRaw is Timestamp ? createdAtRaw.toDate() : null;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: InkWell(
-        onTap: (isDeleted || path.isEmpty)
-            ? null
-            : () => widget.onDownload(
-                path,
-                name,
-                contentType,
-                widget.requestId,
-                widget.fileId,
-              ),
-        hoverColor: isDeleted
-            ? Colors.transparent
-            : Colors.black.withOpacity(0.03),
-        splashColor: isDeleted
-            ? Colors.transparent
-            : Colors.black.withOpacity(0.02),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-
-          child: Row(
-            children: [
-              // ✅ Selection checkbox (disabled when deleted/unavailable)
-              // ✅ Selection checkbox — show ONLY when actionable
-              if (isActionable)
-                Checkbox(
-                  value: widget.selected,
-                  onChanged: (v) => widget.onSelected(v ?? false),
-                )
-              else
-                const SizedBox(width: 40), // keeps column alignment clean
-
-              _fileTypeIcon(fileName: name, contentType: contentType),
-              const SizedBox(width: 12),
-
-              // File name + uploaded timestamp (stacked, compact)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-
-                              // ✅ Keep blue for active/downloadable items
-                              color: isDeleted
-                                  ? const Color(
-                                      0xFF667085,
-                                    ) // enterprise neutral gray
-                                  : AppColors.brandBlue,
-
-                              // ✅ Strikethrough when deleted (enterprise record state)
-                              decoration: isDeleted
-                                  ? TextDecoration.lineThrough
-                                  : (isActionable && _hovered
-                                        ? TextDecoration.underline
-                                        : null),
-
-                              // subtle line color so it doesn’t scream
-                              decorationColor: const Color(0xFF98A2B3),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (uploadedAt != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Uploaded ${formatDateTimeCompact(uploadedAt)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
-                          height: 1.15,
-                        ),
-                      ),
-                    ],
-
-                    if (isDeleted)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          'This file was removed',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085), // neutral gray
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(width: 12),
-
-              // Size
-              Text(
-                size == 0 ? '' : _formatSize(size),
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFF667085),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // ✅ Right-side state / action slot (keeps alignment enterprise-clean)
-              SizedBox(
-                width: 86, // reserved space so rows align consistently
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: isActionable
-                      ? Icon(
-                          Icons.download,
-                          size: 18,
-                          color: AppColors.brandBlue.withOpacity(
-                            _hovered ? 0.75 : 0.55,
-                          ),
-                        )
-                      : (isDeleted
-                            ? _MiniStatePill.deleted()
-                            : const SizedBox.shrink()),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-}
-
-class _HelpPanel extends StatelessWidget {
-  final VoidCallback? onCreate;
-  const _HelpPanel({required this.onCreate});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Create links',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF101828),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Use client-upload links to let clients upload files securely without logging in.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFF475467),
-              height: 1.25,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 46,
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: onCreate,
-              icon: const Icon(Icons.add_link),
-              label: const Text(
-                'Create client-upload link',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.brandBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'The link will be copied to your clipboard after creation.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF667085),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
       ),
     );
   }
