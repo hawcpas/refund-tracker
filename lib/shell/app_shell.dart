@@ -14,6 +14,7 @@ import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/create_upload_link_screen.dart';
 import '../screens/otp_verify_screen.dart';
+import '../screens/dropoff_detail_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
