@@ -12,6 +12,7 @@ import '../../theme/app_colors.dart';
 import '../../services/auth_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/brand_logo_svg.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 
 enum _UploadItemState { queued, uploading, finalizing, success, failed }
 
@@ -38,6 +39,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   final Map<String, double> _uploadProgress = {};
   String? _currentlyUploadingKey;
 
+  // 🚫 TEMP: disable native drag & drop until Windows build is shipped
+  static const bool _enableDesktopDragDrop = false;
+
   bool _loading = true;
   bool _uploading = false;
   bool _showCompletionNote =
@@ -58,6 +62,102 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     }
 
     return !_uploading;
+  }
+
+  bool get _isDesktop {
+    if (kIsWeb) return !WebFileSelector.isIOSWeb; // web desktop OK, iOS web NO
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.macOS:
+      case TargetPlatform.windows:
+      case TargetPlatform.linux:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool _isDragging = false;
+
+  Widget _desktopDropZone({required bool enabled}) {
+    if (!_enableDesktopDragDrop || !_isDesktop) {
+      return const SizedBox.shrink();
+    }
+
+    return DropTarget(
+      onDragEntered: (_) {
+        setState(() => _isDragging = true);
+      },
+      onDragExited: (_) {
+        setState(() => _isDragging = false);
+      },
+      onDragDone: (details) async {
+        setState(() => _isDragging = false);
+
+        if (!enabled || details.files.isEmpty) return;
+
+        setState(() {
+          _dismissCompletionNote();
+          _error = null;
+          _success = null;
+        });
+
+        // Convert XFile → PlatformFile using your existing logic
+        await _queueFromXFiles(details.files);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 18),
+        decoration: BoxDecoration(
+          color: _isDragging
+              ? AppColors.brandBlue.withOpacity(0.06)
+              : const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            width: 2,
+            color: _isDragging
+                ? AppColors.brandBlue
+                : Colors.black.withOpacity(0.14),
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.cloud_upload_outlined,
+                size: 32,
+                color: _isDragging
+                    ? AppColors.brandBlue
+                    : const Color(0xFF667085),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _isDragging ? 'Drop files to add' : 'Drag & drop files here',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF344054),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Files are added to the list and uploaded only when you click “Upload selected”.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF667085),
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   bool get _allFilesSucceeded {
@@ -727,6 +827,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final status = (_info?['status'] ?? 'closed').toString();
     final canUploadNow = !_loading && status == 'open';
     final isCompact = _isCompact(context);
+
+    // ✅ Skeleton width calculation (responsive + professional)
+    final w = MediaQuery.of(context).size.width;
+    final maxLine = (w < 520) ? w - 80 : 520.0;
+
     // ✅ Show the completion/status banner as soon as uploads are done,
     // even while we are still sending the email notification.
     final showSessionBanner =
@@ -856,6 +961,30 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       );
     }
 
+    String possessive(String name) {
+      final n = name.trim();
+      if (n.isEmpty) return 'their';
+      return n.toLowerCase().endsWith('s') ? "$n’" : "$n’s";
+    }
+
+    final bool headerReady = !_loading && _info != null;
+
+    // Only compute sender once data is actually ready (prevents “fallback flash”)
+    final String rawSender = headerReady
+        ? (_info?['requestedByName'] ?? '').toString().trim()
+        : '';
+
+    final bool hasSenderName = rawSender.isNotEmpty;
+
+    // If backend truly has no sender name (not loading), use a stable professional line
+    final String titleText = hasSenderName
+        ? '$rawSender has sent you this request'
+        : 'A secure upload request has been sent to you.';
+
+    final String recipientPossessive = hasSenderName
+        ? possessive(rawSender)
+        : 'our';
+
     final uploadBtn = FilledButton.icon(
       onPressed: canUploadNow && !_uploading && _pendingCount > 0
           ? _uploadQueuedFiles
@@ -939,9 +1068,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                               const SizedBox(height: 14),
                               Divider(height: 1, color: Color(0xFFE4E7EC)),
                               const SizedBox(height: 14),
+
                               // =========================================================
                               // ✅ HEADER — ALWAYS VISIBLE
                               // =========================================================
+                              // --- Header helpers (local to build) ---
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -950,30 +1081,28 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          'Upload documents',
-                                          style: theme.textTheme.titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                                color: _kDarkGray,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'Select files, review the list, remove any items, then upload when ready.',
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(
-                                                color: _kGray,
-                                                height: 1.35,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                        ),
+                                        // Title only (no subtitle)
+                                        if (!headerReady)
+                                          _SkeletonLine(
+                                            height: 22,
+                                            width: maxLine * 0.8,
+                                            radius: 10,
+                                          )
+                                        else
+                                          Text(
+                                            titleText,
+                                            style: theme.textTheme.titleLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                  color: _kDarkGray,
+                                                ),
+                                          ),
                                       ],
                                     ),
                                   ),
+
                                   const SizedBox(width: 10),
 
-                                  // ✅ Single source of truth for verification
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
@@ -1028,11 +1157,23 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           const SizedBox(height: 12),
 
                                           // ✅ CONTEXT (For / Requested by)
-                                          SizedBox(
-                                            height: 78,
-                                            child: _BriefContextPanel(
-                                              info: _info,
+                                          AnimatedSize(
+                                            duration: const Duration(
+                                              milliseconds: 220,
                                             ),
+                                            curve: Curves.easeOutCubic,
+                                            alignment: Alignment.topCenter,
+                                            child: canUploadNow
+                                                ? Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 12,
+                                                        ),
+                                                    child: _BriefContextPanel(
+                                                      info: _info,
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(),
                                           ),
 
                                           const SizedBox(height: 16),
@@ -1054,11 +1195,23 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           const SizedBox(height: 12),
 
                                           // ✅ CONTEXT PANEL
-                                          SizedBox(
-                                            height: 78,
-                                            child: _BriefContextPanel(
-                                              info: _info,
+                                          AnimatedSize(
+                                            duration: const Duration(
+                                              milliseconds: 220,
                                             ),
+                                            curve: Curves.easeOutCubic,
+                                            alignment: Alignment.topCenter,
+                                            child: canUploadNow
+                                                ? Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 12,
+                                                        ),
+                                                    child: _BriefContextPanel(
+                                                      info: _info,
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(),
                                           ),
 
                                           const SizedBox(height: 16),
@@ -1072,53 +1225,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                   message: _error ?? '',
                                                 ),
                                                 const SizedBox(height: 12),
-                                              ],
-                                            ),
-                                          ),
-
-                                          // ✅ OPTIONAL REQUEST MESSAGE
-                                          _Reveal(
-                                            show: (_info?['message'] ?? '')
-                                                .toString()
-                                                .trim()
-                                                .isNotEmpty,
-                                            child: Column(
-                                              children: [
-                                                Container(
-                                                  padding: const EdgeInsets.all(
-                                                    12,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(
-                                                      0xFFF9FAFB,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          12,
-                                                        ),
-                                                    border: Border.all(
-                                                      color: const Color(
-                                                        0xFFE4E7EC,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    (_info?['message'] ?? '')
-                                                        .toString(),
-                                                    style: theme
-                                                        .textTheme
-                                                        .bodyMedium
-                                                        ?.copyWith(
-                                                          color: const Color(
-                                                            0xFF475467,
-                                                          ),
-                                                          height: 1.35,
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                        ),
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 16),
                                               ],
                                             ),
                                           ),
@@ -1185,14 +1291,83 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           const SizedBox(height: 12),
 
                                           // ✅ FOOTNOTE (ONLY WHEN OPEN)
-                                          Text(
-                                            'Files are not uploaded until you click “Upload selected”.',
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(
-                                                  color: _kGray,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                          ),
+                                          // ✅ FOOTNOTE (ONLY WHEN OPEN) — moved from header
+                                          if (!headerReady) ...[
+                                            _SkeletonLine(
+                                              height: 14,
+                                              width: maxLine,
+                                              radius: 10,
+                                            ),
+                                          ] else
+                                            RichText(
+                                              textScaleFactor: 1.0,
+                                              text: TextSpan(
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontSize: 9.5,
+                                                      height: 1.4,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: const Color(
+                                                        0xFF667085,
+                                                      ),
+                                                    ),
+                                                children: [
+                                                  TextSpan(
+                                                    text:
+                                                        'Your files will be uploaded securely to $recipientPossessive account. Learn more about file requests and our ',
+                                                  ),
+
+                                                  WidgetSpan(
+                                                    alignment:
+                                                        PlaceholderAlignment
+                                                            .baseline,
+                                                    baseline:
+                                                        TextBaseline.alphabetic,
+                                                    child: _InlineHoverLink(
+                                                      label: 'Privacy Policy',
+                                                      onTap: () =>
+                                                          Navigator.pushNamed(
+                                                            context,
+                                                            '/privacy',
+                                                          ),
+                                                      enableHover: _isDesktop,
+                                                      style: const TextStyle(
+                                                        fontSize: 9.5,
+                                                        height: 1.4,
+                                                        color: Color(
+                                                          0xFF475467,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        decoration:
+                                                            TextDecoration
+                                                                .underline,
+                                                        decorationThickness:
+                                                            1.0,
+                                                      ),
+                                                      hoverStyle:
+                                                          const TextStyle(
+                                                            fontSize: 9.5,
+                                                            height: 1.4,
+                                                            color: Color(
+                                                              0xFF344054,
+                                                            ),
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            decoration:
+                                                                TextDecoration
+                                                                    .underline,
+                                                            decorationThickness:
+                                                                1.5,
+                                                          ),
+                                                    ),
+                                                  ),
+
+                                                  const TextSpan(text: '.'),
+                                                ],
+                                              ),
+                                            ),
 
                                           const SizedBox(height: 18),
                                         ],
@@ -1202,30 +1377,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                           ),
                         ),
 
-                        const SizedBox(height: 12),
-
-                        Column(
-                          children: [
-                            Text(
-                              '© ${DateTime.now().year} Axume & Associates CPAs, AAC. All rights reserved.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: _kGray,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Upload Portal',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: _kGray.withOpacity(0.85),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+                        const SizedBox(height: 16),
+                        const _DropoffFooter(),
+                        const SizedBox(height: 24),
                       ],
                     ),
                   ),
@@ -1242,6 +1396,153 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 // -----------------------------
 // Supporting Widgets
 // -----------------------------
+
+class _Shimmer extends StatefulWidget {
+  final Widget child;
+  const _Shimmer({required this.child});
+
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Neutral enterprise shimmer
+    const base = Color(0xFFE4E7EC);
+    const highlight = Color(0xFFF2F4F7);
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final t = _c.value; // 0..1
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (rect) {
+            final dx = rect.width * (t * 2 - 1); // slide -1..+1 widths
+            return LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: const [base, highlight, base],
+              stops: const [0.2, 0.5, 0.8],
+              transform: _SlidingGradientTransform(dx),
+            ).createShader(rect);
+          },
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+class _SlidingGradientTransform extends GradientTransform {
+  final double dx;
+  const _SlidingGradientTransform(this.dx);
+
+  @override
+  Matrix4 transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(dx, 0, 0);
+  }
+}
+
+class _SkeletonLine extends StatelessWidget {
+  final double height;
+  final double width;
+  final double radius;
+
+  const _SkeletonLine({this.height = 14, required this.width, this.radius = 8});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Shimmer(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Container(
+          height: height,
+          width: width,
+          color: const Color(0xFFE4E7EC),
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineHoverLink extends StatefulWidget {
+  final String label;
+  final VoidCallback onTap;
+  final bool enableHover; // ✅ desktop-only
+  final TextStyle style;
+  final TextStyle hoverStyle;
+
+  const _InlineHoverLink({
+    required this.label,
+    required this.onTap,
+    required this.enableHover,
+    required this.style,
+    required this.hoverStyle,
+  });
+
+  @override
+  State<_InlineHoverLink> createState() => _InlineHoverLinkState();
+}
+
+class _InlineHoverLinkState extends State<_InlineHoverLink> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveStyle = (widget.enableHover && _hovering)
+        ? widget.hoverStyle
+        : widget.style;
+
+    final child = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
+      style: effectiveStyle,
+      child: Text(widget.label),
+    );
+
+    // Desktop hover only
+    if (widget.enableHover) {
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.translucent,
+          child: child,
+        ),
+      );
+    }
+
+    // Mobile / touch: no hover, but still clickable
+    return GestureDetector(
+      onTap: widget.onTap,
+      behavior: HitTestBehavior.translucent,
+      child: child,
+    );
+  }
+}
 
 class _Reveal extends StatelessWidget {
   final bool show;
@@ -1953,51 +2254,108 @@ class _BriefContextPanel extends StatelessWidget {
 
   String _s(dynamic v) => (v ?? '').toString().trim();
 
-  // ✅ enterprise-safe clamp
-  String _clamp(String s, int max) =>
-      s.length <= max ? s : '${s.substring(0, max)}…';
+  String _maskEmail(String email) {
+    final at = email.indexOf('@');
+    if (at <= 1) return email; // too short or invalid, show as-is
+
+    final name = email.substring(0, at);
+    final domain = email.substring(at);
+
+    if (name.length <= 2) {
+      return '${name[0]}***$domain';
+    }
+
+    return '${name[0]}***$domain';
+  }
+
+  Widget _row(BuildContext context, String label, String value) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2), // ✅ tight spacing
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92, // ✅ consistent label column
+            child: Text(
+              '$label:',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF667085),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF344054),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
+    final theme = Theme.of(context); // ✅ ADD THIS
+    final requestMessage = _s(info?['message']);
     final clientName = _s(info?['clientName']);
-    final businessName = _s(info?['businessName']);
     final requestedByName = _s(info?['requestedByName']);
+    final email = _s(info?['email']);
+    final company = _s(info?['businessName']);
+    final clientEmail = _s(
+      info?['clientEmail'] ?? info?['client_email'] ?? info?['recipientEmail'],
+    );
 
-    // ✅ Prefer client name first, then business in parentheses
-    String forValue = clientName.isNotEmpty ? clientName : businessName;
-
-    // ✅ “Client Name (Business Name)” when both exist and differ
-    if (clientName.isNotEmpty &&
-        businessName.isNotEmpty &&
-        businessName != clientName) {
-      forValue = '$clientName ($businessName)';
+    // Safety: never show requester email here
+    if (clientEmail == _s(info?['requestedByEmail'])) {
+      // ignore
     }
 
-    final showFor = forValue.trim().isNotEmpty;
-    final showRequestedBy = requestedByName.trim().isNotEmpty;
+    if (kDebugMode) {
+      debugPrint('Dropoff info keys: ${info?.keys}');
+    }
 
-    if (!showFor && !showRequestedBy) return const SizedBox.shrink();
+    final hasAny = [clientName, company, clientEmail].any((v) => v.isNotEmpty);
+
+    if (!hasAny) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10), // ✅ compact
       decoration: BoxDecoration(
         color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withOpacity(0.10)),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start, // ✅ LEFT aligned
         children: [
-          if (showFor)
-            _MiniKVRow(label: 'For', value: _clamp(forValue.trim(), 140)),
-          if (showFor && showRequestedBy) const SizedBox(height: 6),
-          if (showRequestedBy)
-            _MiniKVRow(
-              label: 'Requested by',
-              value: _clamp(requestedByName.trim(), 120),
+          if (clientName.isNotEmpty) _row(context, 'For', clientName),
+
+          if (company.isNotEmpty) _row(context, 'Company', company),
+
+          if (clientEmail.isNotEmpty)
+            _row(context, 'Email', _maskEmail(clientEmail)),
+
+          // ✅ Merge the “Dear …” request message into the SAME rectangle
+          if (requestMessage.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Color(0xFFE4E7EC)),
+            const SizedBox(height: 10),
+            Text(
+              requestMessage,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF475467),
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+              ),
             ),
+          ],
         ],
       ),
     );
@@ -2007,6 +2365,7 @@ class _BriefContextPanel extends StatelessWidget {
 class _MiniKVRow extends StatelessWidget {
   final String label;
   final String value;
+
   const _MiniKVRow({required this.label, required this.value});
 
   @override
@@ -2014,26 +2373,23 @@ class _MiniKVRow extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        SizedBox(
-          width: 110,
-          child: Text(
-            '$label:',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF667085),
-              fontWeight: FontWeight.w800,
-              height: 1.2,
-            ),
+        Text(
+          '$label:',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w700,
           ),
         ),
-        Expanded(
+        const SizedBox(width: 8),
+        Flexible(
           child: Text(
             value,
+            softWrap: true,
             style: theme.textTheme.bodySmall?.copyWith(
               color: const Color(0xFF344054),
-              fontWeight: FontWeight.w700,
-              height: 1.2,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ),
@@ -2048,68 +2404,64 @@ class _DropoffBrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Center(
-      child: Column(
-        children: [
-          SvgPicture.string(
-            kBrandLogoSvg,
-            height: dense ? 48 : 56,
-            fit: BoxFit.contain,
-          ),
-
-          SizedBox(height: dense ? 8 : 10),
-
-          // ✅ Primary brand line
-          Text(
-            'Axume & Associates CPAs, AAC',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF101828),
-            ),
-          ),
-
-          SizedBox(height: dense ? 1 : 2),
-
-          // ✅ Secondary descriptor line
-          Text(
-            'Secure Upload Link',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF667085),
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
+      child: SvgPicture.string(
+        kBrandLogoSvg2,
+        height: dense ? 104 : 120,
+        fit: BoxFit.contain,
       ),
     );
   }
 }
 
-class _DropoffLegalFooter extends StatelessWidget {
-  const _DropoffLegalFooter();
+class _DropoffFooter extends StatelessWidget {
+  const _DropoffFooter();
+
+  Widget _link(BuildContext context, String label, VoidCallback onTap) {
+    return _InlineHoverLink(
+      label: label,
+      onTap: onTap,
+      enableHover: true,
+      style: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        color: AppColors.brandBlue,
+      ),
+      hoverStyle: const TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        color: AppColors.brandBlue,
+        decoration: TextDecoration.underline,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Divider(height: 1, color: Colors.black.withOpacity(0.08)),
-        const SizedBox(height: 10),
+
         Text(
-          'By uploading, you confirm you are authorized to share these documents and understand they may contain confidential information.',
+          '© ${DateTime.now().year} Axume & Associates CPAs, AAC',
+          textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: const Color(0xFF667085),
             fontWeight: FontWeight.w600,
-            height: 1.35,
           ),
         ),
-        const SizedBox(height: 8),
+
+        const SizedBox(height: 4),
+
+        Text(
+          'Secure Document Upload Portal.\nAll rights reserved.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            height: 1.4,
+          ),
+        ),
       ],
     );
   }
