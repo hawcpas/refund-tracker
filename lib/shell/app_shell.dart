@@ -1286,6 +1286,7 @@ Please describe the issue below:
               child: Column(
                 children: [
                   _ContentUtilityBar(
+                    leading: leading, // ✅ ADD THIS LINE
                     onSearch: _onGlobalSearch,
                     onCreateNew: _openCreateUploadLink,
                     onOpenSettings: () => _toggleAccountSettingsFlyout(context),
@@ -1310,7 +1311,10 @@ class _ContentUtilityBar extends StatelessWidget {
     required this.onOpenSettings,
     required this.onOpenSupport,
     required this.avatar,
+    this.leading, // ✅ ADD
   });
+
+  final Widget? leading; // ✅ ADD
 
   final ValueChanged<String> onSearch;
   final VoidCallback onOpenSettings;
@@ -1329,8 +1333,12 @@ class _ContentUtilityBar extends StatelessWidget {
       decoration: const BoxDecoration(
         color: AppColors.contentCanvas, // ✅ exact same white
       ),
+
       child: Row(
         children: [
+          // ✅ Mobile leading button (menu / back)
+          if (leading != null) ...[leading!, const SizedBox(width: 12)],
+
           // LEFT: New + Search (bounded so it can't push actions away)
           Expanded(
             child: Align(
@@ -1641,7 +1649,6 @@ class _MiniRail extends StatelessWidget {
             ),
             const SizedBox(height: 6),
 
-            
             _MiniTile(
               icon: Icons.request_page_outlined,
               label: 'Requests',

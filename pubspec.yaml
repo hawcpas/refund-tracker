@@ -19,6 +19,7 @@ dependencies:
   firebase_auth: ^6.1.4
   firebase_storage: ^13.1.0
   cloud_functions: ^6.0.6
+  desktop_drop: ^0.4.4
 
   google_sign_in: ^6.2.1
   shared_preferences: ^2.2.2

@@ -180,10 +180,12 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     String text, {
     required String senderName,
     required String clientName,
+    required String clientFirstName,
   }) {
     return text
         .replaceAll('{{senderName}}', senderName)
-        .replaceAll('{{clientName}}', clientName);
+        .replaceAll('{{clientName}}', clientName)
+        .replaceAll('{{clientFirstName}}', clientFirstName);
   }
 
   Future<void> _setDropoffStatus(String requestId, String status) async {
@@ -230,19 +232,19 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
           id: 'tax_docs',
           title: 'Tax documents request',
           body:
-              'Dear {{clientName}},\n\n'
-              'Please upload your tax documents using the Upload button on this page.\n\n'
-              '{{senderName}}\n'
-              'Axume & Associates CPAs',
+              'Dear {{clientFirstName}},\n\n'
+              'Please upload your tax documents using the \'Add Files\' button located at the bottom of this page.\n\n'
+              'Best regards,\n'
+              '{{senderName}}\n',
         ),
         _MessageTemplate(
           id: 'general',
           title: 'General document request',
           body:
-              'Dear {{clientName}},\n\n'
-              'Please upload the requested documents using the Upload button on this page.\n\n'
-              '{{senderName}}\n'
-              'Axume & Associates CPAs',
+              'Dear {{clientFirstName}},\n\n'
+              'Please upload the requested documents using the \'Add Files\' button located at the bottom of this page.\n\n'
+              'Best regards,\n'
+              '{{senderName}}\n',
         ),
       ]);
 
@@ -439,6 +441,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
           ),
         );
 
+        String _resolveClientFirstName({
+          required TextEditingController firstCtrl,
+        }) {
+          final first = firstCtrl.text.trim();
+          return first.isNotEmpty ? first : 'there';
+        }
+
         Future<void> submit(StateSetter setLocalState) async {
           final first = firstCtrl.text.trim();
           final last = lastCtrl.text.trim();
@@ -449,11 +458,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
             firstCtrl: firstCtrl,
             lastCtrl: lastCtrl,
           );
+          final clientFirstName = _resolveClientFirstName(firstCtrl: firstCtrl);
 
           final message = _applyTemplateTokens(
             messageCtrl.text.trim(),
             senderName: senderName,
             clientName: clientName,
+            clientFirstName: clientFirstName,
           );
 
           if (first.isEmpty || last.isEmpty) {
@@ -1033,17 +1044,26 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                                       firstCtrl: firstCtrl,
                                                       lastCtrl: lastCtrl,
                                                     );
+                                                final clientFirstName =
+                                                    _resolveClientFirstName(
+                                                      firstCtrl: firstCtrl,
+                                                    );
 
-                                                // ✅ Safe: only fill if empty
+                                                // ✅ Fill from the TEMPLATE BODY (not from current text)
+                                                final filled =
+                                                    _applyTemplateTokens(
+                                                      t.body,
+                                                      senderName: senderName,
+                                                      clientName: clientName,
+                                                      clientFirstName:
+                                                          clientFirstName,
+                                                    );
+
+                                                // ✅ Only overwrite if user hasn't typed anything
                                                 if (messageCtrl.text
                                                     .trim()
                                                     .isEmpty) {
-                                                  messageCtrl.text =
-                                                      _applyTemplateTokens(
-                                                        t.body,
-                                                        senderName: senderName,
-                                                        clientName: clientName,
-                                                      );
+                                                  messageCtrl.text = filled;
                                                 }
 
                                                 setLocalState(() {});
