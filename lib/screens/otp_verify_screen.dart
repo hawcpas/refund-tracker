@@ -389,12 +389,13 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
           children: [
             Center(
               child: SvgPicture.string(
-                kBrandLogoSvg,
-                height: 56,
+                kBrandLogoSvg2,
+                height: 80,
                 fit: BoxFit.contain,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20), // instead of 16, above or below logo
+
             Text(
               'Enter your verification code',
               textAlign: TextAlign.center,
