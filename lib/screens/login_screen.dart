@@ -429,13 +429,14 @@ class _LoginScreenState extends State<LoginScreen>
                     // ✅ Logo INSIDE card (Intuit-style)
                     Center(
                       child: SvgPicture.string(
-                        kBrandLogoSvg,
-                        height: 56,
+                        kBrandLogoSvg2,
+                        height: 80,
                         fit: BoxFit.contain,
                       ),
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20), // instead of 16, above or below logo
+
                     Text(
                       _step == LoginStep.password
                           ? "Enter your password"
