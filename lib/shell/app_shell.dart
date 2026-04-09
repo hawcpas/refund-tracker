@@ -3037,19 +3037,22 @@ class _NotificationsPanel extends StatelessWidget {
                   return MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: InkWell(
-                      onTap: () async {
-                        try {
-                          await FirebaseFunctions.instance
-                              .httpsCallable('markNotificationsRead')
-                              .call({
-                                'notificationId':
-                                    doc.id, // 👈 update backend to accept this
-                              });
-                        } catch (_) {}
+                      onTap: () {
+                        // Fire-and-forget: do NOT block navigation
+                        FirebaseFunctions.instance
+                            .httpsCallable('markNotificationsRead')
+                            .call({'notificationId': doc.id})
+                            .catchError((e) {
+                              debugPrint(
+                                'markNotificationsRead(single) failed: $e',
+                              );
+                            });
 
                         final requestId = data['requestId'];
                         if (requestId is String && requestId.isNotEmpty) {
-                          onOpenRequest(requestId);
+                          onOpenRequest(
+                            requestId,
+                          ); // closes flyout + opens details immediately
                         }
                       },
                       child: Container(
