@@ -86,6 +86,15 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   final LayerLink _avatarLink = LayerLink();
   OverlayEntry? _avatarEntry;
 
+  // =========================
+  // Notifications flyout
+  // =========================
+  final LayerLink _notificationsLink = LayerLink();
+  OverlayEntry? _notificationsEntry;
+  late final AnimationController _notificationsAnim;
+
+  bool get _isNotificationsOpen => _notificationsEntry != null;
+
   bool get _isAvatarMenuOpen => _avatarEntry != null;
 
   final LayerLink _settingsLink = LayerLink();
@@ -95,17 +104,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
   OverlayEntry? _accountSettingsEntry;
   late final AnimationController _accountSettingsAnim;
-
-  // ===========================
-  // 🔔 Notifications (OverlayEntry)
-  // ===========================
-  OverlayEntry? _notificationEntry;
-
-  bool get _isNotificationOpen => _notificationEntry != null;
-
-  // ===========================
-  // 🔔 Notifications flyout
-  // ===========================
 
   bool get _isAccountSettingsOpen => _accountSettingsEntry != null;
 
@@ -440,6 +438,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarAnim.dispose();
     _settingsAnim.dispose();
     _accountSettingsAnim.dispose();
+    _notificationsAnim.dispose();
     _tokenSub?.cancel();
     super.dispose();
   }
@@ -773,6 +772,97 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _settingsAnim.forward(from: 0);
   }
 
+  void _toggleNotificationsMenu(BuildContext ctx) {
+    // ✅ prevent stacking
+    _dismissAvatarMenuImmediate();
+    _dismissSettingsMenuImmediate();
+
+    if (_isNotificationsOpen) {
+      _closeNotificationsMenu();
+      return;
+    }
+
+    final overlay = Overlay.of(ctx);
+    if (overlay == null) return;
+
+    const double appBarHeight = _ContentUtilityBar.height;
+
+    _notificationsEntry = OverlayEntry(
+      builder: (context) {
+        return Stack(
+          children: [
+            // ✅ click-outside closes ONLY below AppBar
+            Positioned(
+              top: appBarHeight,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _closeNotificationsMenu,
+                child: const SizedBox.shrink(),
+              ),
+            ),
+
+            // ✅ anchored flyout (matches avatar/settings)
+            Positioned(
+              top: appBarHeight,
+              right: 72, // 👈 aligns left of avatar
+              child: Material(
+                color: Colors.transparent,
+                child: FadeTransition(
+                  opacity: CurvedAnimation(
+                    parent: _notificationsAnim,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  ),
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.96, end: 1.0).animate(
+                      CurvedAnimation(
+                        parent: _notificationsAnim,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                    alignment: Alignment.topRight,
+                    child: Container(
+                      width: 360,
+                      constraints: const BoxConstraints(maxHeight: 420),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.black.withOpacity(0.12),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.14),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: const _NotificationsPanel(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlay.insert(_notificationsEntry!);
+    _notificationsAnim.forward(from: 0);
+  }
+
+  Future<void> _closeNotificationsMenu() async {
+    if (_notificationsEntry == null) return;
+    await _notificationsAnim.reverse();
+    _notificationsEntry?.remove();
+    _notificationsEntry = null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -852,6 +942,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     );
 
     _settingsAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 90),
+    );
+
+    _notificationsAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 140),
       reverseDuration: const Duration(milliseconds: 90),
@@ -1309,6 +1405,8 @@ Please describe the issue below:
                         onOpenSettings: () =>
                             _toggleAccountSettingsFlyout(context),
                         onOpenSupport: _openSupportEmail,
+                        onOpenNotifications: () =>
+                            _toggleNotificationsMenu(context), // ✅ ADD
                         avatar: _buildAvatarButton(isAdminConsole),
                       ),
                       Expanded(child: _buildContent()),
@@ -1332,12 +1430,13 @@ class _ContentUtilityBar extends StatelessWidget {
     required this.onCreateNew,
     required this.onOpenSettings,
     required this.onOpenSupport,
+    required this.onOpenNotifications, // ✅ ADD
     required this.avatar,
-    this.leading, // ✅ ADD
+    this.leading,
   });
 
   final Widget? leading; // ✅ ADD
-
+  final VoidCallback onOpenNotifications;
   final ValueChanged<String> onSearch;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSupport;
@@ -1501,6 +1600,17 @@ class _ContentUtilityBar extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+
+          IconButton(
+            icon: const Icon(
+              Icons.notifications_outlined,
+              size: 20,
+              color: AppColors.iconNeutral,
+            ),
+            splashRadius: 20,
+            hoverColor: const Color(0xFFF1F5F9),
+            onPressed: onOpenNotifications,
           ),
 
           IconButton(
@@ -2619,6 +2729,56 @@ class RightSideFlyout extends StatelessWidget {
                 ),
               );
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// Notifications flyout panel (top app-bar bell)
+// ============================================================
+
+class _NotificationsPanel extends StatelessWidget {
+  const _NotificationsPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: Row(
+            children: const [
+              Expanded(
+                child: Text(
+                  'Notifications',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+        SizedBox(
+          height: 320,
+          child: ListView(
+            children: const [
+              ListTile(
+                title: Text('Client uploaded documents'),
+                subtitle: Text('John Smith • 3 minutes ago'),
+              ),
+              ListTile(
+                title: Text('Upload link accessed'),
+                subtitle: Text('Jane Doe • 1 hour ago'),
+              ),
+            ],
           ),
         ),
       ],
