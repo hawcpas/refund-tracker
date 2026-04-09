@@ -2743,11 +2743,24 @@ class RightSideFlyout extends StatelessWidget {
 class _NotificationsPanel extends StatelessWidget {
   const _NotificationsPanel();
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('userUid', isEqualTo: uid)
+        .orderBy('readAt') // ✅ must come before createdAt
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // ===== Header =====
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
           child: Row(
@@ -2766,23 +2779,105 @@ class _NotificationsPanel extends StatelessWidget {
           ),
         ),
         Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+
+        // ===== List =====
         SizedBox(
           height: 320,
-          child: ListView(
-            children: const [
-              ListTile(
-                title: Text('Client uploaded documents'),
-                subtitle: Text('John Smith • 3 minutes ago'),
-              ),
-              ListTile(
-                title: Text('Upload link accessed'),
-                subtitle: Text('Jane Doe • 1 hour ago'),
-              ),
-            ],
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _stream(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Failed to load notifications.\n\n${snapshot.error}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFFB42318),
+                    ),
+                  ),
+                );
+              }
+
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs = snapshot.data!.docs;
+
+              if (docs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No notifications',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF667085)),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                itemCount: docs.length,
+                itemBuilder: (context, i) {
+                  final doc = docs[i];
+                  final data = doc.data();
+
+                  final bool unread = data['readAt'] == null;
+                  final String title = (data['title'] ?? '').toString();
+                  final String client = (data['clientName'] ?? '').toString();
+
+                  final Timestamp? ts = data['createdAt'] as Timestamp?;
+
+                  return ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    title: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: unread ? FontWeight.w700 : FontWeight.w600,
+                        color: const Color(0xFF101828),
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${client.isNotEmpty ? client : 'Client'} • ${_relativeTime(ts)}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFF667085),
+                      ),
+                    ),
+                    onTap: () async {
+                      // ✅ mark as read
+                      if (unread) {
+                        await doc.reference.update({
+                          'readAt': FieldValue.serverTimestamp(),
+                        });
+                      }
+
+                      // OPTIONAL (future): navigate to request
+                      // final requestId = data['requestId'];
+                      // if (requestId != null) {
+                      //   // call a navigator callback here
+                      // }
+                    },
+                  );
+                },
+              );
+            },
           ),
         ),
       ],
     );
+  }
+
+  String _relativeTime(Timestamp? ts) {
+    if (ts == null) return 'Just now';
+
+    final dt = ts.toDate();
+    final diff = DateTime.now().difference(dt);
+
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hr ago';
+    return '${diff.inDays} days ago';
   }
 }
 

@@ -1316,6 +1316,24 @@ exports.finalizeDropoffUpload = onCall(
       },
       { merge: true }
     );
+
+    // ============================
+    // ✅ IN-APP NOTIFICATION (staff)
+    // ============================
+    if (requestCreatedByUid) {
+      await db.collection("notifications").add({
+        userUid: requestCreatedByUid,
+        type: "dropoff_upload",
+        title: "Client uploaded files",
+        body: `${requestClientName || "A client"} uploaded 1 file`,
+        requestId: rid,
+        clientName: requestClientName || "",
+        fileCount: 1,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        readAt: null,
+      });
+    }
+
     // ============================
     // ✅ AUDIT: record client upload activity (append-only)
     // ============================
@@ -1996,6 +2014,23 @@ exports.sendPasswordReset = onCall(
 </div>
 `,
       });
+
+      // ============================
+      // ✅ IN-APP NOTIFICATION (staff) — batch upload
+      // ============================
+      if (createdByUid) {
+        await db.collection("notifications").add({
+          userUid: createdByUid,
+          type: "dropoff_upload",
+          title: "Client uploaded files",
+          body: `${clientName} uploaded ${finalFiles.length} files`,
+          requestId: rid,
+          clientName,
+          fileCount: finalFiles.length,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          readAt: null,
+        });
+      }
 
       await admin.firestore().collection("auditLogs").add({
         type: "password_reset_sent",
