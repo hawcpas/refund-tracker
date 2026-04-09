@@ -460,6 +460,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
+    if (_isAdmin) {
+      final first = firstNameController.text.trim();
+      final last = lastNameController.text.trim();
+
+      updates['firstName'] = first;
+      updates['lastName'] = last;
+      updates['displayName'] = '$first $last'.trim();
+    }
+
     // ✅ Email change path: show progress immediately, then confirm "sent"
     if (wantsEmailChange) {
       try {
@@ -829,55 +838,54 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen>
       ),
     );
 
-    return PopScope(
-      canPop: true,
-      onPopInvoked: (didPop) {
-        // no-op: AppShell handles chrome
-      },
-      child: PageScaffold(
-        title: 'Account Settings',
-        subtitle: widget.embed
-            ? null
-            : 'Update your personal details and password.',
-        hideHeader: widget.embed,
-        wrapInCard: !widget.embed,
-        scrollable: !widget.embed,
-
-        backgroundColor: widget.embed ? Colors.white : null,
-        child: Theme(
-          data: localTheme, // ✅ affects only the form controls
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: AccountSettingsContent(
-                loading: _loading,
-                error: _error,
-                success: _success,
-                onDismissSuccess: () {
-                  setState(() => _success = null);
-                },
-                tabController: _tabController,
-                isAdmin: _isAdmin,
-                savingPersonal: _savingPersonal,
-                savingPassword: _savingPassword,
-                onSavePersonal: _savePersonalInfo,
-                onChangePassword: _changePasswordWithCurrent,
-                firstNameController: firstNameController,
-                lastNameController: lastNameController,
-                emailController: emailController,
-                phoneController: phoneController,
-                currentPasswordController: currentPasswordController,
-                newPasswordController: newPasswordController,
-                confirmPasswordController: confirmPasswordController,
-                tabsBar: _tabsBar,
-                personalInfoPanel: _personalInfoPanel,
-                passwordPanel: _passwordPanel,
-              ),
+    Widget screen = PageScaffold(
+      title: 'Account Settings',
+      subtitle: widget.embed
+          ? null
+          : 'Update your personal details and password.',
+      hideHeader: widget.embed,
+      wrapInCard: !widget.embed,
+      scrollable: !widget.embed,
+      backgroundColor: widget.embed ? Colors.white : null,
+      child: Theme(
+        data: localTheme,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: AccountSettingsContent(
+              loading: _loading,
+              error: _error,
+              success: _success,
+              onDismissSuccess: () {
+                setState(() => _success = null);
+              },
+              tabController: _tabController,
+              isAdmin: _isAdmin,
+              savingPersonal: _savingPersonal,
+              savingPassword: _savingPassword,
+              onSavePersonal: _savePersonalInfo,
+              onChangePassword: _changePasswordWithCurrent,
+              firstNameController: firstNameController,
+              lastNameController: lastNameController,
+              emailController: emailController,
+              phoneController: phoneController,
+              currentPasswordController: currentPasswordController,
+              newPasswordController: newPasswordController,
+              confirmPasswordController: confirmPasswordController,
+              tabsBar: _tabsBar,
+              personalInfoPanel: _personalInfoPanel,
+              passwordPanel: _passwordPanel,
             ),
           ),
         ),
       ),
     );
+
+    if (widget.embed) {
+      screen = Material(color: Colors.white, child: screen);
+    }
+
+    return PopScope(canPop: true, onPopInvoked: (didPop) {}, child: screen);
   }
 }

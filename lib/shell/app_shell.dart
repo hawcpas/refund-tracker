@@ -96,6 +96,17 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   OverlayEntry? _accountSettingsEntry;
   late final AnimationController _accountSettingsAnim;
 
+  // ===========================
+  // 🔔 Notifications (OverlayEntry)
+  // ===========================
+  OverlayEntry? _notificationEntry;
+
+  bool get _isNotificationOpen => _notificationEntry != null;
+
+  // ===========================
+  // 🔔 Notifications flyout
+  // ===========================
+
   bool get _isAccountSettingsOpen => _accountSettingsEntry != null;
 
   _NavSection _section = _NavSection.home;
@@ -518,7 +529,10 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                   animation: progress,
                   threshold: 0.75,
                   placeholder: const _FlyoutSkeleton(),
-                  builder: (_) => const AccountSettingsScreen(embed: true),
+                  builder: (_) => const Scaffold(
+                    backgroundColor: Colors.transparent,
+                    body: AccountSettingsScreen(embed: true),
+                  ),
                 ),
               ),
             ],
@@ -1165,6 +1179,7 @@ Please describe the issue below:
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('🔁 AppShell BUILD');
     // =========================
     // 🔐 OTP / Auth HARD GATE
     // =========================
@@ -1282,18 +1297,25 @@ Please describe the issue below:
 
           Expanded(
             child: Container(
-              color: AppColors.contentCanvas, // ✅ #f7f5f2
-              child: Column(
+              color: AppColors.contentCanvas,
+              child: Stack(
                 children: [
-                  _ContentUtilityBar(
-                    leading: leading, // ✅ ADD THIS LINE
-                    onSearch: _onGlobalSearch,
-                    onCreateNew: _openCreateUploadLink,
-                    onOpenSettings: () => _toggleAccountSettingsFlyout(context),
-                    onOpenSupport: _openSupportEmail,
-                    avatar: _buildAvatarButton(isAdminConsole),
+                  Column(
+                    children: [
+                      _ContentUtilityBar(
+                        leading: leading,
+                        onSearch: _onGlobalSearch,
+                        onCreateNew: _openCreateUploadLink,
+                        onOpenSettings: () =>
+                            _toggleAccountSettingsFlyout(context),
+                        onOpenSupport: _openSupportEmail,
+                        avatar: _buildAvatarButton(isAdminConsole),
+                      ),
+                      Expanded(child: _buildContent()),
+                    ],
                   ),
-                  Expanded(child: _buildContent()),
+
+                  // Notifications overlay
                 ],
               ),
             ),
@@ -1481,7 +1503,6 @@ class _ContentUtilityBar extends StatelessWidget {
             ),
           ),
 
-          // RIGHT: persistent actions (will no longer get pushed offscreen)
           IconButton(
             icon: const Icon(
               Icons.settings_outlined,
@@ -1490,7 +1511,6 @@ class _ContentUtilityBar extends StatelessWidget {
             ),
             splashRadius: 20,
             hoverColor: const Color(0xFFF1F5F9),
-
             onPressed: onOpenSettings,
           ),
 
@@ -2580,11 +2600,15 @@ class RightSideFlyout extends StatelessWidget {
                             ],
                           ),
                           child: RepaintBoundary(
-                            child: Opacity(
-                              opacity: contentOpacity,
-                              child: Transform.translate(
-                                offset: Offset(contentDx, 0),
-                                child: child,
+                            child: Material(
+                              color: Colors.transparent,
+                              elevation: 0,
+                              child: Opacity(
+                                opacity: contentOpacity,
+                                child: Transform.translate(
+                                  offset: Offset(contentDx, 0),
+                                  child: child,
+                                ),
                               ),
                             ),
                           ),
