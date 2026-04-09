@@ -19,6 +19,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/brand_logo_svg.dart';
@@ -83,12 +84,14 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   late final AnimationController _avatarAnim;
   late final AnimationController _settingsAnim;
   String? _dropoffDetailsId;
+  int? _unreadOverrideCount;
   final LayerLink _avatarLink = LayerLink();
   OverlayEntry? _avatarEntry;
 
   // =========================
   // Notifications flyout
   // =========================
+  Timestamp? _notifViewedOverrideAt;
   final LayerLink _notificationsLink = LayerLink();
   OverlayEntry? _notificationsEntry;
   late final AnimationController _notificationsAnim;
@@ -139,6 +142,16 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     return '${t.substring(0, 3)}-${t.substring(3, 6)}-${t.substring(6)}';
   }
 
+  void _unawaitedMarkAllNotificationsRead() {
+    // fire-and-forget on purpose — UI should NOT wait
+    FirebaseFunctions.instance
+        .httpsCallable('markNotificationsRead')
+        .call()
+        .catchError((e) {
+          debugPrint('markNotificationsRead failed: $e');
+        });
+  }
+
   void _dismissSettingsMenuImmediate() {
     if (_settingsEntry == null) return;
     _settingsAnim.stop();
@@ -153,6 +166,16 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarEntry?.remove();
     _avatarEntry = null;
     _avatarAnim.value = 0; // reset
+  }
+
+  Future<void> _markNotificationsRead() async {
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable('markNotificationsRead')
+          .call();
+    } catch (e) {
+      debugPrint('markNotificationsRead failed: $e');
+    }
   }
 
   /// ✅ Public API for opening Account Settings
@@ -772,8 +795,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _settingsAnim.forward(from: 0);
   }
 
-  void _toggleNotificationsMenu(BuildContext ctx) {
-    // ✅ prevent stacking
+  void _toggleNotificationsMenu(BuildContext ctx) async {
     _dismissAvatarMenuImmediate();
     _dismissSettingsMenuImmediate();
 
@@ -781,6 +803,22 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       _closeNotificationsMenu();
       return;
     }
+
+    // ✅ Immediately clear badge locally (instant UI)
+    setState(() {
+      _notifViewedOverrideAt = Timestamp.now();
+    });
+
+    // ✅ Persist "bell opened" cursor (serverTimestamp)
+    FirebaseFunctions.instance
+        .httpsCallable('markNotificationsViewed')
+        .call()
+        .catchError((e) {
+          debugPrint('markNotificationsViewed failed: $e');
+        });
+
+    // ❌ IMPORTANT: do NOT mark read here
+    // _unawaitedMarkAllNotificationsRead();   <-- remove / do not call
 
     final overlay = Overlay.of(ctx);
     if (overlay == null) return;
@@ -841,7 +879,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                           ),
                         ],
                       ),
-                      child: const _NotificationsPanel(),
+                      child: _NotificationsPanel(
+                        onOpenRequest: (rid) {
+                          _closeNotificationsMenu();
+                          _openDropoffDetails(rid);
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -1287,10 +1330,18 @@ Please describe the issue below:
 
     // Signed in but OTP not verified → force OTP screen
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null && !_otpVerified) {
+
+    // ✅ Signed out → hard redirect (no UID usage allowed)
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // ✅ Signed in but OTP not verified
+    if (!_otpVerified) {
       return const OtpVerifyScreen();
     }
 
+    final uid = user.uid; // ✅ now SAFE
     final isMobileShell = MediaQuery.of(context).size.width < 900;
     final isAdminConsole = _currentRoute == '/admin-users';
 
@@ -1398,16 +1449,110 @@ Please describe the issue below:
                 children: [
                   Column(
                     children: [
-                      _ContentUtilityBar(
-                        leading: leading,
-                        onSearch: _onGlobalSearch,
-                        onCreateNew: _openCreateUploadLink,
-                        onOpenSettings: () =>
-                            _toggleAccountSettingsFlyout(context),
-                        onOpenSupport: _openSupportEmail,
-                        onOpenNotifications: () =>
-                            _toggleNotificationsMenu(context), // ✅ ADD
-                        avatar: _buildAvatarButton(isAdminConsole),
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(uid)
+                            .snapshots(),
+                        builder: (context, userSnap) {
+                          final userCursor =
+                              (userSnap.data
+                                      ?.data()?['lastNotificationsViewedAt']
+                                  as Timestamp?) ??
+                              Timestamp(0, 0);
+
+                          // ✅ Use local override so badge clears instantly when bell is opened
+                          final userCursorMs =
+                              userCursor.millisecondsSinceEpoch;
+                          final overrideMs =
+                              _notifViewedOverrideAt?.millisecondsSinceEpoch ??
+                              -1;
+
+                          final effectiveCursor = (overrideMs > userCursorMs)
+                              ? _notifViewedOverrideAt!
+                              : userCursor;
+
+                          // ✅ Auto-release override once Firestore cursor catches up
+                          if (_notifViewedOverrideAt != null &&
+                              userCursorMs >= overrideMs) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() => _notifViewedOverrideAt = null);
+                              }
+                            });
+                          }
+
+                          return StreamBuilder<
+                            QuerySnapshot<Map<String, dynamic>>
+                          >(
+                            stream: FirebaseFirestore.instance
+                                .collection('notifications')
+                                .where('userUid', isEqualTo: uid)
+                                .where(
+                                  'createdAt',
+                                  isGreaterThan: effectiveCursor,
+                                )
+                                .orderBy(
+                                  'createdAt',
+                                  descending: true,
+                                ) // ✅ match panel index direction
+                                .limit(200) // ✅ safety cap
+                                .snapshots(),
+                            builder: (context, snap) {
+                              // ✅ IMPORTANT: surface Firestore errors instead of silently showing 0
+                              if (snap.hasError) {
+                                debugPrint(
+                                  '🔴 badge query failed: ${snap.error}',
+                                );
+
+                                return _ContentUtilityBar(
+                                  leading: leading,
+                                  onSearch: _onGlobalSearch,
+                                  onCreateNew: _openCreateUploadLink,
+                                  onOpenSettings: () =>
+                                      _toggleAccountSettingsFlyout(context),
+                                  onOpenSupport: _openSupportEmail,
+                                  onOpenNotifications: () =>
+                                      _toggleNotificationsMenu(context),
+                                  notificationCount: 0, // safe fallback
+                                  avatar: _buildAvatarButton(isAdminConsole),
+                                );
+                              }
+
+                              int newUploadCount = 0;
+
+                              if (snap.hasData) {
+                                for (final d in snap.data!.docs) {
+                                  final data = d.data();
+                                  final type = (data['type'] ?? '').toString();
+
+                                  if (type == 'dropoff_upload') {
+                                    final fc = data['fileCount'];
+                                    final n = (fc is int)
+                                        ? fc
+                                        : (fc is num ? fc.toInt() : 1);
+                                    newUploadCount += (n <= 0 ? 1 : n);
+                                  } else {
+                                    newUploadCount += 1;
+                                  }
+                                }
+                              }
+
+                              return _ContentUtilityBar(
+                                leading: leading,
+                                onSearch: _onGlobalSearch,
+                                onCreateNew: _openCreateUploadLink,
+                                onOpenSettings: () =>
+                                    _toggleAccountSettingsFlyout(context),
+                                onOpenSupport: _openSupportEmail,
+                                onOpenNotifications: () =>
+                                    _toggleNotificationsMenu(context),
+                                notificationCount: newUploadCount,
+                                avatar: _buildAvatarButton(isAdminConsole),
+                              );
+                            },
+                          );
+                        },
                       ),
                       Expanded(child: _buildContent()),
                     ],
@@ -1430,11 +1575,13 @@ class _ContentUtilityBar extends StatelessWidget {
     required this.onCreateNew,
     required this.onOpenSettings,
     required this.onOpenSupport,
-    required this.onOpenNotifications, // ✅ ADD
+    required this.onOpenNotifications,
+    required this.notificationCount, // ✅ ADD
     required this.avatar,
     this.leading,
   });
 
+  final int notificationCount; // ✅ ADD
   final Widget? leading; // ✅ ADD
   final VoidCallback onOpenNotifications;
   final ValueChanged<String> onSearch;
@@ -1602,15 +1749,47 @@ class _ContentUtilityBar extends StatelessWidget {
             ),
           ),
 
-          IconButton(
-            icon: const Icon(
-              Icons.notifications_outlined,
-              size: 20,
-              color: AppColors.iconNeutral,
-            ),
-            splashRadius: 20,
-            hoverColor: const Color(0xFFF1F5F9),
-            onPressed: onOpenNotifications,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.notifications_outlined,
+                  size: 20,
+                  color: AppColors.iconNeutral,
+                ),
+                splashRadius: 20,
+                hoverColor: const Color(0xFFF1F5F9),
+                onPressed: onOpenNotifications,
+              ),
+
+              if (notificationCount > 0)
+                Positioned(
+                  right: 3,
+                  bottom: 3,
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD92D20),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$notificationCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
 
           IconButton(
@@ -2671,8 +2850,8 @@ class RightSideFlyout extends StatelessWidget {
                   child: Padding(
                     // ✅ allows shadow to extend left without clipping
                     padding: const EdgeInsets.only(left: 24),
-                    child: GestureDetector(
-                      onTap: () {}, // absorb taps inside
+                    child: IgnorePointer(
+                      ignoring: false,
                       child: SizedBox(
                         width: width,
                         height: double.infinity,
@@ -2741,7 +2920,9 @@ class RightSideFlyout extends StatelessWidget {
 // ============================================================
 
 class _NotificationsPanel extends StatelessWidget {
-  const _NotificationsPanel();
+  const _NotificationsPanel({required this.onOpenRequest, super.key});
+
+  final void Function(String requestId) onOpenRequest;
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
     final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -2749,9 +2930,8 @@ class _NotificationsPanel extends StatelessWidget {
     return FirebaseFirestore.instance
         .collection('notifications')
         .where('userUid', isEqualTo: uid)
-        .orderBy('readAt') // ✅ must come before createdAt
-        .orderBy('createdAt', descending: true)
-        .limit(20)
+        .orderBy('createdAt', descending: true) // ✅ newest first
+        .limit(50)
         .snapshots();
   }
 
@@ -2764,8 +2944,8 @@ class _NotificationsPanel extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
           child: Row(
-            children: const [
-              Expanded(
+            children: [
+              const Expanded(
                 child: Text(
                   'Notifications',
                   style: TextStyle(
@@ -2773,6 +2953,19 @@ class _NotificationsPanel extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF101828),
                   ),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await FirebaseFunctions.instance
+                        .httpsCallable('markNotificationsRead')
+                        .call();
+                  } catch (_) {}
+                },
+                child: const Text(
+                  'Mark all as read',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -2814,6 +3007,13 @@ class _NotificationsPanel extends StatelessWidget {
                 );
               }
 
+              final Map<String, List<QueryDocumentSnapshot>> grouped = {};
+
+              for (final d in docs) {
+                final type = (d['type'] ?? 'generic').toString();
+                grouped.putIfAbsent(type, () => []).add(d);
+              }
+
               return ListView.builder(
                 itemCount: docs.length,
                 itemBuilder: (context, i) {
@@ -2826,38 +3026,102 @@ class _NotificationsPanel extends StatelessWidget {
 
                   final Timestamp? ts = data['createdAt'] as Timestamp?;
 
-                  return ListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                    title: Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: unread ? FontWeight.w700 : FontWeight.w600,
-                        color: const Color(0xFF101828),
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${client.isNotEmpty ? client : 'Client'} • ${_relativeTime(ts)}',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF667085),
-                      ),
-                    ),
-                    onTap: () async {
-                      // ✅ mark as read
-                      if (unread) {
-                        await doc.reference.update({
-                          'readAt': FieldValue.serverTimestamp(),
-                        });
-                      }
+                  final bgColor = unread
+                      ? AppColors.brandBlue.withOpacity(0.06)
+                      : Colors.transparent;
 
-                      // OPTIONAL (future): navigate to request
-                      // final requestId = data['requestId'];
-                      // if (requestId != null) {
-                      //   // call a navigator callback here
-                      // }
-                    },
+                  final leftAccent = unread
+                      ? AppColors.brandBlue
+                      : Colors.transparent;
+
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: InkWell(
+                      onTap: () async {
+                        try {
+                          await FirebaseFunctions.instance
+                              .httpsCallable('markNotificationsRead')
+                              .call({
+                                'notificationId':
+                                    doc.id, // 👈 update backend to accept this
+                              });
+                        } catch (_) {}
+
+                        final requestId = data['requestId'];
+                        if (requestId is String && requestId.isNotEmpty) {
+                          onOpenRequest(requestId);
+                        }
+                      },
+                      child: Container(
+                        margin: EdgeInsets.zero,
+                        decoration: BoxDecoration(
+                          color: unread
+                              ? const Color(0xFFF8FAFF)
+                              : Colors.white,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.black.withOpacity(0.08),
+                              width: 1,
+                            ),
+                            left: BorderSide(
+                              color: unread
+                                  ? AppColors.brandBlue
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: unread
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                color: const Color(0xFF101828),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.business_outlined,
+                                  size: 14,
+                                  color: Color(0xFF667085),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  client.isNotEmpty ? client : 'Client',
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFF475467),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  Icons.schedule,
+                                  size: 14,
+                                  color: Color(0xFF667085),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _relativeTime(ts),
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFF667085),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   );
                 },
               );

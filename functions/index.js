@@ -917,6 +917,23 @@ exports.notifyDropoffBatchUpload = onCall(
 
       await sendAccountEmail({ to, subject, html });
 
+      // ============================
+      // ✅ IN-APP NOTIFICATION (staff) — batch upload
+      // ============================
+      if (createdByUid) {
+        await db.collection("notifications").add({
+          userUid: createdByUid,
+          type: "dropoff_upload",
+          title: "Client uploaded files",
+          body: `${clientName || "A client"} uploaded ${finalFiles.length} files`,
+          requestId: rid,
+          clientName: clientName || "",
+          fileCount: finalFiles.length,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          readAt: null,
+        });
+      }
+
       return { ok: true, emailed: true };
     } catch (err) {
       console.error("notifyDropoffBatchUpload failed:", err);
@@ -1316,23 +1333,6 @@ exports.finalizeDropoffUpload = onCall(
       },
       { merge: true }
     );
-
-    // ============================
-    // ✅ IN-APP NOTIFICATION (staff)
-    // ============================
-    if (requestCreatedByUid) {
-      await db.collection("notifications").add({
-        userUid: requestCreatedByUid,
-        type: "dropoff_upload",
-        title: "Client uploaded files",
-        body: `${requestClientName || "A client"} uploaded 1 file`,
-        requestId: rid,
-        clientName: requestClientName || "",
-        fileCount: 1,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        readAt: null,
-      });
-    }
 
     // ============================
     // ✅ AUDIT: record client upload activity (append-only)
@@ -3290,5 +3290,82 @@ exports.markUserActive = onCall(
     }
 
     return { ok: true };
+  }
+);
+
+exports.markNotificationsViewed = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated");
+    }
+
+    await admin.firestore()
+      .collection("users")
+      .doc(request.auth.uid)
+      .set(
+        {
+          lastNotificationsViewedAt:
+            admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+    return { ok: true };
+  }
+);
+
+exports.markNotificationsRead = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User not authenticated");
+    }
+
+    const uid = request.auth.uid;
+    const notificationId = String(request.data?.notificationId || "").trim();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // ✅ Mark ONE notification (when user clicks a row)
+    if (notificationId) {
+      const ref = db.collection("notifications").doc(notificationId);
+      const snap = await ref.get();
+      if (!snap.exists) return { updated: 0 };
+
+      const data = snap.data() || {};
+      if (data.userUid !== uid) {
+        throw new HttpsError("permission-denied", "Not allowed.");
+      }
+
+      if (data.readAt != null) return { updated: 0 };
+
+      await ref.update({ readAt: now });
+      return { updated: 1 };
+    }
+
+    // ✅ Mark ALL unread (when user clicks "Mark all as read")
+    const notificationsRef = db
+      .collection("notifications")
+      .where("userUid", "==", uid)
+      .where("readAt", "==", null);
+
+    let totalUpdated = 0;
+
+    while (true) {
+      const snap = await notificationsRef.limit(500).get();
+      if (snap.empty) break;
+
+      const batch = db.batch();
+      snap.docs.forEach((doc) => {
+        batch.update(doc.ref, { readAt: now });
+      });
+
+      await batch.commit();
+      totalUpdated += snap.size;
+
+      if (snap.size < 500) break;
+    }
+
+    return { updated: totalUpdated };
   }
 );
