@@ -53,7 +53,7 @@ String _sectionTitle(_NavSection s) {
     case _NavSection.admin:
       return 'Admin'; // ✅ ADD
     case _NavSection.files:
-      return 'Files';
+      return 'File Box';
     case _NavSection.requests:
       return 'Requests';
     case _NavSection.home:
@@ -1008,7 +1008,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       case '/account-settings':
         return 'Account Settings';
       case '/file-box':
-        return 'Files';
+        return 'File Box';
       case '/generate-upload-link':
         return 'Requests';
       case '/admin-users':
@@ -1951,8 +1951,8 @@ class _MiniRail extends StatelessWidget {
             const SizedBox(height: 6),
 
             _MiniTile(
-              icon: Icons.folder_open_outlined,
-              label: 'Files',
+              icon: Icons.inventory_2_outlined,
+              label: 'File Box',
               active: active == _NavSection.files,
               onTap: () => onSelect(_NavSection.files),
             ),
@@ -2086,7 +2086,7 @@ class _SecondaryPane extends StatelessWidget {
         break;
       case _NavSection.files:
         items = const [
-          _PaneItem('All files', Icons.folder_open_outlined, '/file-box'),
+          _PaneItem('File Box', Icons.folder_open_outlined, '/file-box'),
           _PaneItem(
             'Upload Requests',
             Icons.request_page_outlined,
@@ -2436,7 +2436,7 @@ class _SidebarNav extends StatelessWidget {
 
           _SidebarNavItem(
             icon: Icons.folder_open_outlined, // ✅ Files icon
-            label: 'Files',
+            label: 'File Box',
             route: '/file-box',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
@@ -2446,7 +2446,7 @@ class _SidebarNav extends StatelessWidget {
 
           _SidebarNavItem(
             icon: Icons.request_page_outlined, // ✅ Request icon
-            label: 'Request',
+            label: 'Requests',
             route: '/generate-upload-link',
             currentRoute: currentRoute,
             onNavigate: onNavigate,

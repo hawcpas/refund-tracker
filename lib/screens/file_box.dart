@@ -9,9 +9,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../widgets/page_scaffold.dart';
 
 enum _SortField { name, size, date }
-
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
-
 enum _DateFilter { all, today, last7, last30 }
 
 class FileBoxScreen extends StatefulWidget {
@@ -616,10 +614,10 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     final isMobile = MediaQuery.of(context).size.width < 700;
 
     return PageScaffold(
-      title: 'Files',
+      title: 'File Box',
       subtitle: isAdmin
-          ? 'All uploads across all client upload links.'
-          : 'Uploads from associate-created client upload links.',
+          ? 'All uploads across all document requests.'
+          : 'Uploads from associate-created document requests.',
       hideHeader: false,
       wrapInCard: false,
       scrollable: false,

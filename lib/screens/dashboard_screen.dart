@@ -241,7 +241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // File Box
           FluentCommandAction(
             icon: Icons.folder_open_outlined,
-            label: 'Files',
+            label: 'File Box',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/file-box')
                 : null,
@@ -251,7 +251,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Upload links
           FluentCommandAction(
             icon: Icons.link_outlined,
-            label: 'Request',
+            label: 'Requests',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/generate-upload-link')
                 : null,
@@ -288,9 +288,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   SizedBox(
                     width: isNarrow ? constraints.maxWidth : 420,
                     child: _DashboardActionCard(
-                      title: 'Files',
+                      title: 'File Box',
                       description:
-                          'Review, manage, and securely store documents uploaded by clients.',
+                          'Review and manage documents uploaded by clients.',
                       buttonLabel: 'Open files',
                       onPressed: _hasDropoffAccess
                           ? () => Navigator.pushNamed(context, '/file-box')
