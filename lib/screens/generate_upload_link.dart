@@ -748,7 +748,6 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                   ),
                 ),
               ),
-
               child: Dialog(
                 backgroundColor:
                     appTheme.contentBackground, // ✅ app theme surface
@@ -1167,8 +1166,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   @override
   Widget build(BuildContext context) {
     return PageScaffold(
-      title: 'Request Links',
-      subtitle: 'Create and manage secure upload links for clients.',
+      title: 'Link Requests',
+      subtitle: 'View, manage, and share secure upload links with clients.',
       wrapInCard: false,
       scrollable: false,
       child: Expanded(

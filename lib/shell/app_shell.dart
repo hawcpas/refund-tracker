@@ -1508,7 +1508,11 @@ Please describe the issue below:
                                 return _ContentUtilityBar(
                                   leading: leading,
                                   onSearch: _onGlobalSearch,
-                                  onCreateNew: _openCreateUploadLink,
+                                  onCreateNew: () {
+                                    setState(() {
+                                      _currentRoute = '/generate-upload-link';
+                                    });
+                                  },
                                   onOpenSettings: () =>
                                       _toggleAccountSettingsFlyout(context),
                                   onOpenSupport: _openSupportEmail,
@@ -1964,6 +1968,7 @@ class _MiniRail extends StatelessWidget {
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
             ),
+
             const Spacer(),
 
             // ✅ Collapse / Expand the secondary pane
@@ -2098,14 +2103,9 @@ class _SecondaryPane extends StatelessWidget {
       case _NavSection.requests:
         items = const [
           _PaneItem(
-            'All requests',
-            Icons.request_page_outlined,
+            'Link requests',
+            Icons.link_outlined,
             '/generate-upload-link',
-          ),
-          _PaneItem(
-            'Create request',
-            Icons.add_circle_outline,
-            '/create-upload-link',
           ),
         ];
         break;
