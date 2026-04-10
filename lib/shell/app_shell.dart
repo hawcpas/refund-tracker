@@ -3021,10 +3021,90 @@ class _NotificationsPanel extends StatelessWidget {
                   final data = doc.data();
 
                   final bool unread = data['readAt'] == null;
-                  final String title = (data['title'] ?? '').toString();
-                  final String client = (data['clientName'] ?? '').toString();
+
+                  final String type = (data['type'] ?? '').toString();
+                  final String rawTitle = (data['title'] ?? '')
+                      .toString()
+                      .trim();
+
+                  final String fromName =
+                      (data['clientName'] ?? data['fromName'] ?? '')
+                          .toString()
+                          .trim();
+
+                  // Optional: if you store a request/link label in the notification doc
+                  final String requestLabel =
+                      (data['requestName'] ??
+                              data['requestTitle'] ??
+                              data['linkName'] ??
+                              '')
+                          .toString()
+                          .trim();
+
+                  // File count (you already use this pattern in the badge)
+                  final fc = data['fileCount'];
+                  final int fileCount = (fc is int)
+                      ? fc
+                      : (fc is num ? fc.toInt() : 0);
+
+                  // Total bytes (support a few possible field names)
+                  final tb =
+                      data['totalBytes'] ??
+                      data['totalSizeBytes'] ??
+                      data['sizeBytes'];
+                  final int totalBytes = (tb is int)
+                      ? tb
+                      : (tb is num ? tb.toInt() : 0);
+
+                  // ----- Compose title + meta -----
+
+                  final int safeCount = (fileCount <= 0) ? 1 : fileCount;
+                  final String countLabel =
+                      '$safeCount ${safeCount == 1 ? 'file' : 'files'}';
+
+                  // Normalize request label capitalization
+                  final String requestName = requestLabel.isNotEmpty
+                      ? requestLabel
+                      : 'Request Link';
+
+                  final bool isDropoffUpload = type == 'dropoff_upload';
+
+                  // Right side count text
+                  final String titleRight = isDropoffUpload ? countLabel : '';
+
+                  // Left side title text (your requested wording)
+                  final String titleLeft = isDropoffUpload
+                      ? 'Request Link Upload'
+                      : (rawTitle.isNotEmpty ? rawTitle : 'Notification');
+
+                  // Prefer a real uploader name if present (supports future backend fields)
+                  final String uploaderCandidate =
+                      (data['uploaderName'] ??
+                              data['uploadedByName'] ??
+                              data['senderName'] ??
+                              data['clientName'] ??
+                              data['fromName'] ??
+                              '')
+                          .toString()
+                          .trim();
+
+                  final bool uploaderLooksLikeRequest =
+                      uploaderCandidate.isNotEmpty &&
+                      requestName.isNotEmpty &&
+                      uploaderCandidate.toLowerCase() ==
+                          requestName.toLowerCase();
+
+                  final String fromText =
+                      (!uploaderLooksLikeRequest &&
+                          uploaderCandidate.isNotEmpty)
+                      ? uploaderCandidate
+                      : 'Client';
 
                   final Timestamp? ts = data['createdAt'] as Timestamp?;
+
+                  // Second row left/right
+                  final String metaLeft = 'From $fromText';
+                  final String metaRight = _relativeTime(ts);
 
                   final bgColor = unread
                       ? AppColors.brandBlue.withOpacity(0.06)
@@ -3078,45 +3158,63 @@ class _NotificationsPanel extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              title,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: unread
-                                    ? FontWeight.w700
-                                    : FontWeight.w600,
-                                color: const Color(0xFF101828),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
+                            // Row 1: Title left + count right
                             Row(
                               children: [
-                                Icon(
-                                  Icons.business_outlined,
-                                  size: 14,
-                                  color: Color(0xFF667085),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  client.isNotEmpty ? client : 'Client',
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: Color(0xFF475467),
-                                    fontWeight: FontWeight.w600,
+                                Expanded(
+                                  child: Text(
+                                    titleLeft,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: unread
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      color: const Color(0xFF101828),
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
-                                Icon(
-                                  Icons.schedule,
-                                  size: 14,
-                                  color: Color(0xFF667085),
+                                if (titleRight.isNotEmpty) ...[
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    titleRight,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: unread
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      color: const Color(0xFF475467),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            // Row 2: From left + time right
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    metaLeft,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: Color(0xFF475467),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 12),
                                 Text(
-                                  _relativeTime(ts),
+                                  metaRight,
                                   style: const TextStyle(
                                     fontSize: 12.5,
                                     color: Color(0xFF667085),
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
@@ -3142,9 +3240,29 @@ class _NotificationsPanel extends StatelessWidget {
     final diff = DateTime.now().difference(dt);
 
     if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
-    if (diff.inHours < 24) return '${diff.inHours} hr ago';
-    return '${diff.inDays} days ago';
+
+    if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return '$m ${m == 1 ? 'minute' : 'minutes'} ago';
+    }
+
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return '$h ${h == 1 ? 'hour' : 'hours'} ago';
+    }
+
+    final d = diff.inDays;
+    return '$d ${d == 1 ? 'day' : 'days'} ago';
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 }
 
