@@ -19,6 +19,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/brand_logo_svg.dart';
@@ -83,8 +84,19 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   late final AnimationController _avatarAnim;
   late final AnimationController _settingsAnim;
   String? _dropoffDetailsId;
+  int? _unreadOverrideCount;
   final LayerLink _avatarLink = LayerLink();
   OverlayEntry? _avatarEntry;
+
+  // =========================
+  // Notifications flyout
+  // =========================
+  Timestamp? _notifViewedOverrideAt;
+  final LayerLink _notificationsLink = LayerLink();
+  OverlayEntry? _notificationsEntry;
+  late final AnimationController _notificationsAnim;
+
+  bool get _isNotificationsOpen => _notificationsEntry != null;
 
   bool get _isAvatarMenuOpen => _avatarEntry != null;
 
@@ -95,17 +107,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
   OverlayEntry? _accountSettingsEntry;
   late final AnimationController _accountSettingsAnim;
-
-  // ===========================
-  // 🔔 Notifications (OverlayEntry)
-  // ===========================
-  OverlayEntry? _notificationEntry;
-
-  bool get _isNotificationOpen => _notificationEntry != null;
-
-  // ===========================
-  // 🔔 Notifications flyout
-  // ===========================
 
   bool get _isAccountSettingsOpen => _accountSettingsEntry != null;
 
@@ -141,6 +142,16 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     return '${t.substring(0, 3)}-${t.substring(3, 6)}-${t.substring(6)}';
   }
 
+  void _unawaitedMarkAllNotificationsRead() {
+    // fire-and-forget on purpose — UI should NOT wait
+    FirebaseFunctions.instance
+        .httpsCallable('markNotificationsRead')
+        .call()
+        .catchError((e) {
+          debugPrint('markNotificationsRead failed: $e');
+        });
+  }
+
   void _dismissSettingsMenuImmediate() {
     if (_settingsEntry == null) return;
     _settingsAnim.stop();
@@ -155,6 +166,16 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarEntry?.remove();
     _avatarEntry = null;
     _avatarAnim.value = 0; // reset
+  }
+
+  Future<void> _markNotificationsRead() async {
+    try {
+      await FirebaseFunctions.instance
+          .httpsCallable('markNotificationsRead')
+          .call();
+    } catch (e) {
+      debugPrint('markNotificationsRead failed: $e');
+    }
   }
 
   /// ✅ Public API for opening Account Settings
@@ -440,6 +461,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _avatarAnim.dispose();
     _settingsAnim.dispose();
     _accountSettingsAnim.dispose();
+    _notificationsAnim.dispose();
     _tokenSub?.cancel();
     super.dispose();
   }
@@ -773,6 +795,117 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _settingsAnim.forward(from: 0);
   }
 
+  void _toggleNotificationsMenu(BuildContext ctx) async {
+    _dismissAvatarMenuImmediate();
+    _dismissSettingsMenuImmediate();
+
+    if (_isNotificationsOpen) {
+      _closeNotificationsMenu();
+      return;
+    }
+
+    // ✅ Immediately clear badge locally (instant UI)
+    setState(() {
+      _notifViewedOverrideAt = Timestamp.now();
+    });
+
+    // ✅ Persist "bell opened" cursor (serverTimestamp)
+    FirebaseFunctions.instance
+        .httpsCallable('markNotificationsViewed')
+        .call()
+        .catchError((e) {
+          debugPrint('markNotificationsViewed failed: $e');
+        });
+
+    // ❌ IMPORTANT: do NOT mark read here
+    // _unawaitedMarkAllNotificationsRead();   <-- remove / do not call
+
+    final overlay = Overlay.of(ctx);
+    if (overlay == null) return;
+
+    const double appBarHeight = _ContentUtilityBar.height;
+
+    _notificationsEntry = OverlayEntry(
+      builder: (context) {
+        return Stack(
+          children: [
+            // ✅ click-outside closes ONLY below AppBar
+            Positioned(
+              top: appBarHeight,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _closeNotificationsMenu,
+                child: const SizedBox.shrink(),
+              ),
+            ),
+
+            // ✅ anchored flyout (matches avatar/settings)
+            Positioned(
+              top: appBarHeight,
+              right: 72, // 👈 aligns left of avatar
+              child: Material(
+                color: Colors.transparent,
+                child: FadeTransition(
+                  opacity: CurvedAnimation(
+                    parent: _notificationsAnim,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  ),
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.96, end: 1.0).animate(
+                      CurvedAnimation(
+                        parent: _notificationsAnim,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                    alignment: Alignment.topRight,
+                    child: Container(
+                      width: 360,
+                      constraints: const BoxConstraints(maxHeight: 420),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.black.withOpacity(0.12),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.14),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: _NotificationsPanel(
+                        onOpenRequest: (rid) {
+                          _closeNotificationsMenu();
+                          _openDropoffDetails(rid);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    overlay.insert(_notificationsEntry!);
+    _notificationsAnim.forward(from: 0);
+  }
+
+  Future<void> _closeNotificationsMenu() async {
+    if (_notificationsEntry == null) return;
+    await _notificationsAnim.reverse();
+    _notificationsEntry?.remove();
+    _notificationsEntry = null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -852,6 +985,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     );
 
     _settingsAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 90),
+    );
+
+    _notificationsAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 140),
       reverseDuration: const Duration(milliseconds: 90),
@@ -1191,10 +1330,18 @@ Please describe the issue below:
 
     // Signed in but OTP not verified → force OTP screen
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null && !_otpVerified) {
+
+    // ✅ Signed out → hard redirect (no UID usage allowed)
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // ✅ Signed in but OTP not verified
+    if (!_otpVerified) {
       return const OtpVerifyScreen();
     }
 
+    final uid = user.uid; // ✅ now SAFE
     final isMobileShell = MediaQuery.of(context).size.width < 900;
     final isAdminConsole = _currentRoute == '/admin-users';
 
@@ -1302,14 +1449,110 @@ Please describe the issue below:
                 children: [
                   Column(
                     children: [
-                      _ContentUtilityBar(
-                        leading: leading,
-                        onSearch: _onGlobalSearch,
-                        onCreateNew: _openCreateUploadLink,
-                        onOpenSettings: () =>
-                            _toggleAccountSettingsFlyout(context),
-                        onOpenSupport: _openSupportEmail,
-                        avatar: _buildAvatarButton(isAdminConsole),
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(uid)
+                            .snapshots(),
+                        builder: (context, userSnap) {
+                          final userCursor =
+                              (userSnap.data
+                                      ?.data()?['lastNotificationsViewedAt']
+                                  as Timestamp?) ??
+                              Timestamp(0, 0);
+
+                          // ✅ Use local override so badge clears instantly when bell is opened
+                          final userCursorMs =
+                              userCursor.millisecondsSinceEpoch;
+                          final overrideMs =
+                              _notifViewedOverrideAt?.millisecondsSinceEpoch ??
+                              -1;
+
+                          final effectiveCursor = (overrideMs > userCursorMs)
+                              ? _notifViewedOverrideAt!
+                              : userCursor;
+
+                          // ✅ Auto-release override once Firestore cursor catches up
+                          if (_notifViewedOverrideAt != null &&
+                              userCursorMs >= overrideMs) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() => _notifViewedOverrideAt = null);
+                              }
+                            });
+                          }
+
+                          return StreamBuilder<
+                            QuerySnapshot<Map<String, dynamic>>
+                          >(
+                            stream: FirebaseFirestore.instance
+                                .collection('notifications')
+                                .where('userUid', isEqualTo: uid)
+                                .where(
+                                  'createdAt',
+                                  isGreaterThan: effectiveCursor,
+                                )
+                                .orderBy(
+                                  'createdAt',
+                                  descending: true,
+                                ) // ✅ match panel index direction
+                                .limit(200) // ✅ safety cap
+                                .snapshots(),
+                            builder: (context, snap) {
+                              // ✅ IMPORTANT: surface Firestore errors instead of silently showing 0
+                              if (snap.hasError) {
+                                debugPrint(
+                                  '🔴 badge query failed: ${snap.error}',
+                                );
+
+                                return _ContentUtilityBar(
+                                  leading: leading,
+                                  onSearch: _onGlobalSearch,
+                                  onCreateNew: _openCreateUploadLink,
+                                  onOpenSettings: () =>
+                                      _toggleAccountSettingsFlyout(context),
+                                  onOpenSupport: _openSupportEmail,
+                                  onOpenNotifications: () =>
+                                      _toggleNotificationsMenu(context),
+                                  notificationCount: 0, // safe fallback
+                                  avatar: _buildAvatarButton(isAdminConsole),
+                                );
+                              }
+
+                              int newUploadCount = 0;
+
+                              if (snap.hasData) {
+                                for (final d in snap.data!.docs) {
+                                  final data = d.data();
+                                  final type = (data['type'] ?? '').toString();
+
+                                  if (type == 'dropoff_upload') {
+                                    final fc = data['fileCount'];
+                                    final n = (fc is int)
+                                        ? fc
+                                        : (fc is num ? fc.toInt() : 1);
+                                    newUploadCount += (n <= 0 ? 1 : n);
+                                  } else {
+                                    newUploadCount += 1;
+                                  }
+                                }
+                              }
+
+                              return _ContentUtilityBar(
+                                leading: leading,
+                                onSearch: _onGlobalSearch,
+                                onCreateNew: _openCreateUploadLink,
+                                onOpenSettings: () =>
+                                    _toggleAccountSettingsFlyout(context),
+                                onOpenSupport: _openSupportEmail,
+                                onOpenNotifications: () =>
+                                    _toggleNotificationsMenu(context),
+                                notificationCount: newUploadCount,
+                                avatar: _buildAvatarButton(isAdminConsole),
+                              );
+                            },
+                          );
+                        },
                       ),
                       Expanded(child: _buildContent()),
                     ],
@@ -1332,12 +1575,15 @@ class _ContentUtilityBar extends StatelessWidget {
     required this.onCreateNew,
     required this.onOpenSettings,
     required this.onOpenSupport,
+    required this.onOpenNotifications,
+    required this.notificationCount, // ✅ ADD
     required this.avatar,
-    this.leading, // ✅ ADD
+    this.leading,
   });
 
+  final int notificationCount; // ✅ ADD
   final Widget? leading; // ✅ ADD
-
+  final VoidCallback onOpenNotifications;
   final ValueChanged<String> onSearch;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSupport;
@@ -1501,6 +1747,49 @@ class _ContentUtilityBar extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.notifications_outlined,
+                  size: 20,
+                  color: AppColors.iconNeutral,
+                ),
+                splashRadius: 20,
+                hoverColor: const Color(0xFFF1F5F9),
+                onPressed: onOpenNotifications,
+              ),
+
+              if (notificationCount > 0)
+                Positioned(
+                  right: 3,
+                  bottom: 3,
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD92D20),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$notificationCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
 
           IconButton(
@@ -2561,8 +2850,8 @@ class RightSideFlyout extends StatelessWidget {
                   child: Padding(
                     // ✅ allows shadow to extend left without clipping
                     padding: const EdgeInsets.only(left: 24),
-                    child: GestureDetector(
-                      onTap: () {}, // absorb taps inside
+                    child: IgnorePointer(
+                      ignoring: false,
                       child: SizedBox(
                         width: width,
                         height: double.infinity,
@@ -2623,6 +2912,357 @@ class RightSideFlyout extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ============================================================
+// Notifications flyout panel (top app-bar bell)
+// ============================================================
+
+class _NotificationsPanel extends StatelessWidget {
+  const _NotificationsPanel({required this.onOpenRequest, super.key});
+
+  final void Function(String requestId) onOpenRequest;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('userUid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true) // ✅ newest first
+        .limit(50)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ===== Header =====
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Notifications',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await FirebaseFunctions.instance
+                        .httpsCallable('markNotificationsRead')
+                        .call();
+                  } catch (_) {}
+                },
+                child: const Text(
+                  'Mark all as read',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+
+        // ===== List =====
+        SizedBox(
+          height: 320,
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: _stream(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Failed to load notifications.\n\n${snapshot.error}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFFB42318),
+                    ),
+                  ),
+                );
+              }
+
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs = snapshot.data!.docs;
+
+              if (docs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No notifications',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF667085)),
+                  ),
+                );
+              }
+
+              final Map<String, List<QueryDocumentSnapshot>> grouped = {};
+
+              for (final d in docs) {
+                final type = (d['type'] ?? 'generic').toString();
+                grouped.putIfAbsent(type, () => []).add(d);
+              }
+
+              return ListView.builder(
+                itemCount: docs.length,
+                itemBuilder: (context, i) {
+                  final doc = docs[i];
+                  final data = doc.data();
+
+                  final bool unread = data['readAt'] == null;
+
+                  final String type = (data['type'] ?? '').toString();
+                  final String rawTitle = (data['title'] ?? '')
+                      .toString()
+                      .trim();
+
+                  final String fromName =
+                      (data['clientName'] ?? data['fromName'] ?? '')
+                          .toString()
+                          .trim();
+
+                  // Optional: if you store a request/link label in the notification doc
+                  final String requestLabel =
+                      (data['requestName'] ??
+                              data['requestTitle'] ??
+                              data['linkName'] ??
+                              '')
+                          .toString()
+                          .trim();
+
+                  // File count (you already use this pattern in the badge)
+                  final fc = data['fileCount'];
+                  final int fileCount = (fc is int)
+                      ? fc
+                      : (fc is num ? fc.toInt() : 0);
+
+                  // Total bytes (support a few possible field names)
+                  final tb =
+                      data['totalBytes'] ??
+                      data['totalSizeBytes'] ??
+                      data['sizeBytes'];
+                  final int totalBytes = (tb is int)
+                      ? tb
+                      : (tb is num ? tb.toInt() : 0);
+
+                  // ----- Compose title + meta -----
+
+                  final int safeCount = (fileCount <= 0) ? 1 : fileCount;
+                  final String countLabel =
+                      '$safeCount ${safeCount == 1 ? 'file' : 'files'}';
+
+                  // Normalize request label capitalization
+                  final String requestName = requestLabel.isNotEmpty
+                      ? requestLabel
+                      : 'Request Link';
+
+                  final bool isDropoffUpload = type == 'dropoff_upload';
+
+                  // Right side count text
+                  final String titleRight = isDropoffUpload ? countLabel : '';
+
+                  // Left side title text (your requested wording)
+                  final String titleLeft = isDropoffUpload
+                      ? 'Request Link Upload'
+                      : (rawTitle.isNotEmpty ? rawTitle : 'Notification');
+
+                  // Prefer a real uploader name if present (supports future backend fields)
+                  final String uploaderCandidate =
+                      (data['uploaderName'] ??
+                              data['uploadedByName'] ??
+                              data['senderName'] ??
+                              data['clientName'] ??
+                              data['fromName'] ??
+                              '')
+                          .toString()
+                          .trim();
+
+                  final bool uploaderLooksLikeRequest =
+                      uploaderCandidate.isNotEmpty &&
+                      requestName.isNotEmpty &&
+                      uploaderCandidate.toLowerCase() ==
+                          requestName.toLowerCase();
+
+                  final String fromText =
+                      (!uploaderLooksLikeRequest &&
+                          uploaderCandidate.isNotEmpty)
+                      ? uploaderCandidate
+                      : 'Client';
+
+                  final Timestamp? ts = data['createdAt'] as Timestamp?;
+
+                  // Second row left/right
+                  final String metaLeft = 'From $fromText';
+                  final String metaRight = _relativeTime(ts);
+
+                  final bgColor = unread
+                      ? AppColors.brandBlue.withOpacity(0.06)
+                      : Colors.transparent;
+
+                  final leftAccent = unread
+                      ? AppColors.brandBlue
+                      : Colors.transparent;
+
+                  return MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: InkWell(
+                      onTap: () {
+                        // Fire-and-forget: do NOT block navigation
+                        FirebaseFunctions.instance
+                            .httpsCallable('markNotificationsRead')
+                            .call({'notificationId': doc.id})
+                            .catchError((e) {
+                              debugPrint(
+                                'markNotificationsRead(single) failed: $e',
+                              );
+                            });
+
+                        final requestId = data['requestId'];
+                        if (requestId is String && requestId.isNotEmpty) {
+                          onOpenRequest(
+                            requestId,
+                          ); // closes flyout + opens details immediately
+                        }
+                      },
+                      child: Container(
+                        margin: EdgeInsets.zero,
+                        decoration: BoxDecoration(
+                          color: unread
+                              ? const Color(0xFFF8FAFF)
+                              : Colors.white,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.black.withOpacity(0.08),
+                              width: 1,
+                            ),
+                            left: BorderSide(
+                              color: unread
+                                  ? AppColors.brandBlue
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Row 1: Title left + count right
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    titleLeft,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: unread
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      color: const Color(0xFF101828),
+                                    ),
+                                  ),
+                                ),
+                                if (titleRight.isNotEmpty) ...[
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    titleRight,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: unread
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      color: const Color(0xFF475467),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+
+                            const SizedBox(height: 4),
+
+                            // Row 2: From left + time right
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    metaLeft,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: Color(0xFF475467),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  metaRight,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFF667085),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _relativeTime(Timestamp? ts) {
+    if (ts == null) return 'Just now';
+
+    final dt = ts.toDate();
+    final diff = DateTime.now().difference(dt);
+
+    if (diff.inMinutes < 1) return 'Just now';
+
+    if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return '$m ${m == 1 ? 'minute' : 'minutes'} ago';
+    }
+
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return '$h ${h == 1 ? 'hour' : 'hours'} ago';
+    }
+
+    final d = diff.inDays;
+    return '$d ${d == 1 ? 'day' : 'days'} ago';
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 }
 

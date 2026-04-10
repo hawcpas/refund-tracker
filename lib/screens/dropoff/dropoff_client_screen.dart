@@ -214,7 +214,8 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   }
 
   static const String _closedMsg =
-      'This upload link is no longer available. If you need to submit documents, please request a new link.';
+      'This upload request is no longer accepting files. '
+      'If you need to submit documents, please request for a new link or for the link to be re-enabled.';
 
   bool _isCompact(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
@@ -231,7 +232,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
         case 'unauthenticated':
           return 'Your upload session has expired. Please refresh the page.';
         case 'not-found':
-          return 'This upload link could not be found.';
+          return 'This upload link has been removed and is no longer available. If you need to submit documents, please request a new link.';
         case 'deadline-exceeded':
           return 'The request took too long. Please try again.';
         default:
@@ -828,6 +829,20 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final canUploadNow = !_loading && status == 'open';
     final isCompact = _isCompact(context);
 
+    // ✅ Closed-state notice:
+    // Prefer a specific backend error (e.g. deleted / not found),
+    // otherwise fall back to the generic closed message.
+    final String closedNotice = (_error != null && _error!.trim().isNotEmpty)
+        ? _error!
+        : _closedMsg;
+
+    final bool isDeletedLink =
+        _error != null && _error!.toLowerCase().contains('removed');
+
+    final statusLower = status.toLowerCase().trim();
+    final bool isExpiredLink = statusLower == 'expired';
+    final bool isDisabledLink =
+        !canUploadNow && !isDeletedLink; // includes closed/disabled/expired
     // ✅ Skeleton width calculation (responsive + professional)
     final w = MediaQuery.of(context).size.width;
     final maxLine = (w < 520) ? w - 80 : 520.0;
@@ -840,6 +855,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final brand = AppColors.brandBlue;
 
     final isIOSWeb = kIsWeb && WebFileSelector.isIOSWeb;
+
+    final bool headerReady = !_loading;
+    final bool showHeaderTitle = headerReady && canUploadNow;
 
     Widget addFilesBtn;
 
@@ -967,8 +985,6 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       return n.toLowerCase().endsWith('s') ? "$n’" : "$n’s";
     }
 
-    final bool headerReady = !_loading && _info != null;
-
     // Only compute sender once data is actually ready (prevents “fallback flash”)
     final String rawSender = headerReady
         ? (_info?['requestedByName'] ?? '').toString().trim()
@@ -976,10 +992,11 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
 
     final bool hasSenderName = rawSender.isNotEmpty;
 
-    // If backend truly has no sender name (not loading), use a stable professional line
     final String titleText = hasSenderName
         ? '$rawSender has sent you this request'
-        : 'A secure upload request has been sent to you.';
+        : (!canUploadNow
+              ? 'This upload link is no longer available.'
+              : 'A secure upload request has been sent to you.');
 
     final String recipientPossessive = hasSenderName
         ? possessive(rawSender)
@@ -1065,9 +1082,18 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                               // ✅ BRAND HEADER (NOW INSIDE THE CARD)
                               // =========================================================
                               const _DropoffBrandHeader(dense: true),
-                              const SizedBox(height: 14),
-                              Divider(height: 1, color: Color(0xFFE4E7EC)),
-                              const SizedBox(height: 14),
+
+                              // ✅ Tighter spacing when header/title is hidden
+                              SizedBox(height: showHeaderTitle ? 14 : 8),
+
+                              // ✅ Only show divider when a title is actually visible
+                              if (showHeaderTitle) ...[
+                                const Divider(
+                                  height: 1,
+                                  color: Color(0xFFE4E7EC),
+                                ),
+                                const SizedBox(height: 14),
+                              ],
 
                               // =========================================================
                               // ✅ HEADER — ALWAYS VISIBLE
@@ -1088,7 +1114,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                             width: maxLine * 0.8,
                                             radius: 10,
                                           )
-                                        else
+                                        else if (canUploadNow)
                                           Text(
                                             titleText,
                                             style: theme.textTheme.titleLarge
@@ -1096,7 +1122,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                   fontWeight: FontWeight.w700,
                                                   color: _kDarkGray,
                                                 ),
-                                          ),
+                                          )
+                                        else
+                                          const SizedBox.shrink(),
                                       ],
                                     ),
                                   ),
@@ -1108,6 +1136,9 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                     children: [
                                       _VerifiedLinkPill(
                                         loading: _loading,
+                                        canUploadNow: canUploadNow,
+                                        isDeleted: isDeletedLink,
+                                        isExpired: isExpiredLink,
                                         verified: _isVerifiedLink,
                                       ),
                                     ],
@@ -1179,7 +1210,7 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                           const SizedBox(height: 16),
 
                                           // ✅ SINGLE SOURCE OF TRUTH — CLOSED NOTICE
-                                          _NoticeBanner.closed(_closedMsg),
+                                          _NoticeBanner.closed(closedNotice),
 
                                           const SizedBox(height: 18),
                                         ],
@@ -1577,11 +1608,22 @@ class _VerifiedLinkPill extends StatelessWidget {
   final bool loading;
   final bool verified;
 
-  const _VerifiedLinkPill({required this.loading, required this.verified});
+  // ✅ new inputs
+  final bool canUploadNow;
+  final bool isDeleted;
+  final bool isExpired;
+
+  const _VerifiedLinkPill({
+    required this.loading,
+    required this.verified,
+    required this.canUploadNow,
+    required this.isDeleted,
+    required this.isExpired,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Show “Verifying…” while validateDropoffLink is in progress
+    // While validateDropoffLink is in progress
     if (loading) {
       return const _Pill(
         icon: SizedBox(
@@ -1596,7 +1638,40 @@ class _VerifiedLinkPill extends StatelessWidget {
       );
     }
 
-    // Show “Verified secure link” only after server validated the link
+    // ✅ Removed (deleted link)
+    if (isDeleted) {
+      return const _Pill(
+        icon: Icon(Icons.delete_outline, size: 16),
+        text: 'Removed',
+        bg: Color(0xFFF2F4F7),
+        fg: Color(0xFF475467),
+        border: Color(0xFFD0D5DD),
+      );
+    }
+
+    // ✅ Expired (time-based)
+    if (isExpired) {
+      return const _Pill(
+        icon: Icon(Icons.schedule, size: 16),
+        text: 'Expired',
+        bg: Color(0xFFFFFAEB),
+        fg: Color(0xFFB54708),
+        border: Color(0xFFFEC84B),
+      );
+    }
+
+    // ✅ Disabled / closed (no longer accepting uploads)
+    if (!canUploadNow) {
+      return const _Pill(
+        icon: Icon(Icons.lock_outline, size: 16),
+        text: 'Disabled',
+        bg: Color(0xFFFFFAEB),
+        fg: Color(0xFFB54708),
+        border: Color(0xFFFEC84B),
+      );
+    }
+
+    // ✅ Verified (only show when link is OPEN and validated)
     if (!verified) return const SizedBox.shrink();
 
     return const _Pill(
@@ -2442,7 +2517,6 @@ class _DropoffFooter extends StatelessWidget {
 
     return Column(
       children: [
-
         Text(
           '© ${DateTime.now().year} Axume & Associates CPAs, AAC',
           textAlign: TextAlign.center,
