@@ -1178,6 +1178,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       subtitle: 'View, manage, and share secure upload links with clients.',
       wrapInCard: false,
       scrollable: false,
+      maxContentWidth: 1400, // ✅ TABLE‑FRIENDLY WIDTH
       child: Expanded(
         child: Stack(
           children: [
@@ -1384,6 +1385,50 @@ class _RequestsListState extends State<_RequestsList> {
                 ],
               ),
 
+              const SizedBox(width: 16),
+
+              // ✅ FIXED, PROFESSIONAL SEARCH WIDTH
+              SizedBox(
+                width: 360, // ⬅️ enterprise‑standard (Office / Intuit range)
+                height: 36,
+                child: TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) => setState(() {
+                    _q = v.trim().toLowerCase();
+                    _selected.clear();
+                  }),
+                  decoration: InputDecoration(
+                    hintText: 'Search requests',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    suffixIcon: _q.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() {
+                                _q = '';
+                                _selected.clear();
+                              });
+                            },
+                          ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+
               const Spacer(),
 
               SizedBox(
@@ -1406,49 +1451,7 @@ class _RequestsListState extends State<_RequestsList> {
               ),
             ],
           ),
-
-          const SizedBox(height: 12),
-
-          // Search bar
-          TextField(
-            controller: _searchCtrl,
-            onChanged: (v) => setState(() {
-              _q = v.trim().toLowerCase();
-              _selected.clear();
-            }),
-            decoration: InputDecoration(
-              hintText: 'Search by client name, email, or link ID',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _q.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Clear',
-                      icon: const Icon(Icons.close),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() {
-                          _q = '';
-                          _selected.clear();
-                        });
-                      },
-                    ),
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFFF9FAFB),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
-            ),
-          ),
-
           const SizedBox(height: 10),
-
           // Sort + bulk actions bar (enterprise)
           Row(
             children: [
