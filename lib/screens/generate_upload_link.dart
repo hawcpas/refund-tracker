@@ -41,11 +41,13 @@ enum _LinksView { active, archived }
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
   final VoidCallback? onCreate;
+  final ValueNotifier<int>? createSignal; // ✅ ADD THIS LINE
 
   const GenerateUploadLinkScreen({
     super.key,
     this.onOpenDetails,
     this.onCreate,
+    this.createSignal,
   });
 
   @override
@@ -114,7 +116,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     super.initState();
     _view = _lastView;
     _loadSuggestions();
-    _loadTemplates(); // ✅ add this
+    _loadTemplates();
+
+    widget.createSignal?.addListener(() {
+      if (mounted) {
+        _openCreateRequestDialog();
+      }
+    });
   }
 
   HttpsCallable _callable(String name) => _functions.httpsCallable(name);
