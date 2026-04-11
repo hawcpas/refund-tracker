@@ -12,7 +12,6 @@ import '../screens/account_settings_screen.dart';
 import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/admin_users_screen.dart';
-import '../screens/create_upload_link_screen.dart';
 import '../screens/otp_verify_screen.dart';
 import '../screens/dropoff_detail_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -126,9 +125,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
     if (route == '/file-box') return _NavSection.files;
 
-    if (route == '/generate-upload-link' ||
-        route == '/create-upload-link' ||
-        route == '/dropoff-details') {
+    if (route == '/generate-upload-link' || route == '/dropoff-details') {
       return _NavSection.requests;
     }
 
@@ -485,12 +482,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     });
   }
 
-  void _openCreateUploadLink() {
-    setState(() {
-      _currentRoute = '/create-upload-link';
-    });
-  }
-
   void _openAccountSettingsFlyout(BuildContext context) {
     // If already open or animating open, do nothing
     if (_isAccountSettingsOpen) return;
@@ -574,12 +565,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     await _accountSettingsAnim.reverse();
     _accountSettingsEntry?.remove();
     _accountSettingsEntry = null;
-  }
-
-  void _closeCreateUploadLink() {
-    setState(() {
-      _currentRoute = '/generate-upload-link';
-    });
   }
 
   void _closeDropoffDetails() {
@@ -1001,8 +986,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     switch (route) {
       case '/shared-files':
         return 'Firm Documents';
-      case '/create-upload-link':
-        return 'Create Client Upload Link';
       case '/resources':
         return 'Websites & Resources';
       case '/account-settings':
@@ -1128,6 +1111,8 @@ Please describe the issue below:
     });
   }
 
+  VoidCallback? _currentCreateHandler;
+
   void _onGlobalSearch(String query) {
     // Temporary stub – safe and intentional
     final q = query.trim();
@@ -1164,14 +1149,7 @@ Please describe the issue below:
       case '/file-box':
         return const FileBoxScreen();
       case '/generate-upload-link':
-        return GenerateUploadLinkScreen(
-          onOpenDetails: _openDropoffDetails,
-          onCreate: _openCreateUploadLink,
-        );
-      case '/create-upload-link':
-        return CreateUploadLinkScreen(
-          onCancel: () => _navigate('/generate-upload-link'),
-        );
+        return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
         return const AdminUsersScreen();
       case '/dashboard':
@@ -1350,9 +1328,7 @@ Please describe the issue below:
     // - On desktop: optional back if inner stack can pop
     Widget? leading;
 
-    final isBackRoute =
-        _currentRoute == '/dropoff-details' ||
-        _currentRoute == '/create-upload-link';
+    final isBackRoute = _currentRoute == '/dropoff-details';
 
     if (isMobileShell) {
       leading = IconButton(
@@ -1360,8 +1336,6 @@ Please describe the issue below:
         onPressed: () {
           if (_currentRoute == '/dropoff-details') {
             _closeDropoffDetails();
-          } else if (_currentRoute == '/create-upload-link') {
-            _closeCreateUploadLink();
           } else {
             _scaffoldKey.currentState?.openDrawer();
           }
@@ -1371,9 +1345,7 @@ Please describe the issue below:
       leading = isBackRoute
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: _currentRoute == '/dropoff-details'
-                  ? _closeDropoffDetails
-                  : _closeCreateUploadLink,
+              onPressed: _closeDropoffDetails,
             )
           : null;
     }
@@ -1508,7 +1480,8 @@ Please describe the issue below:
                                 return _ContentUtilityBar(
                                   leading: leading,
                                   onSearch: _onGlobalSearch,
-                                  onCreateNew: _openCreateUploadLink,
+                                  onCreateNew: () =>
+                                      _navigate('/generate-upload-link'),
                                   onOpenSettings: () =>
                                       _toggleAccountSettingsFlyout(context),
                                   onOpenSupport: _openSupportEmail,
@@ -1541,13 +1514,14 @@ Please describe the issue below:
                               return _ContentUtilityBar(
                                 leading: leading,
                                 onSearch: _onGlobalSearch,
-                                onCreateNew: _openCreateUploadLink,
+                                onCreateNew: () =>
+                                    _navigate('/generate-upload-link'),
                                 onOpenSettings: () =>
                                     _toggleAccountSettingsFlyout(context),
                                 onOpenSupport: _openSupportEmail,
                                 onOpenNotifications: () =>
                                     _toggleNotificationsMenu(context),
-                                notificationCount: newUploadCount,
+                                notificationCount: 0,
                                 avatar: _buildAvatarButton(isAdminConsole),
                               );
                             },
@@ -1964,6 +1938,7 @@ class _MiniRail extends StatelessWidget {
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
             ),
+
             const Spacer(),
 
             // ✅ Collapse / Expand the secondary pane
@@ -2098,14 +2073,9 @@ class _SecondaryPane extends StatelessWidget {
       case _NavSection.requests:
         items = const [
           _PaneItem(
-            'All requests',
-            Icons.request_page_outlined,
+            'Link requests',
+            Icons.link_outlined,
             '/generate-upload-link',
-          ),
-          _PaneItem(
-            'Create request',
-            Icons.add_circle_outline,
-            '/create-upload-link',
           ),
         ];
         break;

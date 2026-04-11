@@ -10,6 +10,7 @@ class PageScaffold extends StatelessWidget {
   final Widget? commandBar;
   final Color? backgroundColor;
   final Widget? preCommandBar;
+  final double? maxContentWidth;
 
   /// If true, PageScaffold uses a ListView for scrolling.
   /// If false, PageScaffold does NOT scroll (for pages that manage their own scrolling).
@@ -33,8 +34,9 @@ class PageScaffold extends StatelessWidget {
     this.hideHeader = false,
     this.wrapInCard = true,
     this.commandBar,
-    this.preCommandBar, // ✅ NEW
+    this.preCommandBar,
     this.backgroundColor,
+    this.maxContentWidth, // ✅ NEW
   });
 
   @override
@@ -90,30 +92,24 @@ class PageScaffold extends StatelessWidget {
           )
         : child;
 
-    Widget inner = Align(
-      alignment: Alignment.topLeft,
-      child: SizedBox(
-        width: isMobile ? double.infinity : _railWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!hideHeader) PageHeader(child: header),
+    Widget inner = SizedBox(
+      width: isMobile ? double.infinity : (maxContentWidth ?? _railWidth),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!hideHeader) PageHeader(child: header),
 
-            // ✅ Optional content ABOVE command bar (Dashboard welcome)
-            if (preCommandBar != null) ...[
-              PageHeader(child: preCommandBar!),
-              const SizedBox(height: 8),
-            ],
-
-            // ✅ Command bar under header
-            if (commandBar != null) ...[
-              commandBar!,
-              const SizedBox(height: 12),
-            ],
-
-            content,
+          // ✅ Optional content ABOVE command bar (Dashboard welcome)
+          if (preCommandBar != null) ...[
+            PageHeader(child: preCommandBar!),
+            const SizedBox(height: 8),
           ],
-        ),
+
+          // ✅ Command bar under header
+          if (commandBar != null) ...[commandBar!, const SizedBox(height: 12)],
+
+          content,
+        ],
       ),
     );
 
@@ -121,7 +117,10 @@ class PageScaffold extends StatelessWidget {
     if (scrollable) {
       return Container(
         color: backgroundColor ?? appTheme.contentBackground,
-        child: ListView(padding: pagePadding, children: [inner]),
+        child: ListView(
+          padding: pagePadding,
+          children: [_FluentContentFrame(child: inner)],
+        ),
       );
     }
 
@@ -129,7 +128,28 @@ class PageScaffold extends StatelessWidget {
     return Container(
       color: backgroundColor ?? appTheme.contentBackground,
       padding: pagePadding,
-      child: inner,
+      child: _FluentContentFrame(child: inner),
+    );
+  }
+}
+
+class _FluentContentFrame extends StatelessWidget {
+  final Widget child;
+
+  const _FluentContentFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SizedBox(
+          width: constraints.maxWidth, // ✅ lock right edge
+          child: Align(
+            alignment: Alignment.topLeft, // ✅ Fluent behavior
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
