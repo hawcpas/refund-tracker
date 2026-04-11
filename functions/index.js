@@ -7,7 +7,6 @@ const {
   defineBoolean,
 } = require("firebase-functions/params");
 const admin = require("firebase-admin");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const archiver = require("archiver");
 const functions = require("firebase-functions");
@@ -22,10 +21,12 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // ============================
-// Secrets
+// Graph (modern auth) secrets
 // ============================
-const SMTP_USER = defineSecret("SMTP_USER");
-const SMTP_PASS = defineSecret("SMTP_PASS");
+const GRAPH_TENANT_ID = defineSecret("GRAPH_TENANT_ID");
+const GRAPH_CLIENT_ID = defineSecret("GRAPH_CLIENT_ID");
+const GRAPH_CLIENT_SECRET = defineSecret("GRAPH_CLIENT_SECRET");
+
 
 // ============================
 // Params
@@ -514,17 +515,6 @@ function isValidHttpUrl(url) {
   );
 }
 
-function buildTransport() {
-  return nodemailer.createTransport({
-    host: SMTP_HOST.value(),
-    port: SMTP_PORT.value(),
-    secure: SMTP_SECURE.value(),
-    auth: { user: SMTP_USER.value(), pass: SMTP_PASS.value() },
-    requireTLS: !SMTP_SECURE.value(),
-    tls: { rejectUnauthorized: true },
-  });
-}
-
 exports.verifyLoginOtp = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -577,7 +567,7 @@ exports.verifyLoginOtp = onCall(
 
 
 exports.sendLoginOtp = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated");
@@ -667,38 +657,145 @@ exports.sendLoginOtp = onCall(
   }
 );
 
+const https = require("https"); // ✅ add near the top with other requires
 
+// ============================
+// Microsoft Graph helpers (Application permissions)
+// ============================
+let _graphTokenCache = { token: null, expMs: 0 };
 
-async function sendAccountEmail({ to, subject, html }) {
-  const transporter = buildTransport();
+function _httpsRequest({ method, url, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
 
-  // Expect SMTP_FROM to be an email address only (no display name)
-  const fromAddress = (SMTP_FROM.value() || SMTP_USER.value() || "")
-    .toString()
-    .trim();
+    const req = https.request(
+      {
+        method,
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () =>
+          resolve({ status: res.statusCode || 0, body: data })
+        );
+      }
+    );
 
-  if (!fromAddress || !fromAddress.includes("@")) {
-    console.error("SMTP_FROM (or SMTP_USER fallback) is invalid:", { fromAddress });
-    throw new Error("SMTP_FROM not configured or invalid");
+    req.on("error", reject);
+
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function _getGraphAccessToken() {
+  const now = Date.now();
+
+  // ✅ reuse token if it expires in > 60s
+  if (_graphTokenCache.token && _graphTokenCache.expMs - now > 60_000) {
+    return _graphTokenCache.token;
   }
 
-  console.log("Sending email:", { to, subject, fromAddress });
+  const tenantId = GRAPH_TENANT_ID.value();
+  const clientId = GRAPH_CLIENT_ID.value();
+  const clientSecret = GRAPH_CLIENT_SECRET.value();
 
-  const info = await transporter.sendMail({
-    // ✅ Use structured From to avoid formatting bugs
-    from: { name: "Axume & Associates CPAs", address: fromAddress },
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 
-    // ✅ Reply-To can stay as-is, or structure it too
-    replyTo: { name: "Axume & Associates IT Dept.", address: "guillermo@axumecpas.com" },
+  const body = new URLSearchParams();
+  body.set("client_id", clientId);
+  body.set("client_secret", clientSecret);
+  body.set("grant_type", "client_credentials");
+  body.set("scope", "https://graph.microsoft.com/.default");
 
-    to,
-    subject,
-    html,
+  const resp = await _httpsRequest({
+    method: "POST",
+    url: tokenUrl,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
   });
 
-  console.log("Email sent messageId:", info.messageId);
-  return info.messageId;
+  if (resp.status !== 200) {
+    console.error("❌ Graph token fetch failed", {
+      status: resp.status,
+      body: resp.body,
+    });
+    throw new Error(`Graph token fetch failed: ${resp.status}`);
+  }
+
+  const json = JSON.parse(resp.body);
+  const accessToken = json.access_token;
+  const expiresInSec = Number(json.expires_in || 3600);
+
+  _graphTokenCache = {
+    token: accessToken,
+    expMs: now + expiresInSec * 1000,
+  };
+
+  return accessToken;
 }
+
+// ✅ Drop-in replacement (same signature your code already calls)
+async function sendAccountEmail({ to, subject, html }) {
+  const fromAddress = (SMTP_FROM.value() || "").toString().trim();
+  if (!fromAddress || !fromAddress.includes("@")) {
+    console.error("SMTP_FROM is invalid:", { fromAddress });
+    throw new Error("SMTP_FROM is missing or invalid");
+  }
+
+  const token = await _getGraphAccessToken();
+
+  const payload = JSON.stringify({
+    message: {
+      subject,
+      toRecipients: [{ emailAddress: { address: to } }],
+      replyTo: [
+        {
+          emailAddress: {
+            name: "Axume & Associates IT Dept.",
+            address: "guillermo@axumecpas.com",
+          },
+        },
+      ],
+      body: { contentType: "HTML", content: html },
+    },
+    saveToSentItems: false,
+  });
+
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(
+    fromAddress
+  )}/sendMail`;
+
+  const resp = await _httpsRequest({
+    method: "POST",
+    url,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(payload),
+    },
+    body: payload,
+  });
+
+  // Graph returns 202 on success
+  if (resp.status !== 202) {
+    console.error("❌ Graph sendMail failed", {
+      status: resp.status,
+      fromAddress,
+      to,
+      subject,
+      body: resp.body,
+    });
+    throw new Error(`Graph sendMail failed: ${resp.status}`);
+  }
+
+  console.log("✅ Graph email accepted", { to, subject, fromAddress });
+  return true;
+}
+
 
 async function getUserDocByUid(uid) {
   const ref = admin.firestore().collection("users").doc(uid);
@@ -707,7 +804,7 @@ async function getUserDocByUid(uid) {
 }
 
 exports.notifyDropoffBatchUpload = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     console.log("✅ notifyDropoffBatchUpload CALLED", {
       data: request.data,
@@ -949,7 +1046,7 @@ exports.notifyDropoffBatchUpload = onCall(
 // inviteUser (admin-only) ✅ RESTORED + Option A capability default
 // ============================
 exports.inviteUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
@@ -1099,7 +1196,7 @@ exports.inviteUser = onCall(
 );
 
 exports.requestEmailChange = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign-in required.");
@@ -1455,7 +1552,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
   {
     region: "us-central1",
     document: "dropoff_requests/{requestId}/files/{fileId}",
-    secrets: [SMTP_USER, SMTP_PASS],
+    secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET],
   },
   async (event) => {
     try {
@@ -1636,7 +1733,7 @@ exports.notifyDropoffUpload = onDocumentCreated(
 // deleteUser (admin-only)
 // ============================
 exports.deleteUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
@@ -1688,7 +1785,7 @@ exports.deleteUser = onCall(
 // updateUser (admin-only)
 // ============================
 exports.updateUser = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
@@ -1818,7 +1915,7 @@ exports.updateUser = onCall(
 // setUserDisabled (admin-only)
 // ============================
 exports.setUserDisabled = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
@@ -1881,11 +1978,31 @@ exports.setUserDisabled = onCall(
   }
 );
 
+exports.testGraphEmail = onCall(
+  {
+    region: "us-central1",
+    secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET],
+  },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated");
+    const email = request.auth.token.email;
+    if (!email) throw new HttpsError("failed-precondition", "User has no email.");
+
+    await sendAccountEmail({
+      to: email,
+      subject: "Graph mail test – Axume Portal",
+      html: `<p>If you received this, Microsoft Graph SendMail is working.</p><p>Time: ${new Date().toISOString()}</p>`,
+    });
+
+    return { ok: true, sentTo: email };
+  }
+);
+
 // ============================
 // sendPasswordReset (admin-only)
 // ============================
 exports.sendPasswordReset = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
@@ -2055,7 +2172,7 @@ exports.sendPasswordReset = onCall(
 // resendInvite (admin-only)
 // ============================
 exports.resendInvite = onCall(
-  { region: "us-central1", secrets: [SMTP_USER, SMTP_PASS] },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     try {
       const { auth, data } = request;
