@@ -1318,6 +1318,197 @@ class _RequestsListState extends State<_RequestsList> {
     return null;
   }
 
+  Widget _searchField() {
+    return SizedBox(
+      width: 360,
+      height: 36,
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (v) => setState(() {
+          _q = v.trim().toLowerCase();
+          _selected.clear();
+        }),
+        decoration: InputDecoration(
+          hintText: 'Search requests',
+          prefixIcon: const Icon(Icons.search, size: 18),
+          suffixIcon: _q.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() {
+                      _q = '';
+                      _selected.clear();
+                    });
+                  },
+                ),
+          isDense: true,
+          filled: true,
+          fillColor: const Color(0xFFF9FAFB),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+      ),
+    );
+  }
+
+  Widget _bulkBar(ThemeData theme) {
+    final count = _selected.length;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min, // ✅ prevents taking the whole row
+      children: [
+        Text(
+          '$count selected',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          height: 36,
+          child: FilledButton.icon(
+            onPressed: widget.busy
+                ? null
+                : () async {
+                    final ids = _selected.toList(growable: false);
+                    if (ids.isEmpty) return;
+
+                    await widget.onBulkDelete(
+                      ids,
+                      isArchived: widget.view == _LinksView.archived,
+                    );
+
+                    if (!mounted) return;
+                    setState(() => _selected.clear());
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Delete requested for ${ids.length} link(s).',
+                        ),
+                      ),
+                    );
+                  },
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: Text(
+              widget.view == _LinksView.archived
+                  ? 'Delete permanently ($count)'
+                  : 'Delete ($count)',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sortBar(ThemeData theme) {
+    return Row(
+      children: [
+        Text(
+          'Sort:',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 8),
+        DropdownButton<_DropoffSortField>(
+          value: _sortField,
+          underline: const SizedBox.shrink(),
+          onChanged: (v) {
+            if (v == null) return;
+            _toggleSort(v);
+          },
+          items: const [
+            DropdownMenuItem(
+              value: _DropoffSortField.clientName,
+              child: Text('Client name'),
+            ),
+            DropdownMenuItem(
+              value: _DropoffSortField.createdAt,
+              child: Text('Date created'),
+            ),
+            DropdownMenuItem(
+              value: _DropoffSortField.lastUploadedAt,
+              child: Text('Latest upload'),
+            ),
+            DropdownMenuItem(
+              value: _DropoffSortField.fileCount,
+              child: Text('File count'),
+            ),
+            DropdownMenuItem(
+              value: _DropoffSortField.status,
+              child: Text('Status'),
+            ),
+          ],
+        ),
+        const SizedBox(width: 6),
+        IconButton(
+          tooltip: _sortAsc ? 'Ascending' : 'Descending',
+          onPressed: () => setState(() => _sortAsc = !_sortAsc),
+          icon: Icon(
+            _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+            size: 18,
+            color: const Color(0xFF475467),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _searchFieldFullWidth() {
+    return SizedBox(height: 36, width: double.infinity, child: _searchField());
+  }
+
+  Widget _buildToolbar(ThemeData theme, bool isMobile) {
+    final hasSelection = _selected.isNotEmpty;
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sortBar(theme),
+          const SizedBox(height: 10),
+          _searchFieldFullWidth(), // ✅ better on mobile
+          if (hasSelection) ...[const SizedBox(height: 10), _bulkBar(theme)],
+        ],
+      );
+    }
+
+    // Desktop layout: Sort + Search adjacent, bulk on far right
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _sortBar(theme),
+        const SizedBox(width: 12),
+
+        // ✅ Search directly next to Sort, but can shrink if needed
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: _searchField(),
+          ),
+        ),
+
+        const Spacer(),
+
+        // ✅ Bulk actions on the same row (right side)
+        if (hasSelection) _bulkBar(theme),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1351,207 +1542,79 @@ class _RequestsListState extends State<_RequestsList> {
         children: [
           const SizedBox(height: 4),
 
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: 10,
+              // ─────────────────────────────────────
+              // Row 1: Create + View toggles
+              // ─────────────────────────────────────
+              Row(
                 children: [
-                  ChoiceChip(
-                    label: const Text('Active'),
-                    selected: widget.view == _LinksView.active,
-                    onSelected: (v) {
-                      if (!v) return;
-                      widget.onViewChanged(_LinksView.active);
-                      setState(() {
-                        _selected.clear();
-                        _q = '';
-                        _searchCtrl.clear();
-                      });
-                    },
+                  SizedBox(
+                    height: 36,
+                    child: FilledButton.icon(
+                      onPressed: widget.busy ? null : widget.onCreate,
+                      icon: const Icon(Icons.add_link, size: 18),
+                      label: const Text(
+                        'Create link',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brandBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
                   ),
-                  ChoiceChip(
-                    label: const Text('Archived'),
-                    selected: widget.view == _LinksView.archived,
-                    onSelected: (v) {
-                      if (!v) return;
-                      widget.onViewChanged(_LinksView.archived);
-                      setState(() {
-                        _selected.clear();
-                        _q = '';
-                        _searchCtrl.clear();
-                      });
-                    },
+                  const Spacer(),
+
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Active'),
+                        selected: widget.view == _LinksView.active,
+                        onSelected: (v) {
+                          if (!v) return;
+                          widget.onViewChanged(_LinksView.active);
+                          setState(() {
+                            _selected.clear();
+                            _q = '';
+                            _searchCtrl.clear();
+                          });
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('Archived'),
+                        selected: widget.view == _LinksView.archived,
+                        onSelected: (v) {
+                          if (!v) return;
+                          widget.onViewChanged(_LinksView.archived);
+                          setState(() {
+                            _selected.clear();
+                            _q = '';
+                            _searchCtrl.clear();
+                          });
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
 
-              const SizedBox(width: 16),
+              const SizedBox(height: 12),
 
-              // ✅ FIXED, PROFESSIONAL SEARCH WIDTH
-              SizedBox(
-                width: 360, // ⬅️ enterprise‑standard (Office / Intuit range)
-                height: 36,
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => setState(() {
-                    _q = v.trim().toLowerCase();
-                    _selected.clear();
-                  }),
-                  decoration: InputDecoration(
-                    hintText: 'Search requests',
-                    prefixIcon: const Icon(Icons.search, size: 18),
-                    suffixIcon: _q.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear',
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() {
-                                _q = '';
-                                _selected.clear();
-                              });
-                            },
-                          ),
-                    isDense: true,
-                    filled: true,
-                    fillColor: const Color(0xFFF9FAFB),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                ),
-              ),
+              // ─────────────────────────────────────
+              // Row 2: Sort + Search
+              // ─────────────────────────────────────
+              // ─────────────────────────────────────
+              // Row 2: Unified toolbar (Sort + Search + Bulk)
+              // ─────────────────────────────────────
+              _buildToolbar(theme, isMobile),
 
-              const Spacer(),
-
-              SizedBox(
-                height: 36,
-                child: FilledButton.icon(
-                  onPressed: widget.busy ? null : widget.onCreate,
-                  icon: const Icon(Icons.add_link, size: 18),
-                  label: const Text(
-                    'Create link',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.brandBlue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Sort + bulk actions bar (enterprise)
-          Row(
-            children: [
-              Text(
-                'Sort:',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF667085),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 8),
-              DropdownButton<_DropoffSortField>(
-                value: _sortField,
-                underline: const SizedBox.shrink(),
-                onChanged: (v) {
-                  if (v == null) return;
-                  _toggleSort(v);
-                },
-                items: const [
-                  DropdownMenuItem(
-                    value: _DropoffSortField.clientName,
-                    child: Text('Client name'),
-                  ),
-                  DropdownMenuItem(
-                    value: _DropoffSortField.createdAt,
-                    child: Text('Date created'),
-                  ),
-                  DropdownMenuItem(
-                    value: _DropoffSortField.lastUploadedAt,
-                    child: Text('Latest upload'),
-                  ),
-                  DropdownMenuItem(
-                    value: _DropoffSortField.fileCount,
-                    child: Text('File count'),
-                  ),
-                  DropdownMenuItem(
-                    value: _DropoffSortField.status,
-                    child: Text('Status'),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: _sortAsc ? 'Ascending' : 'Descending',
-                onPressed: () => setState(() => _sortAsc = !_sortAsc),
-                icon: Icon(
-                  _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
-                  size: 18,
-                  color: const Color(0xFF475467),
-                ),
-              ),
-              const Spacer(),
-
-              if (_selected.isNotEmpty) ...[
-                Text(
-                  '${_selected.length} selected',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  height: 36,
-                  child: FilledButton.icon(
-                    onPressed: widget.busy
-                        ? null
-                        : () async {
-                            final ids = _selected.toList(growable: false);
-
-                            if (ids.isEmpty) return;
-
-                            // Run delete (shows confirm dialog in parent)
-                            await widget.onBulkDelete(
-                              ids,
-                              isArchived: widget.view == _LinksView.archived,
-                            );
-
-                            // Clear selection after delete (prevents “nothing happened” feeling)
-                            if (!mounted) return;
-                            setState(() => _selected.clear());
-
-                            // Optional: immediate feedback (enterprise feel)
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Delete requested for ${ids.length} link(s).',
-                                ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    label: Text(
-                      widget.view == _LinksView.archived
-                          ? 'Delete permanently (${_selected.length})'
-                          : 'Delete (${_selected.length})',
-                    ),
-                  ),
-                ),
-              ],
+              const SizedBox(height: 10),
             ],
           ),
 
