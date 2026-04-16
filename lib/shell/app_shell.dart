@@ -1521,7 +1521,7 @@ Please describe the issue below:
                                 onOpenSupport: _openSupportEmail,
                                 onOpenNotifications: () =>
                                     _toggleNotificationsMenu(context),
-                                notificationCount: 0,
+                                notificationCount: newUploadCount,
                                 avatar: _buildAvatarButton(isAdminConsole),
                               );
                             },
