@@ -1850,6 +1850,8 @@ class _QueuedFilesCard extends StatelessWidget {
             const double statusAreaHeight =
                 statusBarHeight + statusGap + statusTextHeight;
 
+            final isCompact = MediaQuery.of(context).size.width < 600;
+
             // Normalize progress (always defined)
             final double pv = (s == _UploadItemState.uploading)
                 ? (p ?? 0.0)
@@ -1869,11 +1871,12 @@ class _QueuedFilesCard extends StatelessWidget {
                 : (err ?? 'Upload failed');
 
             return Padding(
-              padding: const EdgeInsets.only(
-                bottom: 2,
-              ), // ✅ tighter vertical spacing
+              padding: EdgeInsets.only(
+                bottom: isCompact ? 10 : 2, // ✅ visual separation on mobile
+              ),
+              // ✅ tighter vertical spacing
               child: SizedBox(
-                height: 32, // ✅ slightly more compact
+                height: isCompact ? 46 : 32, // ✅ more breathing room on mobile
                 child: Row(
                   children: [
                     const Icon(
@@ -1886,7 +1889,7 @@ class _QueuedFilesCard extends StatelessWidget {
                     // ✅ Filename + inline queued label (same line)
                     Expanded(
                       child: RichText(
-                        maxLines: 1,
+                        maxLines: isCompact ? 2 : 1,
                         overflow: TextOverflow.ellipsis,
                         text: TextSpan(
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -1973,11 +1976,10 @@ class _QueuedFilesCard extends StatelessWidget {
 
                     // ✅ Inline status area (bar+% OR check OR spinner), no extra lines
                     SizedBox(
-                      width: 210, // ✅ longer bar area
-                      child: _buildInlineStatusRow(
-                        state: s,
-                        progress: p ?? 0.0,
-                      ),
+                      width: isCompact ? 72 : 210, // ✅ free space on mobile
+                      child: isCompact
+                          ? _buildCompactStatusRow(state: s, progress: p ?? 0.0)
+                          : _buildInlineStatusRow(state: s, progress: p ?? 0.0),
                     ),
 
                     // ✅ Optional remove button ONLY while queued (keeps list clean)
@@ -2010,6 +2012,59 @@ class _QueuedFilesCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildCompactStatusRow({
+    required _UploadItemState state,
+    required double progress,
+  }) {
+    // ✅ No bars on mobile — just status
+    if (state == _UploadItemState.uploading) {
+      final pct = (progress.clamp(0.0, 1.0) * 100).round();
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            '$pct%',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF667085),
+            ),
+          ),
+          const SizedBox(width: 6),
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ],
+      );
+    }
+
+    if (state == _UploadItemState.finalizing) {
+      return const Center(
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (state == _UploadItemState.success) {
+      return const Icon(Icons.check_circle, size: 18, color: Color(0xFF067647));
+    }
+
+    if (state == _UploadItemState.failed) {
+      return const Icon(
+        Icons.error_outline,
+        size: 18,
+        color: Color(0xFFB42318),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 
   Widget _buildInlineStatusRow({
