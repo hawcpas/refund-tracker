@@ -187,6 +187,15 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     });
   }
 
+  /// ✅ Public API: open a specific Upload Link / Dropoff detail screen
+void openDropoffDetails(String requestId) {
+  setState(() {
+    _dropoffDetailsId = requestId;
+    _currentRoute = '/dropoff-details';
+  });
+}
+
+
   /// ✅ Refresh profile-dependent UI (avatar, menus, etc.)
   /// ✅ Refresh profile-dependent UI (avatar, menus, flyouts)
   Future<void> refreshProfile() async {

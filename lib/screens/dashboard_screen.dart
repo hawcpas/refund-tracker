@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
 import '../shell/app_shell.dart';
 import '../theme/app_theme.dart';
+
+String? _extractIndexUrl(String message) {
+  final m = RegExp(r'https?://\S+').firstMatch(message);
+  if (m == null) return null;
+
+  // Firestore messages sometimes end URL with a trailing ')' or '.'
+  var url = m.group(0) ?? '';
+  url = url.replaceAll(RegExp(r'[)\],.]+$'), '');
+  return url;
+}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -146,6 +158,289 @@ class _StaticSurface extends StatelessWidget {
         ),
         child: Column(children: children),
       ),
+    );
+  }
+}
+
+/// ============================
+/// FILE TYPE META (MATCHES File Box)
+/// ============================
+class _FileTypeMeta {
+  final IconData icon;
+  final Color color;
+  final String badge;
+  final String tooltip;
+  final bool isImage;
+
+  const _FileTypeMeta({
+    required this.icon,
+    required this.color,
+    required this.badge,
+    required this.tooltip,
+    required this.isImage,
+  });
+}
+
+// Same mapping as FileBoxScreen (_fileMeta)
+_FileTypeMeta _fileMeta(String name, String type) {
+  final n = name.toLowerCase();
+  final t = type.toLowerCase();
+
+  if (n.endsWith('.pdf') || t.contains('pdf')) {
+    return const _FileTypeMeta(
+      icon: Icons.picture_as_pdf_outlined,
+      color: Color(0xFFD92D20),
+      badge: 'PDF',
+      tooltip: 'PDF document',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.doc') || n.endsWith('.docx') || t.contains('word')) {
+    return const _FileTypeMeta(
+      icon: Icons.description_outlined,
+      color: Color(0xFF1570EF),
+      badge: 'DOC',
+      tooltip: 'Word document',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.xls') ||
+      n.endsWith('.xlsx') ||
+      n.endsWith('.csv') ||
+      t.contains('excel')) {
+    return const _FileTypeMeta(
+      icon: Icons.table_chart_outlined,
+      color: Color(0xFF027A48),
+      badge: 'XLS',
+      tooltip: 'Spreadsheet',
+      isImage: false,
+    );
+  }
+  if (t.startsWith('image/')) {
+    return const _FileTypeMeta(
+      icon: Icons.image_outlined,
+      color: Color(0xFF2E90FA),
+      badge: 'IMG',
+      tooltip: 'Image file',
+      isImage: true,
+    );
+  }
+  if (n.endsWith('.txt') || n.endsWith('.log')) {
+    return const _FileTypeMeta(
+      icon: Icons.article_outlined,
+      color: Color(0xFF0E7090),
+      badge: 'TXT',
+      tooltip: 'Text file',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.ps1')) {
+    return const _FileTypeMeta(
+      icon: Icons.terminal_outlined,
+      color: Color(0xFF6941C6),
+      badge: 'PS',
+      tooltip: 'PowerShell script',
+      isImage: false,
+    );
+  }
+
+  return const _FileTypeMeta(
+    icon: Icons.insert_drive_file_outlined,
+    color: Color(0xFF667085),
+    badge: 'FILE',
+    tooltip: 'File',
+    isImage: false,
+  );
+}
+
+class _RecentUploadsFromActivity extends StatelessWidget {
+  const _RecentUploadsFromActivity({required this.isAdmin});
+
+  final bool isAdmin;
+
+  static const int _maxRecentRows = 6;
+  static const double _recentRowHeight = 56.0;
+  static const double _recentMaxHeight = _maxRecentRows * _recentRowHeight;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream(String uid) {
+    return FirebaseFirestore.instance
+        .collectionGroup('files')
+        .where('deleted', isEqualTo: false) // ✅ never show deleted
+        .where(
+          'requestCreatedByUid',
+          isEqualTo: uid,
+        ) // ✅ only files from MY requests
+        .orderBy('createdAt', descending: true)
+        .limit(30)
+        .snapshots();
+  }
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
+
+  DateTime? _asDate(dynamic ts) => ts is Timestamp ? ts.toDate() : null;
+
+  String _relativeTime(DateTime? dt) {
+    if (dt == null) return 'Just now';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hr ago';
+    return '${diff.inDays} d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _stream(uid),
+      builder: (context, snap) {
+        if (snap.hasError) {
+          final errText = snap.error.toString();
+          final url = _extractIndexUrl(errText);
+          final projectId = Firebase.app().options.projectId;
+
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.warning_amber_outlined,
+                title: 'Failed to load recent files',
+                subtitle: url != null
+                    ? 'Index required • project: $projectId (tap to copy)'
+                    : 'Unexpected error (tap to copy)',
+                onTap: () async {
+                  final toCopy = url ?? errText;
+                  await Clipboard.setData(ClipboardData(text: toCopy));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Error copied to clipboard'),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+          );
+        }
+
+        if (!snap.hasData) {
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: const [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Loading…',
+                      style: TextStyle(
+                        color: Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        final docs = snap.data!.docs;
+
+        if (docs.isEmpty) {
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.inbox_outlined,
+                title: 'No recent files',
+                subtitle: 'No active (non-deleted) files found.',
+                onTap: () {},
+                enabled: false,
+              ),
+            ],
+          );
+        }
+
+        // Build rows from live file docs (same source as File Box)
+        final rows = docs.map((d) {
+          final m = d.data();
+
+          final fileName = _s(m['originalName']).isEmpty
+              ? 'Untitled'
+              : _s(m['originalName']);
+          final contentType = _s(m['contentType']);
+          final meta = _fileMeta(fileName, contentType);
+
+          final requestId = _s(m['requestId']);
+          final business = _s(m['requestBusinessName']);
+
+          // uploadedBy: { type: "client", name: requestClientName }
+          // set in finalizeDropoffUpload [2](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Personal_Files/Other/Microsoft%20Related/Microsoft%20Copilot%20Chat%20Files/index.js)
+          final uploadedBy = m['uploadedBy'];
+          final clientName = (uploadedBy is Map) ? _s(uploadedBy['name']) : '';
+
+          final createdAt = _asDate(m['createdAt']);
+          final subtitleParts = <String>[
+            if (clientName.isNotEmpty) 'From $clientName' else 'From Client',
+            if (business.isNotEmpty) business,
+            _relativeTime(createdAt),
+          ];
+
+          return Tooltip(
+            message: meta.tooltip,
+            child: _DashboardListRow(
+              leadingIcon: meta.icon,
+              iconColor: meta.color,
+              leadingColor: meta.color.withOpacity(0.12),
+              title: fileName,
+              subtitle: subtitleParts.join(' • '),
+              onTap: () {
+                final shell = context.findAncestorStateOfType<AppShellState>();
+                if (shell != null && requestId.isNotEmpty) {
+                  shell.openDropoffDetails(requestId);
+                }
+              },
+            ),
+          );
+        }).toList();
+
+        // ✅ Hard cap visual height with internal scroll
+        return _DashboardListSection(
+          title: 'Recent files',
+          subtitle: 'Only files currently visible in File Box.',
+          children: [
+            SizedBox(
+              height: _recentMaxHeight,
+              child: Scrollbar(
+                thumbVisibility: rows.length > _maxRecentRows,
+                child: ListView.separated(
+                  padding: EdgeInsets.zero,
+                  itemCount: rows.length,
+                  physics: rows.length > _maxRecentRows
+                      ? const AlwaysScrollableScrollPhysics()
+                      : const NeverScrollableScrollPhysics(),
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+                  itemBuilder: (context, index) => rows[index],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -759,29 +1054,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DashboardListSection(
-            title: 'Recent files',
-            subtitle:
-                'These are the items you recently accessed. This private list is only visible to you.',
-            children: [
-              _DashboardListRow(
-                leadingIcon: Icons.description_outlined,
-                title: 'ezCheckPrintingSetup.msi',
-                subtitle:
-                    'Shared Folders > A&A Employee’s Folders > Guillermo’s ShareFile Folder',
-                onTap: () {},
-              ),
-              _DashboardListRow(
-                leadingIcon: Icons.description_outlined,
-                title: 'ezCheckPrinting QBD driver.exe',
-                subtitle:
-                    'Shared Folders > A&A Employee’s Folders > Guillermo’s ShareFile Folder',
-                onTap: () {},
-              ),
-            ],
-          ),
+          _RecentUploadsFromActivity(isAdmin: isAdmin),
 
-          // ✅ Access notice (unchanged)
           if (!_hasDropoffAccess)
             _SurfaceTable(
               children: const [
