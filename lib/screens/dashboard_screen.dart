@@ -1,11 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
 import '../shell/app_shell.dart';
 import '../theme/app_theme.dart';
+
+String? _extractIndexUrl(String message) {
+  final m = RegExp(r'https?://\S+').firstMatch(message);
+  if (m == null) return null;
+
+  // Firestore messages sometimes end URL with a trailing ')' or '.'
+  var url = m.group(0) ?? '';
+  url = url.replaceAll(RegExp(r'[)\],.]+$'), '');
+  return url;
+}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -116,6 +128,772 @@ class _DashboardActionCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _StaticSurface extends StatelessWidget {
+  const _StaticSurface({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
+
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: appTheme.contentBackground,
+          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: Colors.black.withOpacity(0.12), width: 1),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A000000),
+              blurRadius: 4,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Column(children: children),
+      ),
+    );
+  }
+}
+
+/// ============================
+/// FILE TYPE META (MATCHES File Box)
+/// ============================
+class _FileTypeMeta {
+  final IconData icon;
+  final Color color;
+  final String badge;
+  final String tooltip;
+  final bool isImage;
+
+  const _FileTypeMeta({
+    required this.icon,
+    required this.color,
+    required this.badge,
+    required this.tooltip,
+    required this.isImage,
+  });
+}
+
+// Same mapping as FileBoxScreen (_fileMeta)
+_FileTypeMeta _fileMeta(String name, String type) {
+  final n = name.toLowerCase();
+  final t = type.toLowerCase();
+
+  if (n.endsWith('.pdf') || t.contains('pdf')) {
+    return const _FileTypeMeta(
+      icon: Icons.picture_as_pdf_outlined,
+      color: Color(0xFFD92D20),
+      badge: 'PDF',
+      tooltip: 'PDF document',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.doc') || n.endsWith('.docx') || t.contains('word')) {
+    return const _FileTypeMeta(
+      icon: Icons.description_outlined,
+      color: Color(0xFF1570EF),
+      badge: 'DOC',
+      tooltip: 'Word document',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.xls') ||
+      n.endsWith('.xlsx') ||
+      n.endsWith('.csv') ||
+      t.contains('excel')) {
+    return const _FileTypeMeta(
+      icon: Icons.table_chart_outlined,
+      color: Color(0xFF027A48),
+      badge: 'XLS',
+      tooltip: 'Spreadsheet',
+      isImage: false,
+    );
+  }
+  if (t.startsWith('image/')) {
+    return const _FileTypeMeta(
+      icon: Icons.image_outlined,
+      color: Color(0xFF2E90FA),
+      badge: 'IMG',
+      tooltip: 'Image file',
+      isImage: true,
+    );
+  }
+  if (n.endsWith('.txt') || n.endsWith('.log')) {
+    return const _FileTypeMeta(
+      icon: Icons.article_outlined,
+      color: Color(0xFF0E7090),
+      badge: 'TXT',
+      tooltip: 'Text file',
+      isImage: false,
+    );
+  }
+  if (n.endsWith('.ps1')) {
+    return const _FileTypeMeta(
+      icon: Icons.terminal_outlined,
+      color: Color(0xFF6941C6),
+      badge: 'PS',
+      tooltip: 'PowerShell script',
+      isImage: false,
+    );
+  }
+
+  return const _FileTypeMeta(
+    icon: Icons.insert_drive_file_outlined,
+    color: Color(0xFF667085),
+    badge: 'FILE',
+    tooltip: 'File',
+    isImage: false,
+  );
+}
+
+class _RecentUploadsFromActivity extends StatelessWidget {
+  const _RecentUploadsFromActivity({required this.isAdmin});
+
+  final bool isAdmin;
+
+  static const int _maxRecentRows = 6;
+  static const double _recentRowHeight = 56.0;
+  static const double _recentMaxHeight = _maxRecentRows * _recentRowHeight;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stream(String uid) {
+    return FirebaseFirestore.instance
+        .collectionGroup('files')
+        .where('deleted', isEqualTo: false) // ✅ never show deleted
+        .where(
+          'requestCreatedByUid',
+          isEqualTo: uid,
+        ) // ✅ only files from MY requests
+        .orderBy('createdAt', descending: true)
+        .limit(30)
+        .snapshots();
+  }
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
+
+  DateTime? _asDate(dynamic ts) => ts is Timestamp ? ts.toDate() : null;
+
+  String _relativeTime(DateTime? dt) {
+    if (dt == null) return 'Just now';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hr ago';
+    return '${diff.inDays} d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _stream(uid),
+      builder: (context, snap) {
+        if (snap.hasError) {
+          final errText = snap.error.toString();
+          final url = _extractIndexUrl(errText);
+          final projectId = Firebase.app().options.projectId;
+
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.warning_amber_outlined,
+                title: 'Failed to load recent files',
+                subtitle: url != null
+                    ? 'Index required • project: $projectId (tap to copy)'
+                    : 'Unexpected error (tap to copy)',
+                onTap: () async {
+                  final toCopy = url ?? errText;
+                  await Clipboard.setData(ClipboardData(text: toCopy));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Error copied to clipboard'),
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+          );
+        }
+
+        if (!snap.hasData) {
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: const [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Loading…',
+                      style: TextStyle(
+                        color: Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        final docs = snap.data!.docs;
+
+        if (docs.isEmpty) {
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Only files currently visible in File Box.',
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.inbox_outlined,
+                title: 'No recent files',
+                subtitle: 'No active (non-deleted) files found.',
+                onTap: () {},
+                enabled: false,
+              ),
+            ],
+          );
+        }
+
+        // Build rows from live file docs (same source as File Box)
+        final rows = docs.map((d) {
+          final m = d.data();
+
+          final fileName = _s(m['originalName']).isEmpty
+              ? 'Untitled'
+              : _s(m['originalName']);
+          final contentType = _s(m['contentType']);
+          final meta = _fileMeta(fileName, contentType);
+
+          final requestId = _s(m['requestId']);
+          final business = _s(m['requestBusinessName']);
+
+          // uploadedBy: { type: "client", name: requestClientName }
+          // set in finalizeDropoffUpload [2](https://axumecpa-my.sharepoint.com/personal/guillermo_axumecpas_com/Documents/Personal_Files/Other/Microsoft%20Related/Microsoft%20Copilot%20Chat%20Files/index.js)
+          final uploadedBy = m['uploadedBy'];
+          final clientName = (uploadedBy is Map) ? _s(uploadedBy['name']) : '';
+
+          final createdAt = _asDate(m['createdAt']);
+          final subtitleParts = <String>[
+            if (clientName.isNotEmpty) 'From $clientName' else 'From Client',
+            if (business.isNotEmpty) business,
+            _relativeTime(createdAt),
+          ];
+
+          return Tooltip(
+            message: meta.tooltip,
+            child: _DashboardListRow(
+              leadingIcon: meta.icon,
+              iconColor: meta.color,
+              leadingColor: meta.color.withOpacity(0.12),
+              title: fileName,
+              subtitle: subtitleParts.join(' • '),
+              onTap: () {
+                final shell = context.findAncestorStateOfType<AppShellState>();
+                if (shell != null && requestId.isNotEmpty) {
+                  shell.openDropoffDetails(requestId);
+                }
+              },
+            ),
+          );
+        }).toList();
+
+        // ✅ Hard cap visual height with internal scroll
+        return _DashboardListSection(
+          title: 'Recent files',
+          subtitle: 'Only files currently visible in File Box.',
+          children: [
+            SizedBox(
+              height: _recentMaxHeight,
+              child: Scrollbar(
+                thumbVisibility: rows.length > _maxRecentRows,
+                child: ListView.separated(
+                  padding: EdgeInsets.zero,
+                  itemCount: rows.length,
+                  physics: rows.length > _maxRecentRows
+                      ? const AlwaysScrollableScrollPhysics()
+                      : const NeverScrollableScrollPhysics(),
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+                  itemBuilder: (context, index) => rows[index],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DashboardListSection extends StatelessWidget {
+  const _DashboardListSection({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _StaticSurface(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF111827),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF6B7280),
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+        ..._withDividers(children),
+      ],
+    );
+  }
+
+  List<Widget> _withDividers(List<Widget> kids) {
+    final out = <Widget>[];
+    for (int i = 0; i < kids.length; i++) {
+      out.add(kids[i]);
+      if (i != kids.length - 1) {
+        out.add(Divider(height: 1, color: Colors.black.withOpacity(0.08)));
+      }
+    }
+    return out;
+  }
+}
+
+class _DashboardListRow extends StatelessWidget {
+  const _DashboardListRow({
+    required this.leadingIcon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.leadingColor = const Color(0xFFF1F5F9),
+    this.iconColor = AppColors.brandBlue,
+    this.trailing,
+    this.enabled = true,
+  });
+
+  final IconData leadingIcon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  final Color leadingColor;
+  final Color iconColor;
+  final Widget? trailing;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(4),
+
+      // ✅ Match your chrome hover language (same as AppShell IconButtons)
+      overlayColor: MaterialStateProperty.resolveWith<Color?>((states) {
+        if (states.contains(MaterialState.pressed)) {
+          return const Color(0xFFE2E8F0); // slightly stronger pressed
+        }
+        if (states.contains(MaterialState.hovered)) {
+          return const Color(0xFFF1F5F9); // matches your command/icon hover
+        }
+        return null;
+      }),
+
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          children: [
+            _LeadingIconTile(
+              icon: leadingIcon,
+              color: leadingColor,
+              iconColor: enabled ? iconColor : const Color(0xFFB0B7C3),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: enabled
+                          ? const Color(0xFF111827)
+                          : const Color(0xFF98A2B3),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: enabled
+                          ? const Color(0xFF6B7280)
+                          : const Color(0xFFB0B7C3),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            trailing ??
+                Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: enabled
+                      ? const Color(0xFF9CA3AF)
+                      : const Color(0xFFD1D5DB),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LeadingIconTile extends StatelessWidget {
+  const _LeadingIconTile({
+    required this.icon,
+    required this.color,
+    required this.iconColor,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      width: 28,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black.withOpacity(0.06)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 16, color: iconColor),
+    );
+  }
+}
+
+class _PrimaryActionsPanel extends StatelessWidget {
+  const _PrimaryActionsPanel({required this.children, this.header});
+
+  final String? header;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SurfaceTable(
+      children: [
+        if (header != null && header!.trim().isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Text(
+              header!,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF374151),
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+        ],
+        ..._withDividers(children),
+      ],
+    );
+  }
+
+  List<Widget> _withDividers(List<Widget> kids) {
+    final out = <Widget>[];
+    for (int i = 0; i < kids.length; i++) {
+      out.add(kids[i]);
+      if (i != kids.length - 1) {
+        out.add(Divider(height: 1, color: Colors.black.withOpacity(0.08)));
+      }
+    }
+    return out;
+  }
+}
+
+class _PrimaryActionRow extends StatefulWidget {
+  const _PrimaryActionRow({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.meta,
+    required this.buttonLabel,
+    required this.onPressed,
+    this.enabled = true,
+    this.accentColor = AppColors.brandBlue,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final String meta;
+  final String buttonLabel;
+  final VoidCallback onPressed;
+  final bool enabled;
+  final Color accentColor;
+
+  @override
+  State<_PrimaryActionRow> createState() => _PrimaryActionRowState();
+}
+
+class _PrimaryActionRowState extends State<_PrimaryActionRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 620;
+
+    final bg = !widget.enabled
+        ? Colors.transparent
+        : _hover
+        ? const Color(0xFFF6F7F9)
+        : Colors.transparent;
+
+    final titleColor = widget.enabled
+        ? const Color(0xFF111827)
+        : const Color(0xFF98A2B3);
+    final descColor = widget.enabled
+        ? const Color(0xFF475467)
+        : const Color(0xFFB0B7C3);
+    final metaColor = widget.enabled
+        ? const Color(0xFF667085)
+        : const Color(0xFFB0B7C3);
+    final iconColor = widget.enabled
+        ? widget.accentColor
+        : const Color(0xFFB0B7C3);
+
+    final row = InkWell(
+      onTap: widget.enabled
+          ? widget.onPressed
+          : null, // ✅ entire row acts like entry point
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        color: bg,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: isNarrow
+            ? _buildNarrow(context, iconColor, titleColor, descColor, metaColor)
+            : _buildWide(context, iconColor, titleColor, descColor, metaColor),
+      ),
+    );
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: widget.enabled ? (_) => setState(() => _hover = true) : null,
+      onExit: widget.enabled ? (_) => setState(() => _hover = false) : null,
+      child: row,
+    );
+  }
+
+  Widget _buildWide(
+    BuildContext context,
+    Color iconColor,
+    Color titleColor,
+    Color descColor,
+    Color metaColor,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(widget.icon, size: 22, color: iconColor),
+        const SizedBox(width: 14),
+
+        // Left: title + description
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: titleColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.description,
+                style: TextStyle(
+                  fontSize: 12.8,
+                  height: 1.35,
+                  color: descColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 16),
+
+        // Right: meta + CTA
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Text(
+                  widget.meta,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.25,
+                    color: metaColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 34,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: widget.enabled
+                        ? widget.accentColor
+                        : const Color(0xFFE5E7EB),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: widget.enabled ? widget.onPressed : null,
+                  child: Text(widget.buttonLabel),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNarrow(
+    BuildContext context,
+    Color iconColor,
+    Color titleColor,
+    Color descColor,
+    Color metaColor,
+  ) {
+    // Mobile / narrow: stack meta + full-width button
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(widget.icon, size: 22, color: iconColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: titleColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          widget.description,
+          style: TextStyle(
+            fontSize: 12.8,
+            height: 1.35,
+            color: descColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          widget.meta,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: metaColor,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 40,
+          width: double.infinity,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: widget.enabled
+                  ? widget.accentColor
+                  : const Color(0xFFE5E7EB),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            onPressed: widget.enabled ? widget.onPressed : null,
+            child: Text(widget.buttonLabel),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -276,51 +1054,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ✅ Dashboard recommendation cards (Microsoft-style)
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 900;
+          _RecentUploadsFromActivity(isAdmin: isAdmin),
 
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 420,
-                    child: _DashboardActionCard(
-                      title: 'File Box',
-                      description:
-                          'Review and manage documents uploaded by clients.',
-                      buttonLabel: 'Open files',
-                      onPressed: _hasDropoffAccess
-                          ? () => Navigator.pushNamed(context, '/file-box')
-                          : () {},
-                    ),
-                  ),
-
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 420,
-                    child: _DashboardActionCard(
-                      title: 'Requests',
-                      description:
-                          'Generate a secure upload link for clients to submit documents.',
-                      buttonLabel: 'Request files',
-                      onPressed: _hasDropoffAccess
-                          ? () => Navigator.pushNamed(
-                              context,
-                              '/generate-upload-link',
-                            )
-                          : () {},
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 20),
-
-          // ✅ Access notice (unchanged)
           if (!_hasDropoffAccess)
             _SurfaceTable(
               children: const [
@@ -360,8 +1095,10 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SurfaceTable extends StatefulWidget {
-  const _SurfaceTable({required this.children});
+  const _SurfaceTable({required this.children, this.enableHover = true});
+
   final List<Widget> children;
+  final bool enableHover;
 
   @override
   State<_SurfaceTable> createState() => _SurfaceTableState();
@@ -373,40 +1110,42 @@ class _SurfaceTableState extends State<_SurfaceTable> {
   @override
   Widget build(BuildContext context) {
     final appTheme = Theme.of(context).extension<AppTheme>()!;
+
+    final child = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: widget.enableHover && _hover
+            ? const Color(0xFFF0F0F0)
+            : appTheme.contentBackground,
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(
+          color: widget.enableHover && _hover
+              ? Colors.black.withOpacity(0.28)
+              : Colors.black.withOpacity(0.12),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: widget.enableHover && _hover
+                ? const Color(0x33000000)
+                : const Color(0x1A000000),
+            blurRadius: widget.enableHover && _hover ? 8 : 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(children: widget.children),
+    );
+
+    if (!widget.enableHover) {
+      return child; // ✅ no MouseRegion at all
+    }
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          // ✅ Noticeable hover background (same language as command bar)
-          color: _hover ? const Color(0xFFF0F0F0) : appTheme.contentBackground,
-
-          // ✅ Sharper, enterprise-style corners
-          borderRadius: BorderRadius.circular(3),
-
-          // ✅ Stronger border on hover
-          border: Border.all(
-            color: _hover
-                ? Colors.black.withOpacity(0.28)
-                : Colors.black.withOpacity(0.12),
-            width: 1,
-          ),
-
-          // ✅ Deeper, clearer elevation on hover
-          boxShadow: [
-            BoxShadow(
-              color: _hover
-                  ? const Color(0x33000000) // ~20% black
-                  : const Color(0x1A000000), // ~10% black
-              blurRadius: _hover ? 8 : 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Column(children: widget.children),
-      ),
+      child: child,
     );
   }
 }
