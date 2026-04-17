@@ -120,6 +120,489 @@ class _DashboardActionCard extends StatelessWidget {
   }
 }
 
+class _StaticSurface extends StatelessWidget {
+  const _StaticSurface({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final appTheme = Theme.of(context).extension<AppTheme>()!;
+
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: appTheme.contentBackground,
+          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: Colors.black.withOpacity(0.12), width: 1),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A000000),
+              blurRadius: 4,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Column(children: children),
+      ),
+    );
+  }
+}
+
+class _DashboardListSection extends StatelessWidget {
+  const _DashboardListSection({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _StaticSurface(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF111827),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF6B7280),
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+        ..._withDividers(children),
+      ],
+    );
+  }
+
+  List<Widget> _withDividers(List<Widget> kids) {
+    final out = <Widget>[];
+    for (int i = 0; i < kids.length; i++) {
+      out.add(kids[i]);
+      if (i != kids.length - 1) {
+        out.add(Divider(height: 1, color: Colors.black.withOpacity(0.08)));
+      }
+    }
+    return out;
+  }
+}
+
+class _DashboardListRow extends StatelessWidget {
+  const _DashboardListRow({
+    required this.leadingIcon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.leadingColor = const Color(0xFFF1F5F9),
+    this.iconColor = AppColors.brandBlue,
+    this.trailing,
+    this.enabled = true,
+  });
+
+  final IconData leadingIcon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  final Color leadingColor;
+  final Color iconColor;
+  final Widget? trailing;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(4),
+
+      // ✅ Match your chrome hover language (same as AppShell IconButtons)
+      overlayColor: MaterialStateProperty.resolveWith<Color?>((states) {
+        if (states.contains(MaterialState.pressed)) {
+          return const Color(0xFFE2E8F0); // slightly stronger pressed
+        }
+        if (states.contains(MaterialState.hovered)) {
+          return const Color(0xFFF1F5F9); // matches your command/icon hover
+        }
+        return null;
+      }),
+
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          children: [
+            _LeadingIconTile(
+              icon: leadingIcon,
+              color: leadingColor,
+              iconColor: enabled ? iconColor : const Color(0xFFB0B7C3),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: enabled
+                          ? const Color(0xFF111827)
+                          : const Color(0xFF98A2B3),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: enabled
+                          ? const Color(0xFF6B7280)
+                          : const Color(0xFFB0B7C3),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            trailing ??
+                Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: enabled
+                      ? const Color(0xFF9CA3AF)
+                      : const Color(0xFFD1D5DB),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LeadingIconTile extends StatelessWidget {
+  const _LeadingIconTile({
+    required this.icon,
+    required this.color,
+    required this.iconColor,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      width: 28,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black.withOpacity(0.06)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 16, color: iconColor),
+    );
+  }
+}
+
+class _PrimaryActionsPanel extends StatelessWidget {
+  const _PrimaryActionsPanel({required this.children, this.header});
+
+  final String? header;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SurfaceTable(
+      children: [
+        if (header != null && header!.trim().isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Text(
+              header!,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF374151),
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          Divider(height: 1, color: Colors.black.withOpacity(0.08)),
+        ],
+        ..._withDividers(children),
+      ],
+    );
+  }
+
+  List<Widget> _withDividers(List<Widget> kids) {
+    final out = <Widget>[];
+    for (int i = 0; i < kids.length; i++) {
+      out.add(kids[i]);
+      if (i != kids.length - 1) {
+        out.add(Divider(height: 1, color: Colors.black.withOpacity(0.08)));
+      }
+    }
+    return out;
+  }
+}
+
+class _PrimaryActionRow extends StatefulWidget {
+  const _PrimaryActionRow({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.meta,
+    required this.buttonLabel,
+    required this.onPressed,
+    this.enabled = true,
+    this.accentColor = AppColors.brandBlue,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final String meta;
+  final String buttonLabel;
+  final VoidCallback onPressed;
+  final bool enabled;
+  final Color accentColor;
+
+  @override
+  State<_PrimaryActionRow> createState() => _PrimaryActionRowState();
+}
+
+class _PrimaryActionRowState extends State<_PrimaryActionRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 620;
+
+    final bg = !widget.enabled
+        ? Colors.transparent
+        : _hover
+        ? const Color(0xFFF6F7F9)
+        : Colors.transparent;
+
+    final titleColor = widget.enabled
+        ? const Color(0xFF111827)
+        : const Color(0xFF98A2B3);
+    final descColor = widget.enabled
+        ? const Color(0xFF475467)
+        : const Color(0xFFB0B7C3);
+    final metaColor = widget.enabled
+        ? const Color(0xFF667085)
+        : const Color(0xFFB0B7C3);
+    final iconColor = widget.enabled
+        ? widget.accentColor
+        : const Color(0xFFB0B7C3);
+
+    final row = InkWell(
+      onTap: widget.enabled
+          ? widget.onPressed
+          : null, // ✅ entire row acts like entry point
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        color: bg,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: isNarrow
+            ? _buildNarrow(context, iconColor, titleColor, descColor, metaColor)
+            : _buildWide(context, iconColor, titleColor, descColor, metaColor),
+      ),
+    );
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: widget.enabled ? (_) => setState(() => _hover = true) : null,
+      onExit: widget.enabled ? (_) => setState(() => _hover = false) : null,
+      child: row,
+    );
+  }
+
+  Widget _buildWide(
+    BuildContext context,
+    Color iconColor,
+    Color titleColor,
+    Color descColor,
+    Color metaColor,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(widget.icon, size: 22, color: iconColor),
+        const SizedBox(width: 14),
+
+        // Left: title + description
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: titleColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.description,
+                style: TextStyle(
+                  fontSize: 12.8,
+                  height: 1.35,
+                  color: descColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(width: 16),
+
+        // Right: meta + CTA
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 240, maxWidth: 320),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Text(
+                  widget.meta,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.25,
+                    color: metaColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 34,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: widget.enabled
+                        ? widget.accentColor
+                        : const Color(0xFFE5E7EB),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: widget.enabled ? widget.onPressed : null,
+                  child: Text(widget.buttonLabel),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNarrow(
+    BuildContext context,
+    Color iconColor,
+    Color titleColor,
+    Color descColor,
+    Color metaColor,
+  ) {
+    // Mobile / narrow: stack meta + full-width button
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(widget.icon, size: 22, color: iconColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: titleColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          widget.description,
+          style: TextStyle(
+            fontSize: 12.8,
+            height: 1.35,
+            color: descColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          widget.meta,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: metaColor,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 40,
+          width: double.infinity,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: widget.enabled
+                  ? widget.accentColor
+                  : const Color(0xFFE5E7EB),
+              textStyle: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            onPressed: widget.enabled ? widget.onPressed : null,
+            child: Text(widget.buttonLabel),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _DashboardIntroHeader extends StatelessWidget {
   const _DashboardIntroHeader({required this.title, this.subtitle});
 
@@ -276,49 +759,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ✅ Dashboard recommendation cards (Microsoft-style)
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 900;
-
-              return Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 420,
-                    child: _DashboardActionCard(
-                      title: 'File Box',
-                      description:
-                          'Review and manage documents uploaded by clients.',
-                      buttonLabel: 'Open files',
-                      onPressed: _hasDropoffAccess
-                          ? () => Navigator.pushNamed(context, '/file-box')
-                          : () {},
-                    ),
-                  ),
-
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 420,
-                    child: _DashboardActionCard(
-                      title: 'Requests',
-                      description:
-                          'Generate a secure upload link for clients to submit documents.',
-                      buttonLabel: 'Request files',
-                      onPressed: _hasDropoffAccess
-                          ? () => Navigator.pushNamed(
-                              context,
-                              '/generate-upload-link',
-                            )
-                          : () {},
-                    ),
-                  ),
-                ],
-              );
-            },
+          _DashboardListSection(
+            title: 'Recent files',
+            subtitle:
+                'These are the items you recently accessed. This private list is only visible to you.',
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.description_outlined,
+                title: 'ezCheckPrintingSetup.msi',
+                subtitle:
+                    'Shared Folders > A&A Employee’s Folders > Guillermo’s ShareFile Folder',
+                onTap: () {},
+              ),
+              _DashboardListRow(
+                leadingIcon: Icons.description_outlined,
+                title: 'ezCheckPrinting QBD driver.exe',
+                subtitle:
+                    'Shared Folders > A&A Employee’s Folders > Guillermo’s ShareFile Folder',
+                onTap: () {},
+              ),
+            ],
           ),
-
-          const SizedBox(height: 20),
 
           // ✅ Access notice (unchanged)
           if (!_hasDropoffAccess)
@@ -360,8 +821,10 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SurfaceTable extends StatefulWidget {
-  const _SurfaceTable({required this.children});
+  const _SurfaceTable({required this.children, this.enableHover = true});
+
   final List<Widget> children;
+  final bool enableHover;
 
   @override
   State<_SurfaceTable> createState() => _SurfaceTableState();
@@ -373,40 +836,42 @@ class _SurfaceTableState extends State<_SurfaceTable> {
   @override
   Widget build(BuildContext context) {
     final appTheme = Theme.of(context).extension<AppTheme>()!;
+
+    final child = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: widget.enableHover && _hover
+            ? const Color(0xFFF0F0F0)
+            : appTheme.contentBackground,
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(
+          color: widget.enableHover && _hover
+              ? Colors.black.withOpacity(0.28)
+              : Colors.black.withOpacity(0.12),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: widget.enableHover && _hover
+                ? const Color(0x33000000)
+                : const Color(0x1A000000),
+            blurRadius: widget.enableHover && _hover ? 8 : 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(children: widget.children),
+    );
+
+    if (!widget.enableHover) {
+      return child; // ✅ no MouseRegion at all
+    }
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          // ✅ Noticeable hover background (same language as command bar)
-          color: _hover ? const Color(0xFFF0F0F0) : appTheme.contentBackground,
-
-          // ✅ Sharper, enterprise-style corners
-          borderRadius: BorderRadius.circular(3),
-
-          // ✅ Stronger border on hover
-          border: Border.all(
-            color: _hover
-                ? Colors.black.withOpacity(0.28)
-                : Colors.black.withOpacity(0.12),
-            width: 1,
-          ),
-
-          // ✅ Deeper, clearer elevation on hover
-          boxShadow: [
-            BoxShadow(
-              color: _hover
-                  ? const Color(0x33000000) // ~20% black
-                  : const Color(0x1A000000), // ~10% black
-              blurRadius: _hover ? 8 : 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Column(children: widget.children),
-      ),
+      child: child,
     );
   }
 }
