@@ -1808,6 +1808,53 @@ class _QueuedFilesCard extends StatelessWidget {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
+  Widget _buildMetaRow(ThemeData theme, PlatformFile f, _UploadItemState s) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _formatFileSize(f.size),
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: const Color(0xFF98A2B3),
+            fontWeight: FontWeight.w600,
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(width: 6),
+
+        if (s != _UploadItemState.queued) ...[
+          const Text('•', style: TextStyle(color: Color(0xFF98A2B3))),
+          const SizedBox(width: 6),
+        ],
+
+        Text(
+          s == _UploadItemState.queued
+              ? 'Queued'
+              : s == _UploadItemState.finalizing
+              ? 'Finalizing…'
+              : s == _UploadItemState.success
+              ? 'Uploaded'
+              : s == _UploadItemState.failed
+              ? 'Failed'
+              : '',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            fontWeight: s == _UploadItemState.success
+                ? FontWeight.w700
+                : FontWeight.w600,
+            color: s == _UploadItemState.success
+                ? const Color(0xFF067647)
+                : s == _UploadItemState.failed
+                ? const Color(0xFFB42318)
+                : const Color(0xFF667085),
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1849,6 +1896,12 @@ class _QueuedFilesCard extends StatelessWidget {
             const double statusTextHeight = 16;
             const double statusAreaHeight =
                 statusBarHeight + statusGap + statusTextHeight;
+            const double _fileNameLineHeight = 18;
+            const double _metaLineHeight = 16;
+            const double _textBlockHeight =
+                _fileNameLineHeight + 4 + _metaLineHeight; // 4 = spacing
+
+            final isCompact = MediaQuery.of(context).size.width < 600;
 
             // Normalize progress (always defined)
             final double pv = (s == _UploadItemState.uploading)
@@ -1868,148 +1921,172 @@ class _QueuedFilesCard extends StatelessWidget {
                 ? 'Uploaded'
                 : (err ?? 'Upload failed');
 
-            return Padding(
-              padding: const EdgeInsets.only(
-                bottom: 2,
-              ), // ✅ tighter vertical spacing
-              child: SizedBox(
-                height: 32, // ✅ slightly more compact
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.insert_drive_file_outlined,
-                      size: 16,
-                      color: _kGray,
-                    ),
-                    const SizedBox(width: 8),
+            return Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: isCompact ? 10 : 6),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.insert_drive_file_outlined,
+                        size: 16,
+                        color: _kGray,
+                      ),
+                      const SizedBox(width: 8),
 
-                    // ✅ Filename + inline queued label (same line)
-                    Expanded(
-                      child: RichText(
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        text: TextSpan(
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: _kGray,
-                            fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: SizedBox(
+                          height: _textBlockHeight,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: _fileNameLineHeight,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    f.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: _kGray,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: _metaLineHeight,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: _buildMetaRow(theme, f, s),
+                                ),
+                              ),
+                            ],
                           ),
-                          children: [
-                            TextSpan(text: f.name),
-                            TextSpan(
-                              text: ' (${_formatFileSize(f.size)})',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(
-                                  0xFF98A2B3,
-                                ), // subtle, enterprise gray
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-
-                            // Queued (gray)
-                            if (s == _UploadItemState.queued) ...[
-                              const TextSpan(text: ' — '),
-                              TextSpan(
-                                text: 'Queued',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF667085),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-
-                            // Uploading (optional label; you can remove if you prefer clean name)
-                            // if (s == _UploadItemState.uploading) ...[
-                            //   const TextSpan(text: ' — '),
-                            //   TextSpan(
-                            //     text: 'Uploading',
-                            //     style: theme.textTheme.bodySmall?.copyWith(
-                            //       color: const Color(0xFF667085),
-                            //       fontWeight: FontWeight.w600,
-                            //     ),
-                            //   ),
-                            // ],
-
-                            // Finalizing (optional label)
-                            if (s == _UploadItemState.finalizing) ...[
-                              const TextSpan(text: ' — '),
-                              TextSpan(
-                                text: 'Finalizing…',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF667085),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-
-                            // ✅ Uploaded (GREEN) — this is what you asked for
-                            if (s == _UploadItemState.success) ...[
-                              const TextSpan(text: ' — '),
-                              TextSpan(
-                                text: 'Uploaded',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF067647),
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-
-                            // Failed (red)
-                            if (s == _UploadItemState.failed) ...[
-                              const TextSpan(text: ' — '),
-                              TextSpan(
-                                text: 'Failed',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFFB42318),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ],
                         ),
                       ),
-                    ),
 
-                    const SizedBox(width: 12),
+                      const SizedBox(width: 12),
 
-                    // ✅ Inline status area (bar+% OR check OR spinner), no extra lines
-                    SizedBox(
-                      width: 210, // ✅ longer bar area
-                      child: _buildInlineStatusRow(
-                        state: s,
-                        progress: p ?? 0.0,
+                      SizedBox(
+                        width: isCompact ? 72 : 210,
+                        child: isCompact
+                            ? _buildCompactStatusRow(
+                                state: s,
+                                progress: p ?? 0.0,
+                              )
+                            : _buildInlineStatusRow(
+                                state: s,
+                                progress: p ?? 0.0,
+                              ),
                       ),
-                    ),
 
-                    // ✅ Optional remove button ONLY while queued (keeps list clean)
-                    const SizedBox(width: 6),
-                    SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: (s == _UploadItemState.queued && !disabled)
-                          ? IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 34,
-                                minHeight: 34,
-                              ),
-                              icon: Icon(
-                                Icons.close,
-                                color: Colors.red.shade700,
-                                size: 18,
-                              ),
-                              tooltip: 'Remove',
-                              onPressed: () => onRemove(i),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 34,
+                        height: 34,
+                        child: (s == _UploadItemState.queued && !disabled)
+                            ? IconButton(
+                                padding: EdgeInsets.zero,
+                                icon: Icon(
+                                  Icons.close,
+                                  color: Colors.red.shade700,
+                                  size: 18,
+                                ),
+                                onPressed: () => onRemove(i),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+
+                // ✅ divider OUTSIDE the row
+                if (i != files.length - 1)
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Color(0xFFE4E7EC),
+                  ),
+              ],
             );
           }),
         ],
       ),
     );
+  }
+
+  Widget _buildCompactStatusRow({
+    required _UploadItemState state,
+    required double progress,
+  }) {
+    const double iconSize = 16;
+    const double percentWidth = 34; // reserve space even when hidden
+
+    Widget spinner() => const SizedBox(
+      width: iconSize,
+      height: iconSize,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    );
+
+    Widget percentText(String text, {bool visible = true}) => SizedBox(
+      width: percentWidth,
+      child: Opacity(
+        opacity: visible ? 1 : 0, // ✅ keeps width without showing
+        child: Text(
+          text,
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF667085),
+          ),
+        ),
+      ),
+    );
+
+    // ✅ Uploading
+    if (state == _UploadItemState.uploading) {
+      final pct = (progress.clamp(0.0, 1.0) * 100).round();
+
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [percentText('$pct%'), const SizedBox(width: 6), spinner()],
+      );
+    }
+
+    // ✅ Finalizing — SAME LAYOUT, percent hidden
+    if (state == _UploadItemState.finalizing) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          percentText('100%', visible: false), // ✅ holds space
+          const SizedBox(width: 6),
+          spinner(),
+        ],
+      );
+    }
+
+    // ✅ Success
+    if (state == _UploadItemState.success) {
+      return const Align(
+        alignment: Alignment.centerRight,
+        child: Icon(Icons.check_circle, size: 18, color: Color(0xFF067647)),
+      );
+    }
+
+    // ✅ Failed
+    if (state == _UploadItemState.failed) {
+      return const Align(
+        alignment: Alignment.centerRight,
+        child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 
   Widget _buildInlineStatusRow({
