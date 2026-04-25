@@ -11,79 +11,7 @@ import '../widgets/centered_section.dart';
 
 import '../widgets/page_scaffold.dart';
 import '../theme/app_theme.dart';
-
-/// ============================
-/// FILE TYPE ICON HELPER
-/// ============================
-Icon _fileTypeIcon({required String fileName, required String contentType}) {
-  final name = fileName.toLowerCase();
-  final type = contentType.toLowerCase();
-
-  if (name.endsWith('.pdf') || type.contains('pdf')) {
-    return const Icon(
-      Icons.picture_as_pdf_outlined,
-      color: Color(0xFFD92D20),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.doc') ||
-      name.endsWith('.docx') ||
-      type.contains('word')) {
-    return const Icon(
-      Icons.description_outlined,
-      color: Color(0xFF1570EF),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.xls') ||
-      name.endsWith('.xlsx') ||
-      name.endsWith('.csv') ||
-      type.contains('excel') ||
-      type.contains('spreadsheet')) {
-    return const Icon(
-      Icons.table_chart_outlined,
-      color: Color(0xFF027A48),
-      size: 20,
-    );
-  }
-
-  if (type.startsWith('image/') ||
-      name.endsWith('.png') ||
-      name.endsWith('.jpg') ||
-      name.endsWith('.jpeg') ||
-      name.endsWith('.gif') ||
-      name.endsWith('.webp')) {
-    return const Icon(Icons.image_outlined, color: Color(0xFF2E90FA), size: 20);
-  }
-
-  if (name.endsWith('.txt') || name.endsWith('.log')) {
-    return const Icon(
-      Icons.article_outlined,
-      color: Color(0xFF0E7090),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.ps1')) {
-    return const Icon(
-      Icons.terminal_outlined,
-      color: Color(0xFF6941C6),
-      size: 20,
-    );
-  }
-
-  if (name.endsWith('.cmd') || name.endsWith('.bat')) {
-    return const Icon(Icons.code_outlined, color: Color(0xFF475467), size: 20);
-  }
-
-  return const Icon(
-    Icons.insert_drive_file_outlined,
-    color: Color(0xFF667085),
-    size: 20,
-  );
-}
+import '../utils/file_kind.dart';
 
 class DropoffDetailScreen extends StatefulWidget {
   final String requestId;
@@ -107,6 +35,33 @@ class _BulkFile {
     required this.filename,
     required this.contentType,
   });
+}
+
+class _FileIconTile extends StatelessWidget {
+  const _FileIconTile({required this.fileName, required this.contentType});
+
+  final String fileName;
+  final String contentType;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = resolveFileMeta(fileName: fileName, contentType: contentType);
+
+    return Tooltip(
+      message: meta.tooltip,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: meta.color.withOpacity(0.12), // ✅ tinted background
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.black.withOpacity(0.06)),
+        ),
+        alignment: Alignment.center,
+        child: Icon(meta.icon, color: meta.color, size: 16),
+      ),
+    );
+  }
 }
 
 class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
@@ -907,7 +862,7 @@ class _FileRowState extends State<_FileRow> {
               else
                 const SizedBox(width: 40), // keeps column alignment clean
 
-              _fileTypeIcon(fileName: name, contentType: contentType),
+              _FileIconTile(fileName: name, contentType: contentType),
               const SizedBox(width: 12),
 
               // File name + uploaded timestamp (stacked, compact)

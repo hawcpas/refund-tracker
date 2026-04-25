@@ -8,6 +8,7 @@ import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
 import '../shell/app_shell.dart';
 import '../theme/app_theme.dart';
+import '../utils/file_kind.dart';
 
 String? _extractIndexUrl(String message) {
   final m = RegExp(r'https?://\S+').firstMatch(message);
@@ -165,93 +166,6 @@ class _StaticSurface extends StatelessWidget {
 /// ============================
 /// FILE TYPE META (MATCHES File Box)
 /// ============================
-class _FileTypeMeta {
-  final IconData icon;
-  final Color color;
-  final String badge;
-  final String tooltip;
-  final bool isImage;
-
-  const _FileTypeMeta({
-    required this.icon,
-    required this.color,
-    required this.badge,
-    required this.tooltip,
-    required this.isImage,
-  });
-}
-
-// Same mapping as FileBoxScreen (_fileMeta)
-_FileTypeMeta _fileMeta(String name, String type) {
-  final n = name.toLowerCase();
-  final t = type.toLowerCase();
-
-  if (n.endsWith('.pdf') || t.contains('pdf')) {
-    return const _FileTypeMeta(
-      icon: Icons.picture_as_pdf_outlined,
-      color: Color(0xFFD92D20),
-      badge: 'PDF',
-      tooltip: 'PDF document',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.doc') || n.endsWith('.docx') || t.contains('word')) {
-    return const _FileTypeMeta(
-      icon: Icons.description_outlined,
-      color: Color(0xFF1570EF),
-      badge: 'DOC',
-      tooltip: 'Word document',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.xls') ||
-      n.endsWith('.xlsx') ||
-      n.endsWith('.csv') ||
-      t.contains('excel')) {
-    return const _FileTypeMeta(
-      icon: Icons.table_chart_outlined,
-      color: Color(0xFF027A48),
-      badge: 'XLS',
-      tooltip: 'Spreadsheet',
-      isImage: false,
-    );
-  }
-  if (t.startsWith('image/')) {
-    return const _FileTypeMeta(
-      icon: Icons.image_outlined,
-      color: Color(0xFF2E90FA),
-      badge: 'IMG',
-      tooltip: 'Image file',
-      isImage: true,
-    );
-  }
-  if (n.endsWith('.txt') || n.endsWith('.log')) {
-    return const _FileTypeMeta(
-      icon: Icons.article_outlined,
-      color: Color(0xFF0E7090),
-      badge: 'TXT',
-      tooltip: 'Text file',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.ps1')) {
-    return const _FileTypeMeta(
-      icon: Icons.terminal_outlined,
-      color: Color(0xFF6941C6),
-      badge: 'PS',
-      tooltip: 'PowerShell script',
-      isImage: false,
-    );
-  }
-
-  return const _FileTypeMeta(
-    icon: Icons.insert_drive_file_outlined,
-    color: Color(0xFF667085),
-    badge: 'FILE',
-    tooltip: 'File',
-    isImage: false,
-  );
-}
 
 class _RecentUploadsFromActivity extends StatelessWidget {
   const _RecentUploadsFromActivity({required this.isAdmin});
@@ -382,7 +296,10 @@ class _RecentUploadsFromActivity extends StatelessWidget {
               ? 'Untitled'
               : _s(m['originalName']);
           final contentType = _s(m['contentType']);
-          final meta = _fileMeta(fileName, contentType);
+          final meta = resolveFileMeta(
+            fileName: fileName,
+            contentType: contentType,
+          );
 
           final requestId = _s(m['requestId']);
           final business = _s(m['requestBusinessName']);
