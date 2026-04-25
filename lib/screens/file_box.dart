@@ -7,9 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../widgets/page_scaffold.dart';
+import '../utils/file_kind.dart';
 
 enum _SortField { name, size, date }
+
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
+
 enum _DateFilter { all, today, last7, last30 }
 
 class FileBoxScreen extends StatefulWidget {
@@ -102,30 +105,23 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
   }
 
   _TypeFilter _inferTypeFilter(String name, String contentType) {
-    final n = name.toLowerCase();
-    final t = contentType.toLowerCase();
-    if (n.endsWith('.pdf') || t.contains('pdf')) return _TypeFilter.pdf;
-    if (n.endsWith('.doc') || n.endsWith('.docx') || t.contains('word')) {
+  final kind = detectFileKind(fileName: name, contentType: contentType);
+
+  switch (kind) {
+    case FileKind.pdf:
+      return _TypeFilter.pdf;
+    case FileKind.word:
       return _TypeFilter.doc;
-    }
-    if (n.endsWith('.xls') ||
-        n.endsWith('.xlsx') ||
-        n.endsWith('.csv') ||
-        t.contains('excel') ||
-        t.contains('spreadsheet')) {
+    case FileKind.excel:
       return _TypeFilter.xls;
-    }
-    if (t.startsWith('image/') ||
-        n.endsWith('.png') ||
-        n.endsWith('.jpg') ||
-        n.endsWith('.jpeg') ||
-        n.endsWith('.gif') ||
-        n.endsWith('.webp')) {
+    case FileKind.image:
       return _TypeFilter.img;
-    }
-    if (n.endsWith('.txt') || n.endsWith('.log')) return _TypeFilter.txt;
-    return _TypeFilter.other;
+    case FileKind.text:
+      return _TypeFilter.txt;
+    default:
+      return _TypeFilter.other;
   }
+}
 
   bool _passesDateFilter(DateTime? when) {
     if (_dateFilter == _DateFilter.all) return true;
@@ -1159,96 +1155,6 @@ class _UploadDoc {
 }
 
 /// ============================
-/// FILE TYPE META
-/// ============================
-class _FileTypeMeta {
-  final IconData icon;
-  final Color color;
-  final String badge;
-  final String tooltip;
-  final bool isImage;
-
-  const _FileTypeMeta({
-    required this.icon,
-    required this.color,
-    required this.badge,
-    required this.tooltip,
-    required this.isImage,
-  });
-}
-
-_FileTypeMeta _fileMeta(String name, String type) {
-  final n = name.toLowerCase();
-  final t = type.toLowerCase();
-
-  if (n.endsWith('.pdf') || t.contains('pdf')) {
-    return const _FileTypeMeta(
-      icon: Icons.picture_as_pdf_outlined,
-      color: Color(0xFFD92D20),
-      badge: 'PDF',
-      tooltip: 'PDF document',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.doc') || n.endsWith('.docx') || t.contains('word')) {
-    return const _FileTypeMeta(
-      icon: Icons.description_outlined,
-      color: Color(0xFF1570EF),
-      badge: 'DOC',
-      tooltip: 'Word document',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.xls') ||
-      n.endsWith('.xlsx') ||
-      n.endsWith('.csv') ||
-      t.contains('excel')) {
-    return const _FileTypeMeta(
-      icon: Icons.table_chart_outlined,
-      color: Color(0xFF027A48),
-      badge: 'XLS',
-      tooltip: 'Spreadsheet',
-      isImage: false,
-    );
-  }
-  if (t.startsWith('image/')) {
-    return const _FileTypeMeta(
-      icon: Icons.image_outlined,
-      color: Color(0xFF2E90FA),
-      badge: 'IMG',
-      tooltip: 'Image file',
-      isImage: true,
-    );
-  }
-  if (n.endsWith('.txt') || n.endsWith('.log')) {
-    return const _FileTypeMeta(
-      icon: Icons.article_outlined,
-      color: Color(0xFF0E7090),
-      badge: 'TXT',
-      tooltip: 'Text file',
-      isImage: false,
-    );
-  }
-  if (n.endsWith('.ps1')) {
-    return const _FileTypeMeta(
-      icon: Icons.terminal_outlined,
-      color: Color(0xFF6941C6),
-      badge: 'PS',
-      tooltip: 'PowerShell script',
-      isImage: false,
-    );
-  }
-
-  return const _FileTypeMeta(
-    icon: Icons.insert_drive_file_outlined,
-    color: Color(0xFF667085),
-    badge: 'FILE',
-    tooltip: 'File',
-    isImage: false,
-  );
-}
-
-/// ============================
 /// ROW (ENHANCED + SELECT + CLIENT NAME)
 /// ============================
 class _UploadRowEnhanced extends StatelessWidget {
@@ -1326,7 +1232,7 @@ class _UploadRowEnhanced extends StatelessWidget {
     DateTime? when;
     if (createdAt is Timestamp) when = createdAt.toDate();
 
-    final meta = _fileMeta(name, contentType);
+    final meta = resolveFileMeta(fileName: name, contentType: contentType);
 
     return InkWell(
       onTap: busy ? null : () => onSelect(!selected),
