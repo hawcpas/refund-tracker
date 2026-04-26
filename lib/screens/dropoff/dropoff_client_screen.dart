@@ -14,6 +14,36 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/brand_logo_svg.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'dart:collection';
+import '../../utils/file_kind.dart';
+
+class _ClientFileTypeIcon extends StatelessWidget {
+  final String fileName;
+  final String contentType;
+
+  const _ClientFileTypeIcon({
+    required this.fileName,
+    required this.contentType,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = resolveFileMeta(fileName: fileName, contentType: contentType);
+
+    return Tooltip(
+      message: meta.tooltip,
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: meta.color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        alignment: Alignment.center,
+        child: Icon(meta.icon, size: 16, color: meta.color),
+      ),
+    );
+  }
+}
 
 enum _UploadItemState { queued, uploading, finalizing, success, failed }
 
@@ -1333,6 +1363,10 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
                                                   _notifyingRequester,
                                               requesterNotified:
                                                   _requesterNotified,
+                                              contentTypeFor: (pf) =>
+                                                  _guessContentType(
+                                                    pf.name,
+                                                  ), // ✅ ADD
                                             ),
                                           ),
 
@@ -1836,6 +1870,7 @@ class _QueuedFilesCard extends StatelessWidget {
   final Map<String, _UploadItemState> state;
   final Map<String, String> errors;
   final String? activeKey;
+  final String Function(PlatformFile file) contentTypeFor;
 
   // ✅ ADD THESE
   final bool notifyingRequester;
@@ -1849,10 +1884,9 @@ class _QueuedFilesCard extends StatelessWidget {
     required this.activeKey,
     required this.state,
     required this.errors,
-
-    // ✅ ADD THESE
     required this.notifyingRequester,
     required this.requesterNotified,
+    required this.contentTypeFor, // ✅ ADD
   });
 
   String _formatFileSize(int bytes) {
@@ -1985,10 +2019,9 @@ class _QueuedFilesCard extends StatelessWidget {
                   padding: EdgeInsets.symmetric(vertical: isCompact ? 10 : 6),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.insert_drive_file_outlined,
-                        size: 16,
-                        color: _kGray,
+                      _ClientFileTypeIcon(
+                        fileName: f.name,
+                        contentType: contentTypeFor(f),
                       ),
                       const SizedBox(width: 8),
 
