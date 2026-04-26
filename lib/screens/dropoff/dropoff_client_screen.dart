@@ -13,6 +13,7 @@ import '../../services/auth_service.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/brand_logo_svg.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'dart:collection';
 
 enum _UploadItemState { queued, uploading, finalizing, success, failed }
 
@@ -28,6 +29,31 @@ class DropoffClientScreen extends StatefulWidget {
 
   @override
   State<DropoffClientScreen> createState() => _DropoffClientScreenState();
+}
+
+class _Semaphore {
+  _Semaphore(this._max);
+  final int _max;
+  int _current = 0;
+  final Queue<Completer<void>> _waiters = Queue<Completer<void>>();
+
+  Future<void> acquire() {
+    if (_current < _max) {
+      _current++;
+      return Future.value();
+    }
+    final c = Completer<void>();
+    _waiters.add(c);
+    return c.future;
+  }
+
+  void release() {
+    if (_waiters.isNotEmpty) {
+      _waiters.removeFirst().complete();
+    } else {
+      _current = (_current - 1).clamp(0, _max);
+    }
+  }
 }
 
 class _DropoffClientScreenState extends State<DropoffClientScreen> {
@@ -77,6 +103,106 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   }
 
   bool _isDragging = false;
+
+  Future<Map<String, dynamic>?> _uploadOne(PlatformFile f, int index) async {
+    final fileKey = _fileKey(f);
+
+    try {
+      if (mounted) {
+        setState(() {
+          _currentFileName = f.name; // optional: last touched
+          _fileState[fileKey] = _UploadItemState.uploading;
+          _fileError.remove(fileKey);
+          _uploadProgress[fileKey] = 0.0;
+        });
+      }
+
+      final contentType = _guessContentType(f.name);
+      final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+      // IMPORTANT: avoid collisions in parallel
+      final fileId =
+          '${DateTime.now().microsecondsSinceEpoch}_${f.name.hashCode}_${f.size}_$index';
+      final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
+
+      final ref = FirebaseStorage.instance.ref(storagePath);
+
+      UploadTask task;
+
+      if (kIsWeb) {
+        final bytes = f.bytes;
+        if (bytes == null) {
+          throw Exception('Missing file bytes for ${f.name}. Please reselect.');
+        }
+        task = ref.putData(bytes, SettableMetadata(contentType: contentType));
+      } else {
+        final path = f.path;
+        if (path == null || path.isEmpty) {
+          throw Exception('Missing file path for ${f.name}. Please reselect.');
+        }
+        task = ref.putFile(
+          File(path),
+          SettableMetadata(contentType: contentType),
+        );
+      }
+
+      late final StreamSubscription<TaskSnapshot> sub;
+      try {
+        sub = task.snapshotEvents.listen((snapshot) {
+          final total = snapshot.totalBytes;
+          if (total > 0 && mounted) {
+            setState(() {
+              _uploadProgress[fileKey] = snapshot.bytesTransferred / total;
+            });
+          }
+        });
+
+        await task;
+
+        if (mounted) {
+          setState(() {
+            _uploadProgress[fileKey] = 1.0;
+            _fileState[fileKey] = _UploadItemState.finalizing;
+          });
+        }
+
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      } finally {
+        await sub.cancel();
+      }
+
+      await _functions.httpsCallable('finalizeDropoffUpload').call({
+        'rid': _rid,
+        'token': _token,
+        'file': {
+          'originalName': f.name,
+          'storagePath': storagePath,
+          'sizeBytes': f.size,
+          'contentType': contentType,
+        },
+      });
+
+      if (mounted) {
+        setState(() {
+          _fileState[fileKey] = _UploadItemState.success;
+          _fileError.remove(fileKey);
+          _uploadProgress[fileKey] = 1.0;
+        });
+      }
+
+      // return metadata for notifyDropoffBatchUpload
+      return {'name': f.name, 'sizeBytes': f.size};
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _fileState[fileKey] = _UploadItemState.failed;
+          _fileError[fileKey] = _friendlyFunctionsError(e);
+          _uploadProgress.remove(fileKey);
+        });
+      }
+      return null; // keep batch going
+    }
+  }
 
   Widget _desktopDropZone({required bool enabled}) {
     if (!_enableDesktopDragDrop || !_isDesktop) {
@@ -203,14 +329,29 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
   double get _overallProgress {
     if (_totalToUpload <= 0) return 0.0;
 
-    // You upload sequentially, so there is typically one active progress entry.
-    final activeKey = _currentlyUploadingKey;
-    final activeP = activeKey == null
-        ? 0.0
-        : (_uploadProgress[activeKey] ?? 0.0);
+    double sum = 0.0;
+    int counted = 0;
 
-    final overall = (_uploadedSoFar + activeP) / _totalToUpload;
-    return overall.clamp(0.0, 1.0);
+    for (final f in _queuedFiles) {
+      final k = _fileKey(f);
+      final s = _fileState[k] ?? _UploadItemState.queued;
+
+      // count only files that are part of this run (not already success before run)
+      if (s == _UploadItemState.success) {
+        sum += 1.0;
+        counted++;
+        continue;
+      }
+
+      final p = _uploadProgress[k];
+      if (p != null) {
+        sum += p.clamp(0.0, 1.0);
+        counted++;
+      }
+    }
+
+    if (counted == 0) return 0.0;
+    return (sum / _totalToUpload).clamp(0.0, 1.0);
   }
 
   static const String _closedMsg =
@@ -566,125 +707,42 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
     final uploadedMeta = <Map<String, dynamic>>[];
 
     try {
-      for (final f in pending) {
-        final fileKey = _fileKey(f);
+      // ✅ Concurrency cap (safe defaults)
+      final int concurrency = kIsWeb ? 3 : 4;
+      final sem = _Semaphore(concurrency);
 
-        try {
-          // Mark uploading (enterprise state)
-          if (mounted) {
-            setState(() {
-              _currentFileName = f.name;
-              _fileState[fileKey] = _UploadItemState.uploading;
-              _fileError.remove(fileKey);
-            });
-          }
+      // With parallel uploads, there is no single “currently uploading” file
+      _currentlyUploadingKey = null;
 
-          final contentType = _guessContentType(f.name);
-          final safeName = f.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-          final fileId = '${DateTime.now().microsecondsSinceEpoch}_$uploaded';
-          final storagePath = 'dropoffs/${_rid!}/${fileId}_$safeName';
+      // Launch throttled tasks
+      final futures = <Future<void>>[];
 
-          final ref = FirebaseStorage.instance.ref(storagePath);
+      for (int i = 0; i < pending.length; i++) {
+        final f = pending[i];
 
-          UploadTask task;
-
-          if (kIsWeb) {
-            final bytes = f.bytes;
-            if (bytes == null) {
-              throw Exception(
-                'Missing file bytes for ${f.name}. Please reselect.',
-              );
-            }
-            task = ref.putData(
-              bytes,
-              SettableMetadata(contentType: contentType),
-            );
-          } else {
-            final path = f.path;
-            if (path == null || path.isEmpty) {
-              throw Exception(
-                'Missing file path for ${f.name}. Please reselect.',
-              );
-            }
-            task = ref.putFile(
-              File(path),
-              SettableMetadata(contentType: contentType),
-            );
-          }
-
-          _uploadProgress[fileKey] = 0.0;
-          _currentlyUploadingKey = fileKey;
-
-          late final StreamSubscription<TaskSnapshot> sub;
-
+        futures.add(() async {
+          await sem.acquire();
           try {
-            sub = task.snapshotEvents.listen((snapshot) {
-              final total = snapshot.totalBytes;
-              if (total > 0 && mounted) {
-                setState(() {
-                  _uploadProgress[fileKey] = snapshot.bytesTransferred / total;
-                });
-              }
-            });
+            // _uploadOne already updates per-file state/progress and marks failed/success
+            final meta = await _uploadOne(f, i);
 
-            // Wait for upload to finish
-            await task;
-            // ✅ Upload bytes are done, now server-side finalize is next
-            if (mounted) {
+            // Only count successes
+            if (meta != null && mounted) {
               setState(() {
-                _uploadProgress[fileKey] = 1.0; // keep bar full
-                _fileState[fileKey] = _UploadItemState.finalizing;
+                uploadedMeta.add(meta);
+                uploadedNames.add((meta['name'] ?? '').toString());
+                uploaded = uploadedMeta.length;
+                _uploadedSoFar = uploaded;
               });
             }
-            // ✅ Give Flutter one frame to paint "Finalizing…" before calling the server
-            await Future<void>.delayed(const Duration(milliseconds: 120));
           } finally {
-            await sub.cancel();
+            sem.release();
           }
-
-          // Finalize Firestore metadata (server-side)
-          await _functions.httpsCallable('finalizeDropoffUpload').call({
-            'rid': _rid,
-            'token': _token,
-            'file': {
-              'originalName': f.name,
-              'storagePath': storagePath,
-              'sizeBytes': f.size,
-              'contentType': contentType,
-            },
-          });
-
-          // Mark success
-          uploaded++;
-          uploadedNames.add(f.name);
-          uploadedMeta.add({'name': f.name, 'sizeBytes': f.size});
-
-          _uploadedSoFar = uploaded;
-
-          _fileState[fileKey] = _UploadItemState.success;
-          _fileError.remove(fileKey);
-
-          // Keep the visual progress "complete" for enterprise feel
-          _uploadProgress[fileKey] = 1.0;
-
-          if (_currentlyUploadingKey == fileKey) _currentlyUploadingKey = null;
-
-          if (mounted) setState(() {});
-        } catch (e) {
-          // ✅ EXACT spot you asked about: mark THIS file failed
-          _fileState[fileKey] = _UploadItemState.failed;
-          _fileError[fileKey] = _friendlyFunctionsError(e);
-
-          // Stop progress updates for failed file
-          _uploadProgress.remove(fileKey);
-          if (_currentlyUploadingKey == fileKey) _currentlyUploadingKey = null;
-
-          if (mounted) setState(() {});
-
-          // Enterprise batch behavior: continue to next file
-          continue;
-        }
+        }());
       }
+
+      // Wait for all uploads + finalizations to finish
+      await Future.wait(futures);
 
       if (!mounted) return;
 
