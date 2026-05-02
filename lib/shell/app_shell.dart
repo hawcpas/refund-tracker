@@ -188,13 +188,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   }
 
   /// ✅ Public API: open a specific Upload Link / Dropoff detail screen
-void openDropoffDetails(String requestId) {
-  setState(() {
-    _dropoffDetailsId = requestId;
-    _currentRoute = '/dropoff-details';
-  });
-}
-
+  void openDropoffDetails(String requestId) {
+    setState(() {
+      _dropoffDetailsId = requestId;
+      _currentRoute = '/dropoff-details';
+    });
+  }
 
   /// ✅ Refresh profile-dependent UI (avatar, menus, etc.)
   /// ✅ Refresh profile-dependent UI (avatar, menus, flyouts)
@@ -1537,7 +1536,15 @@ Please describe the issue below:
                           );
                         },
                       ),
-                      Expanded(child: _buildContent()),
+                      Expanded(
+                        child: MediaQuery(
+                          data: MediaQuery.of(context).copyWith(
+                            textScaleFactor:
+                                1.1, // ✅ start here (1.05–1.15 recommended)
+                          ),
+                          child: _buildContent(),
+                        ),
+                      ),
                     ],
                   ),
 

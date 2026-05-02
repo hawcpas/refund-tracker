@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
+import '../widgets/content_text_zoom.dart';
 import '../shell/app_shell.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_kind.dart';
@@ -968,22 +969,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         overflowActions: const [],
       ),
 
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _RecentUploadsFromActivity(isAdmin: isAdmin),
+      child: ContentTextZoom(
+        scale: 1.1, // ✅ TEST HERE (try 1.05–1.12)
 
-          if (!_hasDropoffAccess)
-            _SurfaceTable(
-              children: const [
-                _InfoRow(
-                  text:
-                      'You do not currently have access to Files or Request links. '
-                      'Please contact an administrator if this is unexpected.',
-                ),
-              ],
-            ),
-        ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _RecentUploadsFromActivity(isAdmin: isAdmin),
+
+            if (!_hasDropoffAccess)
+              _SurfaceTable(
+                children: const [
+                  _InfoRow(
+                    text:
+                        'You do not currently have access to Files or Request links. '
+                        'Please contact an administrator if this is unexpected.',
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
