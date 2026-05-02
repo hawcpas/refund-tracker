@@ -578,9 +578,8 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return AppShell(
+                        return const AppShell(
                           initialRoute: '/generate-upload-link',
-                          deepLinkRid: rid,
                         );
                       },
                     ),

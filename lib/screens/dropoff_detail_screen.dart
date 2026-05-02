@@ -331,6 +331,14 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                     .doc(widget.requestId)
                     .snapshots(),
                 builder: (context, reqSnap) {
+                  if (reqSnap.hasError) {
+                    return const _InlineMessage(
+                      text:
+                          'This request link could not be loaded. Please contact your firm.',
+                      tone: _InlineTone.error,
+                    );
+                  }
+
                   if (!reqSnap.hasData) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 22),
@@ -338,12 +346,35 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                     );
                   }
 
-                  final reqData = reqSnap.data?.data() ?? {};
+                  final doc = reqSnap.data!;
+                  if (!doc.exists) {
+                    return const _InlineMessage(
+                      text:
+                          'This request link does not exist or has been deleted.',
+                      tone: _InlineTone.error,
+                    );
+                  }
+
+                  final reqData = doc.data() ?? {};
                   final dropoffUrl = (reqData['url'] ?? '').toString().trim();
-                  final status = (reqData['status'] ?? 'open')
-                      .toString()
-                      .toLowerCase()
-                      .trim();
+                  final statusRaw = (reqData['status'] ?? '').toString().trim();
+
+                  // ❌ HARD FAIL: invalid, deleted, or incomplete request
+                  if (dropoffUrl.isEmpty ||
+                      statusRaw.isEmpty ||
+                      statusRaw == 'deleted') {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      widget.onBack?.call();
+                    });
+
+                    return const _InlineMessage(
+                      text:
+                          'This upload link is unavailable or no longer exists.',
+                      tone: _InlineTone.error,
+                    );
+                  }
+
+                  final status = statusRaw.toLowerCase();
                   final canDelete = status == 'open';
 
                   final clientName = (reqData['clientName'] ?? '')
@@ -481,6 +512,13 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                             .orderBy('createdAt', descending: true)
                             .snapshots(),
                         builder: (context, snap) {
+                          if (snap.hasError) {
+                            return const _InlineMessage(
+                              text: 'Uploads could not be loaded.',
+                              tone: _InlineTone.error,
+                            );
+                          }
+
                           if (!snap.hasData) {
                             return const Center(
                               child: CircularProgressIndicator(),
@@ -488,14 +526,35 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                           }
 
                           final docs = snap.data!.docs;
-                          if (docs.isEmpty) {
+
+                          // ✅ Build selectable map (only non-deleted with a storagePath)
+                          final selectable = <String, _BulkFile>{};
+
+                          for (final doc in docs) {
+                            final data = doc.data();
+                            final isDeleted = data['deleted'] == true;
+                            final path = (data['storagePath'] ?? '')
+                                .toString()
+                                .trim();
+
+                            if (isDeleted || path.isEmpty) continue;
+
+                            selectable[doc.id] = _BulkFile(
+                              fileId: doc.id,
+                              storagePath: path,
+                              filename: (data['originalName'] ?? 'Untitled')
+                                  .toString(),
+                              contentType: (data['contentType'] ?? '')
+                                  .toString(),
+                            );
+                          }
+
+                          if (docs.isEmpty || selectable.isEmpty) {
                             return const _InlineMessage(
                               text: 'No uploads have been received.',
                               tone: _InlineTone.neutral,
                             );
                           }
-                          // ✅ Build selectable map (only non-deleted with a storagePath)
-                          final selectable = <String, _BulkFile>{};
 
                           for (final doc in docs) {
                             final data = doc.data();
