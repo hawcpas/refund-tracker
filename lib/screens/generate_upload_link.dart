@@ -100,6 +100,10 @@ class _FieldHeader extends StatelessWidget {
 class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   final _db = FirebaseFirestore.instance;
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+
+  // ✅ ADD THIS LINE
+  String? _deepLinkRid;
+
   final List<String> _businessNames = <String>[];
   final List<String> _clientEmails = <String>[];
   final List<_MessageTemplate> _messageTemplates = <_MessageTemplate>[];
@@ -123,6 +127,22 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         _openCreateRequestDialog();
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // ✅ Flutter Web: query params come from Uri.base
+    final uri = Uri.base;
+
+    final rid = uri.queryParameters['rid'];
+
+    if (_deepLinkRid != rid) {
+      setState(() {
+        _deepLinkRid = rid;
+      });
+    }
   }
 
   HttpsCallable _callable(String name) => _functions.httpsCallable(name);
@@ -194,6 +214,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         .replaceAll('{{senderName}}', senderName)
         .replaceAll('{{clientName}}', clientName)
         .replaceAll('{{clientFirstName}}', clientFirstName);
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _loadDropoff(String rid) {
+    return _db.collection('dropoff_requests').doc(rid).get();
   }
 
   Future<void> _setDropoffStatus(String requestId, String status) async {
@@ -1173,12 +1197,49 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final rid = _deepLinkRid;
+
+    // ✅ DEEP‑LINK HANDLER
+    if (rid != null && rid.trim().isNotEmpty) {
+      return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: _loadDropoff(rid),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (snap.hasError) {
+            return const _InvalidRequestLinkState();
+          }
+
+          if (!snap.hasData || !snap.data!.exists) {
+            return const _InvalidRequestLinkState();
+          }
+
+          final data = snap.data!.data() ?? {};
+          final url = (data['url'] ?? '').toString().trim();
+          final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+          // ✅ Treat incomplete / deleted requests as invalid links
+          if (url.isEmpty || status == 'deleted') {
+            return const _InvalidRequestLinkState();
+          }
+
+          // ✅ Valid
+          return DropoffDetailScreen(requestId: rid);
+        },
+      );
+    }
+
+    // ✅ NORMAL LIST VIEW (your existing UI)
     return PageScaffold(
       title: 'Link Requests',
       subtitle: 'View, manage, and share secure upload links with clients.',
       wrapInCard: false,
       scrollable: false,
-      maxContentWidth: 1400, // ✅ TABLE‑FRIENDLY WIDTH
+      maxContentWidth: 1400,
       child: Expanded(
         child: Stack(
           children: [
@@ -2167,8 +2228,20 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                                   child: const Text('Cancel'),
                                 ),
                                 FilledButton(
-                                  onPressed: () => Navigator.pop(ctx, true),
-                                  child: const Text('Delete'),
+                                  onPressed: () {
+                                    if (Navigator.of(context).canPop()) {
+                                      Navigator.pop(context);
+                                    } else {
+                                      Navigator.of(
+                                        context,
+                                      ).pushNamedAndRemoveUntil(
+                                        '/generate-upload-link',
+                                        (route) => false,
+                                      );
+                                    }
+                                  },
+
+                                  child: const Text('Back to request links'),
                                 ),
                               ],
                             ),
@@ -2470,4 +2543,50 @@ class _MessageTemplate {
   final String body;
 
   _MessageTemplate({required this.id, required this.title, required this.body});
+}
+
+class _InvalidRequestLinkState extends StatelessWidget {
+  const _InvalidRequestLinkState();
+
+  @override
+  Widget build(BuildContext context) {
+    return PageScaffold(
+      title: 'Upload link unavailable',
+      subtitle: 'This link may have been deleted or is invalid.',
+      wrapInCard: true,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.link_off, size: 48, color: Color(0xFF98A2B3)),
+            const SizedBox(height: 16),
+            Text(
+              'This upload link is no longer available',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Please contact your firm if you believe this is an error.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () {
+                // ✅ Clear the deep-link from the URL (important on web)
+                final uri = Uri(path: '/generate-upload-link');
+
+                // ✅ Replace browser URL + navigator stack
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil(uri.toString(), (route) => false);
+              },
+              child: const Text('Back to request links'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

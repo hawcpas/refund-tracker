@@ -34,14 +34,9 @@ const String kAdminLinksRoute = '/admin-links';
 enum _NavSection { admin, home, files, requests }
 
 class AppShell extends StatefulWidget {
-  const AppShell({
-    super.key,
-    this.initialRoute = '/dashboard',
-    this.deepLinkRid,
-  });
+  const AppShell({super.key, this.initialRoute = '/dashboard'});
 
   final String initialRoute;
-  final String? deepLinkRid;
 
   @override
   State<AppShell> createState() => AppShellState();
@@ -905,13 +900,6 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     _currentRoute = widget.initialRoute;
     _section = _sectionForRoute(_currentRoute);
     // ✅ Deep-link support: open specific upload details from email link
-    final rid = widget.deepLinkRid;
-    if (rid != null &&
-        rid.trim().isNotEmpty &&
-        _currentRoute == '/generate-upload-link') {
-      _dropoffDetailsId = rid.trim();
-      _currentRoute = '/dropoff-details';
-    }
     _loadMyRole();
 
     _tokenSub = FirebaseAuth.instance.idTokenChanges().listen((user) async {
@@ -1536,15 +1524,7 @@ Please describe the issue below:
                           );
                         },
                       ),
-                      Expanded(
-                        child: MediaQuery(
-                          data: MediaQuery.of(context).copyWith(
-                            textScaleFactor:
-                                1.1, // ✅ start here (1.05–1.15 recommended)
-                          ),
-                          child: _buildContent(),
-                        ),
-                      ),
+                      Expanded(child: _buildContent()),
                     ],
                   ),
 
