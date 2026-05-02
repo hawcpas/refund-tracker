@@ -285,7 +285,12 @@ class _LoginScreenState extends State<LoginScreen>
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 420),
-          pageBuilder: (_, __, ___) => const VerifyEmailScreen(),
+
+          pageBuilder: (_, __, ___) => OtpVerifyScreen(
+            nextRoute: pendingPostLoginRoute,
+            otpAlreadySent: true, // ✅ ONLY place this should be set
+          ),
+
           transitionsBuilder: (_, animation, __, child) {
             final fade = CurvedAnimation(
               parent: animation,
@@ -435,7 +440,9 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
 
-                    const SizedBox(height: 20), // instead of 16, above or below logo
+                    const SizedBox(
+                      height: 20,
+                    ), // instead of 16, above or below logo
 
                     Text(
                       _step == LoginStep.password

@@ -11,7 +11,14 @@ import '../theme/brand_logo_svg.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String? nextRoute;
-  const OtpVerifyScreen({super.key, this.nextRoute});
+  final bool otpAlreadySent;
+  
+  const OtpVerifyScreen({
+    super.key,
+    this.nextRoute,
+    this.otpAlreadySent = false,
+  });
+
 
   @override
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
@@ -31,19 +38,48 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
 
   VoidCallback? _textListener;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
+@override
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addObserver(this);
 
-    _textListener = () {
+  _textListener = () {
+    if (!mounted) return;
+    // Rebuild so the button enabled state updates immediately (iOS/web)
+    setState(() {});
+  };
+
+  _controller.addListener(_textListener!);
+
+  // =========================
+  // ✅ SAFE OTP AUTO-SEND
+  // =========================
+  if (!widget.otpAlreadySent) {
+    Future.microtask(() async {
       if (!mounted) return;
-      // Rebuild so the button enabled state updates immediately (iOS/web)
-      setState(() {});
-    };
 
-    _controller.addListener(_textListener!);
+      try {
+        final res = await FirebaseFunctions.instanceFor(
+          region: 'us-central1',
+        ).httpsCallable('sendLoginOtp').call();
+
+        // ✅ Honor server throttle window
+        if (res.data is Map) {
+          final data = Map<String, dynamic>.from(res.data as Map);
+          final remaining = (data['remainingSeconds'] is num)
+              ? (data['remainingSeconds'] as num).toInt()
+              : 0;
+
+          if (remaining > 0) {
+            _startCooldown(remaining);
+          }
+        }
+      } catch (_) {
+        // ✅ Non-blocking: user can still tap "resend"
+      }
+    });
   }
+}
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
