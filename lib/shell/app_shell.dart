@@ -1488,24 +1488,9 @@ Please describe the issue below:
                                 );
                               }
 
-                              int newUploadCount = 0;
-
-                              if (snap.hasData) {
-                                for (final d in snap.data!.docs) {
-                                  final data = d.data();
-                                  final type = (data['type'] ?? '').toString();
-
-                                  if (type == 'dropoff_upload') {
-                                    final fc = data['fileCount'];
-                                    final n = (fc is int)
-                                        ? fc
-                                        : (fc is num ? fc.toInt() : 1);
-                                    newUploadCount += (n <= 0 ? 1 : n);
-                                  } else {
-                                    newUploadCount += 1;
-                                  }
-                                }
-                              }
+                              final newUploadCount = snap.hasData
+                                  ? snap.data!.docs.length
+                                  : 0;
 
                               return _ContentUtilityBar(
                                 leading: leading,
@@ -2993,10 +2978,14 @@ class _NotificationsPanel extends StatelessWidget {
                       .toString()
                       .trim();
 
-                  final String fromName =
-                      (data['clientName'] ?? data['fromName'] ?? '')
+                  final String clientName =
+                      (data['clientName'] ?? data['fromName'] ?? 'Client')
                           .toString()
                           .trim();
+
+                  final String businessName = (data['businessName'] ?? '')
+                      .toString()
+                      .trim();
 
                   // Optional: if you store a request/link label in the notification doc
                   final String requestLabel =
@@ -3040,36 +3029,20 @@ class _NotificationsPanel extends StatelessWidget {
 
                   // Left side title text (your requested wording)
                   final String titleLeft = isDropoffUpload
-                      ? 'Request Link Upload'
+                      ? 'Client upload received'
                       : (rawTitle.isNotEmpty ? rawTitle : 'Notification');
 
                   // Prefer a real uploader name if present (supports future backend fields)
-                  final String uploaderCandidate =
-                      (data['uploaderName'] ??
-                              data['uploadedByName'] ??
-                              data['senderName'] ??
-                              data['clientName'] ??
-                              data['fromName'] ??
-                              '')
-                          .toString()
-                          .trim();
-
-                  final bool uploaderLooksLikeRequest =
-                      uploaderCandidate.isNotEmpty &&
-                      requestName.isNotEmpty &&
-                      uploaderCandidate.toLowerCase() ==
-                          requestName.toLowerCase();
-
-                  final String fromText =
-                      (!uploaderLooksLikeRequest &&
-                          uploaderCandidate.isNotEmpty)
-                      ? uploaderCandidate
-                      : 'Client';
+                  final String clientContext = businessName.isNotEmpty
+                      ? '$clientName · $businessName'
+                      : clientName;
+                      
+                  final String fromText = clientContext;
 
                   final Timestamp? ts = data['createdAt'] as Timestamp?;
 
                   // Second row left/right
-                  final String metaLeft = 'From $fromText';
+                  final String metaLeft = fromText;
                   final String metaRight = _relativeTime(ts);
 
                   final bgColor = unread
@@ -3160,30 +3133,30 @@ class _NotificationsPanel extends StatelessWidget {
                             const SizedBox(height: 4),
 
                             // Row 2: From left + time right
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    metaLeft,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12.5,
-                                      color: Color(0xFF475467),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  metaRight,
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: Color(0xFF667085),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              metaLeft,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Color(0xFF475467),
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
+
+                            const SizedBox(height: 3),
+
+                            Text(
+                              metaRight,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF667085),
+                                fontWeight: FontWeight.w500,
+                                height: 1.2,
+                              ),
                             ),
                           ],
                         ),
