@@ -1065,14 +1065,17 @@ exports.notifyDropoffBatchUpload = onCall(
         await db.collection("notifications").add({
           userUid: createdByUid,
           type: "dropoff_upload",
-          title: "Client uploaded files",
+          title: "Client upload received",
           body: `${clientName || "A client"} uploaded ${finalFiles.length} files`,
           requestId: rid,
           clientName: clientName || "",
+          businessName: req.businessName || "",
+          clientEmail: req.clientEmail || "",
           fileCount: finalFiles.length,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           readAt: null,
         });
+
       }
 
       return { ok: true, emailed: true };
