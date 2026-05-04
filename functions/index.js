@@ -515,6 +515,40 @@ function isValidHttpUrl(url) {
   );
 }
 
+const DEFAULT_DROPOFF_EXPIRATION_DAYS = 14;
+const MAX_DROPOFF_EXPIRATION_DAYS = 90;
+
+function normalizeExpirationDays(value) {
+  const n = Number(value || DEFAULT_DROPOFF_EXPIRATION_DAYS);
+  if (!Number.isFinite(n)) return DEFAULT_DROPOFF_EXPIRATION_DAYS;
+  return Math.max(1, Math.min(MAX_DROPOFF_EXPIRATION_DAYS, Math.floor(n)));
+}
+
+function makeDropoffExpiresAt(days) {
+  return admin.firestore.Timestamp.fromMillis(
+    Date.now() + days * 24 * 60 * 60 * 1000
+  );
+}
+
+function dropoffExpired(doc) {
+  const expiresAt = doc.expiresAt;
+  const ms = expiresAt?.toMillis?.();
+  return typeof ms === "number" && ms <= Date.now();
+}
+
+async function markDropoffExpired(ref) {
+  await ref.set(
+    {
+      status: "expired",
+      expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+      statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      statusUpdatedBy: "system",
+    },
+    { merge: true }
+  );
+}
+
+
 exports.verifyLoginOtp = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -833,7 +867,17 @@ exports.notifyDropoffBatchUpload = onCall(
         throw new HttpsError("permission-denied", "Invalid token.");
       }
 
+      if ((req.status || "open") !== "open") {
+        throw new HttpsError("failed-precondition", "Drop-off is closed.");
+      }
+
+      if (dropoffExpired(req)) {
+        await markDropoffExpired(ref);
+        throw new HttpsError("failed-precondition", "Drop-off link has expired.");
+      }
+
       const createdByUid = (req.createdByUid || "").toString().trim();
+
       const createdByEmail = (req.createdByEmail || "").toString().trim();
       const clientName = (req.clientName || "a client").toString().trim();
 
@@ -1366,6 +1410,12 @@ exports.finalizeDropoffUpload = onCall(
     if ((doc.status || "open") !== "open") {
       throw new HttpsError("failed-precondition", "Drop-off is closed.");
     }
+
+    if (dropoffExpired(doc)) {
+      await markDropoffExpired(ref);
+      throw new HttpsError("failed-precondition", "Drop-off link has expired.");
+    }
+
     if (sha256(token) !== doc.tokenHash) {
       throw new HttpsError("permission-denied", "Invalid token.");
     }
@@ -2283,6 +2333,10 @@ exports.createDropoffRequest = onCall(
     const clientEmail = normalizeEmail(data.clientEmail);
     const businessName = normalizeName(data.businessName);
 
+    const expirationDays = normalizeExpirationDays(data.expirationDays);
+    const expiresAt = makeDropoffExpiresAt(expirationDays);
+
+
     if (!firstName || !lastName) {
       throw new HttpsError("invalid-argument", "First and last name required.");
     }
@@ -2317,6 +2371,9 @@ exports.createDropoffRequest = onCall(
 
       message: message || "",
       status: "open",
+      expirationDays,
+      expiresAt,
+      expiredAt: null,
       tokenHash,
       url,
       lastViewedAt: null,
@@ -2356,7 +2413,12 @@ exports.validateDropoffLink = onCall({ region: "us-central1" }, async (request) 
   const businessName = (doc.businessName || "").toString().trim();
   const clientEmail = (doc.clientEmail || "").toString().trim();
   const message = (doc.message || "").toString();
-  const status = (doc.status || "open").toString();
+  let status = (doc.status || "open").toString();
+
+  if (status === "open" && dropoffExpired(doc)) {
+    await markDropoffExpired(ref);
+    status = "expired";
+  }
 
   const createdByUid = (doc.createdByUid || "").toString().trim();
   const createdByEmail = (doc.createdByEmail || "").toString().trim();
@@ -2386,6 +2448,9 @@ exports.validateDropoffLink = onCall({ region: "us-central1" }, async (request) 
     clientName: clamp(clientName, 120),
     message: clamp(message, 4000),
     status: clamp(status, 20),
+
+    expiresAtMillis: doc.expiresAt?.toMillis?.() ?? null,
+
 
     // ✅ NEW (what your UI needs)
     businessName: clamp(businessName, 160),
@@ -3182,9 +3247,13 @@ exports.setDropoffStatus = onCall(
     const requestId = (data?.requestId || "").toString().trim();
     const status = (data?.status || "").toString().toLowerCase().trim();
     if (!requestId) throw new HttpsError("invalid-argument", "requestId required.");
-    if (!["open", "closed"].includes(status)) {
-      throw new HttpsError("invalid-argument", "status must be 'open' or 'closed'");
+    if (!["open", "closed", "expired"].includes(status)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "status must be 'open', 'closed', or 'expired'"
+      );
     }
+
 
     const ref = admin.firestore().collection("dropoff_requests").doc(requestId);
     const snap = await ref.get();
@@ -3202,14 +3271,20 @@ exports.setDropoffStatus = onCall(
       throw new HttpsError("permission-denied", "Not allowed to update this request.");
     }
 
-    await ref.set(
-      {
-        status,
-        statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        statusUpdatedBy: auth.uid,
-      },
-      { merge: true }
-    );
+    const update = {
+      status,
+      statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      statusUpdatedBy: auth.uid,
+    };
+
+    if (status === "open") {
+      const expirationDays = normalizeExpirationDays(data?.expirationDays);
+      update.expirationDays = expirationDays;
+      update.expiresAt = makeDropoffExpiresAt(expirationDays);
+      update.expiredAt = null;
+    }
+
+    await ref.set(update, { merge: true });
 
     return { ok: true, requestId, status };
   }

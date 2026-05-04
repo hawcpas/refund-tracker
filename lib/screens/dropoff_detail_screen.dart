@@ -393,6 +393,11 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                       ? formatDateTimeCompact(createdAt.toDate())
                       : '';
 
+                  final expiresAt = reqData['expiresAt'];
+                  final expiresText = expiresAt is Timestamp
+                      ? formatDateTimeCompact(expiresAt.toDate())
+                      : '';
+
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -454,6 +459,13 @@ class _DropoffDetailScreenState extends State<DropoffDetailScreen> {
                               _KeyValueRow(
                                 label: 'Created',
                                 value: createdText,
+                              ),
+                            if (expiresText.isNotEmpty)
+                              _KeyValueRow(
+                                label: status == 'expired'
+                                    ? 'Expired'
+                                    : 'Expires',
+                                value: expiresText,
                               ),
                             if (createdByUid.isNotEmpty)
                               FutureBuilder<String>(

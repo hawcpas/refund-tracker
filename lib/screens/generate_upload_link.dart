@@ -449,6 +449,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final businessCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    int expirationDays = 14;
+
     bool triedSubmit = false; // controls when errors appear
 
     String? selectedTemplateId;
@@ -533,6 +535,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               'clientEmail': email,
               'businessName': business,
               'message': message,
+              'expirationDays': expirationDays,
             });
 
             final data = Map<String, dynamic>.from(res.data as Map);
@@ -1014,6 +1017,45 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                             },
                                       ),
                                     ],
+                                  ),
+
+                                  const SizedBox(height: 10),
+
+                                  const _FieldHeader('Link expiration'),
+                                  DropdownButtonFormField<int>(
+                                    value: expirationDays,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Choose expiration',
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 7,
+                                        child: Text('7 days'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 14,
+                                        child: Text('14 days'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 30,
+                                        child: Text('30 days'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 60,
+                                        child: Text('60 days'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 90,
+                                        child: Text('90 days'),
+                                      ),
+                                    ],
+                                    onChanged: submitting
+                                        ? null
+                                        : (v) {
+                                            if (v == null) return;
+                                            expirationDays = v;
+                                            setLocalState(() {});
+                                          },
                                   ),
 
                                   const SizedBox(height: 14),
@@ -1592,7 +1634,7 @@ class _RequestsListState extends State<_RequestsList> {
         : widget.db
               .collection('dropoff_requests')
               .where('createdByUid', isEqualTo: uid)
-              .where('status', whereIn: ['open', 'closed'])
+              .where('status', whereIn: ['open', 'closed', 'expired'])
               .orderBy('createdAt', descending: true)
               .limit(100);
 
@@ -2037,6 +2079,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
 
     final statusLower = widget.status.toLowerCase().trim();
     final isOpen = statusLower == 'open';
+    final isExpired = statusLower == 'expired';
 
     final isArchived = widget.archived;
 
@@ -2174,7 +2217,11 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                     width: 34,
                     height: 34,
                   ),
-                  onPressed: (widget.busy || isArchived || widget.url.isEmpty)
+                  onPressed:
+                      (widget.busy ||
+                          isArchived ||
+                          isExpired ||
+                          widget.url.isEmpty)
                       ? null
                       : () async {
                           await Clipboard.setData(
