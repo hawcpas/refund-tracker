@@ -58,15 +58,14 @@ class GenerateUploadLinkScreen extends StatefulWidget {
 class _FieldHeader extends StatelessWidget {
   final String label;
   final String? helper;
+  final bool required;
 
-  const _FieldHeader(this.label, {this.helper});
+  const _FieldHeader(this.label, {this.helper, this.required = false});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final appTheme = theme.extension<AppTheme>()!;
 
-    // Compact typography (enterprise density)
     final labelStyle = theme.textTheme.labelMedium?.copyWith(
       fontWeight: FontWeight.w800,
       fontSize: 12.5,
@@ -86,7 +85,22 @@ class _FieldHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: labelStyle),
+          RichText(
+            text: TextSpan(
+              style: labelStyle,
+              children: [
+                TextSpan(text: label),
+                if (required)
+                  const TextSpan(
+                    text: ' *',
+                    style: TextStyle(
+                      color: Color(0xFFD92D20),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+              ],
+            ),
+          ),
           if (helper != null && helper!.trim().isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(helper!, style: helperStyle),
@@ -449,7 +463,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final businessCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    int expirationDays = 14;
+    int expirationHours = 14 * 24;
 
     bool triedSubmit = false; // controls when errors appear
 
@@ -475,6 +489,24 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
           ),
         );
 
+        String expirationLabel(int hours) {
+          if (hours < 24) return '$hours hours';
+          final days = hours ~/ 24;
+          return days == 1 ? '1 day' : '$days days';
+        }
+
+        final expirationOptions = <int>[
+          2,
+          4,
+          12,
+          24,
+          7 * 24,
+          14 * 24,
+          30 * 24,
+          60 * 24,
+          90 * 24,
+        ];
+
         String _resolveClientFirstName({
           required TextEditingController firstCtrl,
         }) {
@@ -483,6 +515,12 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         }
 
         Future<void> submit(StateSetter setLocalState) async {
+          setLocalState(() => triedSubmit = true);
+
+          if (!(formKey.currentState?.validate() ?? false)) {
+            return;
+          }
+
           final first = firstCtrl.text.trim();
           final last = lastCtrl.text.trim();
           final email = emailCtrl.text.trim().toLowerCase();
@@ -501,26 +539,6 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
             clientFirstName: clientFirstName,
           );
 
-          if (first.isEmpty || last.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('First and last name are required.'),
-              ),
-            );
-            return;
-          }
-
-          if (email.isNotEmpty && !email.contains('@')) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Enter a valid client email (or leave it blank).',
-                ),
-              ),
-            );
-            return;
-          }
-
           setLocalState(() => submitting = true);
           setState(() => _busy = true);
 
@@ -535,20 +553,39 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               'clientEmail': email,
               'businessName': business,
               'message': message,
-              'expirationDays': expirationDays,
+              'expirationHours': expirationHours,
             });
 
             final data = Map<String, dynamic>.from(res.data as Map);
-            final requestId = (data['requestId'] ?? '').toString().trim();
             final url = (data['url'] ?? '').toString().trim();
             final urlController = TextEditingController(text: url);
 
             Future<void> _showShareLinkDialog(
               BuildContext context,
-              String url,
-            ) async {
+              String url, {
+              required String clientName,
+              required int expirationHours,
+            }) async {
               final theme = Theme.of(context);
               final appTheme = theme.extension<AppTheme>()!;
+              final urlController = TextEditingController(text: url);
+
+              String expirationLabel(int hours) {
+                if (hours < 24) return '$hours hours';
+                final days = hours ~/ 24;
+                return days == 1 ? '1 day' : '$days days';
+              }
+
+              Future<void> copyLink(BuildContext ctx) async {
+                await Clipboard.setData(ClipboardData(text: url));
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('Request link copied.'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
 
               await showDialog<void>(
                 context: context,
@@ -563,24 +600,59 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                       vertical: 24,
                     ),
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 520),
+                      constraints: const BoxConstraints(maxWidth: 560),
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Header
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFECFDF3),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: const Color(0xFFABEFC6),
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.check,
+                                    size: 20,
+                                    color: Color(0xFF067647),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: Text(
-                                    'Share this link with your client',
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w900,
-                                          color: const Color(0xFF101828),
-                                        ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Request link created',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w900,
+                                              color: const Color(0xFF101828),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        clientName.trim().isEmpty
+                                            ? 'Share this secure upload link with your client.'
+                                            : 'Share this secure upload link with $clientName.',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: const Color(0xFF667085),
+                                              fontWeight: FontWeight.w600,
+                                              height: 1.25,
+                                            ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 IconButton(
@@ -591,22 +663,46 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                               ],
                             ),
 
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 16),
 
-                            Text(
-                              'Anyone with this link can upload files securely.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF667085),
-                                fontWeight: FontWeight.w600,
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9FAFB),
+                                border: Border.all(color: appTheme.divider),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.lock_outline,
+                                    size: 18,
+                                    color: Color(0xFF475467),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'This link expires in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF475467),
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.25,
+                                          ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
 
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 14),
 
-                            // Link box (fixed width, truncated like Dropbox)
                             Row(
                               children: [
-                                // ✅ URL field (single rectangle only)
                                 Expanded(
                                   child: Container(
                                     height: 44,
@@ -619,88 +715,63 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         color: appTheme.divider,
                                       ),
                                       borderRadius: BorderRadius.circular(10),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.03),
-                                          blurRadius: 2,
-                                          offset: const Offset(0, 1),
-                                        ),
-                                      ],
                                     ),
                                     alignment: Alignment.centerLeft,
-                                    child: Focus(
-                                      onFocusChange: (hasFocus) {
-                                        if (hasFocus) {
-                                          urlController.selection =
-                                              TextSelection(
-                                                baseOffset: 0,
-                                                extentOffset:
-                                                    urlController.text.length,
-                                              );
-                                        }
-                                      },
-                                      child: TextField(
-                                        controller: urlController,
-                                        readOnly: true,
-                                        maxLines: 1,
-                                        enableInteractiveSelection: true,
-                                        showCursor: false,
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w600,
-                                              color: const Color(0xFF101828),
-                                            ),
-                                        decoration: const InputDecoration(
-                                          isDense: true,
-                                          border: InputBorder.none,
-                                          contentPadding: EdgeInsets.zero,
-                                        ),
+                                    child: TextField(
+                                      controller: urlController,
+                                      readOnly: true,
+                                      maxLines: 1,
+                                      enableInteractiveSelection: true,
+                                      showCursor: false,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: const Color(0xFF101828),
+                                          ),
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        border: InputBorder.none,
+                                        contentPadding: EdgeInsets.zero,
                                       ),
+                                      onTap: () {
+                                        urlController.selection = TextSelection(
+                                          baseOffset: 0,
+                                          extentOffset:
+                                              urlController.text.length,
+                                        );
+                                      },
                                     ),
                                   ),
                                 ),
-
                                 const SizedBox(width: 10),
-
-                                // ✅ Copy button OUTSIDE the rectangle
                                 SizedBox(
                                   height: 44,
-                                  child: OutlinedButton(
-                                    onPressed: () async {
-                                      await Clipboard.setData(
-                                        ClipboardData(text: url),
-                                      );
-                                      if (!ctx.mounted) return;
-                                      ScaffoldMessenger.of(ctx).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Link copied to clipboard',
-                                          ),
-                                          duration: Duration(seconds: 2),
-                                        ),
-                                      );
-                                    },
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => copyLink(ctx),
+                                    icon: const Icon(Icons.copy, size: 16),
+                                    label: const Text('Copy'),
                                     style: OutlinedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
+                                        horizontal: 14,
+                                      ),
+                                      side: BorderSide(color: appTheme.divider),
+                                      foregroundColor: const Color(0xFF344054),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w800,
                                       ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(10),
                                       ),
-                                      side: BorderSide(color: appTheme.divider),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
                                     ),
-                                    child: const Text('Copy'),
                                   ),
                                 ),
                               ],
                             ),
 
                             const SizedBox(height: 18),
+                            Divider(color: appTheme.divider, height: 1),
+                            const SizedBox(height: 12),
 
-                            // Footer
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton(
@@ -715,13 +786,20 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                   );
                 },
               );
+
+              urlController.dispose();
             }
 
             if (!mounted) return;
             Navigator.pop(ctx);
 
             if (url.isNotEmpty) {
-              await _showShareLinkDialog(context, url);
+              await _showShareLinkDialog(
+                context,
+                url,
+                clientName: clientName,
+                expirationHours: expirationHours,
+              );
             }
           } on FirebaseFunctionsException catch (e) {
             if (!mounted) return;
@@ -747,6 +825,59 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 firstCtrl.text.trim().isNotEmpty &&
                 lastCtrl.text.trim().isNotEmpty &&
                 !submitting;
+
+            Widget expiryChip(int hours) {
+              final selected = expirationHours == hours;
+
+              return ChoiceChip(
+                label: Text(expirationLabel(hours)),
+                selected: selected,
+                showCheckmark: false,
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                onSelected: submitting
+                    ? null
+                    : (_) {
+                        expirationHours = hours;
+                        setLocalState(() {});
+                      },
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: selected ? Colors.white : const Color(0xFF344054),
+                ),
+                selectedColor: AppColors.brandBlue,
+                backgroundColor: const Color(0xFFF9FAFB),
+                side: BorderSide(
+                  color: selected ? AppColors.brandBlue : appTheme.divider,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              );
+            }
+
+            Widget expiryGroup(String label, List<int> values) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: values.map(expiryChip).toList(),
+                  ),
+                ],
+              );
+            }
+
             return Theme(
               data: theme.copyWith(
                 // Compact text inside the dialog only
@@ -803,16 +934,32 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                       children: [
                         // Header row with close "X"
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: Text(
-                                'Create new request',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 16,
-                                  color: const Color(0xFF101828),
-                                  height: 1.1,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Create request link',
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 16,
+                                          color: const Color(0xFF101828),
+                                          height: 1.1,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Create a secure upload link for a client. Required fields are marked with *.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF667085),
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             IconButton(
@@ -824,6 +971,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                             ),
                           ],
                         ),
+
                         const SizedBox(height: 12),
                         Divider(
                           color: appTheme.divider, // ✅ app theme divider token
@@ -843,6 +991,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  sectionLabel('Client'),
+                                  const SizedBox(height: 4),
+
                                   Row(
                                     children: [
                                       Expanded(
@@ -852,7 +1003,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                           children: [
                                             const _FieldHeader(
                                               'Client first name',
+                                              required: true,
                                             ),
+
                                             TextFormField(
                                               controller: firstCtrl,
                                               textInputAction:
@@ -880,7 +1033,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                           children: [
                                             const _FieldHeader(
                                               'Client last name',
+                                              required: true,
                                             ),
+
                                             TextFormField(
                                               controller: lastCtrl,
                                               textInputAction:
@@ -987,75 +1142,74 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                           emailCtrl.text = v;
                                           FocusScope.of(ctx).nextFocus();
                                         },
-                                        fieldViewBuilder:
-                                            (_, ctrl, focusNode, __) {
-                                              ctrl.addListener(
-                                                () =>
-                                                    emailCtrl.text = ctrl.text,
-                                              );
-                                              if (ctrl.text != emailCtrl.text) {
-                                                ctrl.text = emailCtrl.text;
-                                                ctrl.selection =
-                                                    TextSelection.collapsed(
-                                                      offset: ctrl.text.length,
-                                                    );
-                                              }
-                                              return TextField(
-                                                controller: ctrl,
-                                                focusNode: focusNode,
-                                                keyboardType:
-                                                    TextInputType.emailAddress,
-                                                textInputAction:
-                                                    TextInputAction.next,
-                                                enabled: !submitting,
-                                                decoration:
-                                                    const InputDecoration(
-                                                      hintText:
-                                                          'name@domain.com',
-                                                    ),
-                                              );
+                                        fieldViewBuilder: (_, ctrl, focusNode, __) {
+                                          ctrl.addListener(
+                                            () => emailCtrl.text = ctrl.text,
+                                          );
+                                          if (ctrl.text != emailCtrl.text) {
+                                            ctrl.text = emailCtrl.text;
+                                            ctrl.selection =
+                                                TextSelection.collapsed(
+                                                  offset: ctrl.text.length,
+                                                );
+                                          }
+                                          return TextFormField(
+                                            controller: ctrl,
+                                            focusNode: focusNode,
+                                            keyboardType:
+                                                TextInputType.emailAddress,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            enabled: !submitting,
+                                            decoration: const InputDecoration(
+                                              hintText: 'name@domain.com',
+                                            ),
+                                            validator: (v) {
+                                              final email = (v ?? '').trim();
+                                              if (email.isEmpty) return null;
+                                              final ok = RegExp(
+                                                r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                                              ).hasMatch(email);
+                                              if (!ok)
+                                                return 'Enter a valid email address.';
+                                              return null;
                                             },
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),
 
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 14),
+                                  Divider(color: appTheme.divider),
+                                  const SizedBox(height: 12),
+                                  sectionLabel('Security'),
 
-                                  const _FieldHeader('Link expiration'),
-                                  DropdownButtonFormField<int>(
-                                    value: expirationDays,
-                                    decoration: const InputDecoration(
-                                      hintText: 'Choose expiration',
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(
-                                        value: 7,
-                                        child: Text('7 days'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 14,
-                                        child: Text('14 days'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 30,
-                                        child: Text('30 days'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 60,
-                                        child: Text('60 days'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 90,
-                                        child: Text('90 days'),
-                                      ),
+                                  const _FieldHeader(
+                                    'Link expiration',
+                                    helper:
+                                        'The upload link automatically stops accepting files after this period.',
+                                  ),
+
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      expiryGroup('Short term', const [
+                                        2,
+                                        4,
+                                        12,
+                                        24,
+                                      ]),
+                                      const SizedBox(height: 10),
+                                      expiryGroup('Standard', const [
+                                        7 * 24,
+                                        14 * 24,
+                                        30 * 24,
+                                        60 * 24,
+                                        90 * 24,
+                                      ]),
                                     ],
-                                    onChanged: submitting
-                                        ? null
-                                        : (v) {
-                                            if (v == null) return;
-                                            expirationDays = v;
-                                            setLocalState(() {});
-                                          },
                                   ),
 
                                   const SizedBox(height: 14),
@@ -1174,10 +1328,42 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                         ),
 
                         const SizedBox(height: 16),
-                        Divider(
-                          color: appTheme.divider, // ✅ app theme divider token
-                          height: 1,
+
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            border: Border.all(color: appTheme.divider),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.verified_user_outlined,
+                                size: 18,
+                                color: Color(0xFF475467),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'This link will expire in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF475467),
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
+
+                        const SizedBox(height: 16),
+                        Divider(color: appTheme.divider, height: 1),
                         const SizedBox(height: 12),
 
                         // Actions
@@ -1214,7 +1400,16 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                child: const Text('Create'),
+                                child: submitting
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text('Create link'),
                               ),
                             ),
                           ],
@@ -2265,9 +2460,15 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           final confirm = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
-                              title: const Text('Delete upload link'),
-                              content: const Text(
-                                'This will permanently remove the upload link and all associated uploads.',
+                              title: Text(
+                                isArchived
+                                    ? 'Permanently delete upload link'
+                                    : 'Delete upload link',
+                              ),
+                              content: Text(
+                                isArchived
+                                    ? 'This will permanently delete this archived upload link and its upload history. This action cannot be undone.'
+                                    : 'This will archive the upload link and prevent clients from using it. Existing upload history will remain available.',
                               ),
                               actions: [
                                 TextButton(
@@ -2275,20 +2476,16 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                                   child: const Text('Cancel'),
                                 ),
                                 FilledButton(
-                                  onPressed: () {
-                                    if (Navigator.of(context).canPop()) {
-                                      Navigator.pop(context);
-                                    } else {
-                                      Navigator.of(
-                                        context,
-                                      ).pushNamedAndRemoveUntil(
-                                        '/generate-upload-link',
-                                        (route) => false,
-                                      );
-                                    }
-                                  },
-
-                                  child: const Text('Back to request links'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFFB42318),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: Text(
+                                    isArchived
+                                        ? 'Delete permanently'
+                                        : 'Delete link',
+                                  ),
                                 ),
                               ],
                             ),
@@ -2296,7 +2493,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
 
                           if (confirm != true) return;
 
-                          // If already archived → permanently delete, else archive
+                          // If already archived -> permanently delete, else archive
                           await widget.onDelete(isArchived);
                           return;
                         }
