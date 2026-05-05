@@ -515,20 +515,32 @@ function isValidHttpUrl(url) {
   );
 }
 
-const DEFAULT_DROPOFF_EXPIRATION_DAYS = 14;
-const MAX_DROPOFF_EXPIRATION_DAYS = 90;
+const DEFAULT_DROPOFF_EXPIRATION_HOURS = 14 * 24;
+const MAX_DROPOFF_EXPIRATION_HOURS = 90 * 24;
+const MIN_DROPOFF_EXPIRATION_HOURS = 1;
 
-function normalizeExpirationDays(value) {
-  const n = Number(value || DEFAULT_DROPOFF_EXPIRATION_DAYS);
-  if (!Number.isFinite(n)) return DEFAULT_DROPOFF_EXPIRATION_DAYS;
-  return Math.max(1, Math.min(MAX_DROPOFF_EXPIRATION_DAYS, Math.floor(n)));
-}
+function normalizeExpirationHours(value, legacyDaysValue) {
+  const raw =
+    value != null
+      ? Number(value)
+      : legacyDaysValue != null
+        ? Number(legacyDaysValue) * 24
+        : DEFAULT_DROPOFF_EXPIRATION_HOURS;
 
-function makeDropoffExpiresAt(days) {
-  return admin.firestore.Timestamp.fromMillis(
-    Date.now() + days * 24 * 60 * 60 * 1000
+  if (!Number.isFinite(raw)) return DEFAULT_DROPOFF_EXPIRATION_HOURS;
+
+  return Math.max(
+    MIN_DROPOFF_EXPIRATION_HOURS,
+    Math.min(MAX_DROPOFF_EXPIRATION_HOURS, Math.floor(raw))
   );
 }
+
+function makeDropoffExpiresAtFromHours(hours) {
+  return admin.firestore.Timestamp.fromMillis(
+    Date.now() + hours * 60 * 60 * 1000
+  );
+}
+
 
 function dropoffExpired(doc) {
   const expiresAt = doc.expiresAt;
@@ -2336,9 +2348,11 @@ exports.createDropoffRequest = onCall(
     const clientEmail = normalizeEmail(data.clientEmail);
     const businessName = normalizeName(data.businessName);
 
-    const expirationDays = normalizeExpirationDays(data.expirationDays);
-    const expiresAt = makeDropoffExpiresAt(expirationDays);
-
+    const expirationHours = normalizeExpirationHours(
+      data.expirationHours,
+      data.expirationDays
+    );
+    const expiresAt = makeDropoffExpiresAtFromHours(expirationHours);
 
     if (!firstName || !lastName) {
       throw new HttpsError("invalid-argument", "First and last name required.");
@@ -2374,7 +2388,8 @@ exports.createDropoffRequest = onCall(
 
       message: message || "",
       status: "open",
-      expirationDays,
+      expirationHours,
+      expirationDays: Math.ceil(expirationHours / 24),
       expiresAt,
       expiredAt: null,
       tokenHash,
@@ -3281,9 +3296,13 @@ exports.setDropoffStatus = onCall(
     };
 
     if (status === "open") {
-      const expirationDays = normalizeExpirationDays(data?.expirationDays);
-      update.expirationDays = expirationDays;
-      update.expiresAt = makeDropoffExpiresAt(expirationDays);
+      const expirationHours = normalizeExpirationHours(
+        data?.expirationHours,
+        data?.expirationDays
+      );
+      update.expirationHours = expirationHours;
+      update.expirationDays = Math.ceil(expirationHours / 24);
+      update.expiresAt = makeDropoffExpiresAtFromHours(expirationHours);
       update.expiredAt = null;
     }
 
