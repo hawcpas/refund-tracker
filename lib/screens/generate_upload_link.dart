@@ -78,6 +78,8 @@ enum _DropoffSortField {
 
 enum _LinksView { active, archived }
 
+enum _RequestStatusFilter { all, open, expiringSoon, expired, closed }
+
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
   final VoidCallback? onCreate;
@@ -1630,6 +1632,7 @@ class _RequestsListState extends State<_RequestsList> {
   // Sorting (local sort to avoid new indexes)
   _DropoffSortField _sortField = _DropoffSortField.createdAt;
   bool _sortAsc = false;
+  _RequestStatusFilter _statusFilter = _RequestStatusFilter.all;
 
   @override
   void dispose() {
@@ -1674,6 +1677,33 @@ class _RequestsListState extends State<_RequestsList> {
   DateTime? _asDate(dynamic v) {
     if (v is Timestamp) return v.toDate();
     return null;
+  }
+
+  bool _rowIsExpired(_DropoffRowModel row) {
+    final status = row.status.toLowerCase().trim();
+    return status == 'expired' ||
+        (row.expiresAt != null && row.expiresAt!.isBefore(DateTime.now()));
+  }
+
+  bool _rowIsOpen(_DropoffRowModel row) {
+    return row.status.toLowerCase().trim() == 'open' && !_rowIsExpired(row);
+  }
+
+  bool _matchesStatusFilter(_DropoffRowModel row, _RequestStatusFilter filter) {
+    final status = row.status.toLowerCase().trim();
+
+    switch (filter) {
+      case _RequestStatusFilter.all:
+        return true;
+      case _RequestStatusFilter.open:
+        return _rowIsOpen(row);
+      case _RequestStatusFilter.expiringSoon:
+        return _rowIsOpen(row) && isExpiringSoon(row.expiresAt);
+      case _RequestStatusFilter.expired:
+        return _rowIsExpired(row);
+      case _RequestStatusFilter.closed:
+        return status == 'closed';
+    }
   }
 
   Widget _searchField() {
@@ -1829,6 +1859,72 @@ class _RequestsListState extends State<_RequestsList> {
     return SizedBox(height: 36, width: double.infinity, child: _searchField());
   }
 
+  Widget _statusFilterBar(ThemeData theme, List<_DropoffRowModel> rows) {
+    int countFor(_RequestStatusFilter filter) =>
+        rows.where((r) => _matchesStatusFilter(r, filter)).length;
+
+    Widget chip(_RequestStatusFilter filter, String label, IconData icon) {
+      final selected = _statusFilter == filter;
+      final count = countFor(filter);
+
+      return ChoiceChip(
+        selected: selected,
+        showCheckmark: false,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        avatar: Icon(
+          icon,
+          size: 15,
+          color: selected ? AppColors.brandBlue : const Color(0xFF667085),
+        ),
+        label: Text('$label $count'),
+        labelStyle: theme.textTheme.labelSmall?.copyWith(
+          color: selected ? AppColors.brandBlue : const Color(0xFF344054),
+          fontWeight: FontWeight.w900,
+        ),
+        selectedColor: const Color(0xFFEFF6FF),
+        backgroundColor: const Color(0xFFF9FAFB),
+        side: BorderSide(
+          color: selected ? const Color(0xFFB2DDFF) : const Color(0xFFE4E7EC),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        onSelected: (_) {
+          setState(() {
+            _statusFilter = filter;
+            _selected.clear();
+          });
+        },
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          chip(
+            _RequestStatusFilter.all,
+            'All active',
+            Icons.view_list_outlined,
+          ),
+          chip(_RequestStatusFilter.open, 'Open', Icons.link_outlined),
+          chip(
+            _RequestStatusFilter.expiringSoon,
+            'Expiring soon',
+            Icons.schedule_outlined,
+          ),
+          chip(
+            _RequestStatusFilter.expired,
+            'Expired',
+            Icons.timer_off_outlined,
+          ),
+          chip(_RequestStatusFilter.closed, 'Closed', Icons.lock_outline),
+        ],
+      ),
+    );
+  }
+
   Widget _buildToolbar(ThemeData theme, bool isMobile) {
     final hasSelection = _selected.isNotEmpty;
 
@@ -1939,6 +2035,7 @@ class _RequestsListState extends State<_RequestsList> {
                           widget.onViewChanged(_LinksView.active);
                           setState(() {
                             _selected.clear();
+                            _statusFilter = _RequestStatusFilter.all;
                             _q = '';
                             _searchCtrl.clear();
                           });
@@ -1952,6 +2049,7 @@ class _RequestsListState extends State<_RequestsList> {
                           widget.onViewChanged(_LinksView.archived);
                           setState(() {
                             _selected.clear();
+                            _statusFilter = _RequestStatusFilter.all;
                             _q = '';
                             _searchCtrl.clear();
                           });
@@ -1994,8 +2092,8 @@ class _RequestsListState extends State<_RequestsList> {
 
                 final allDocs = snap.data!.docs;
 
-                // Filter
-                final docs = _q.isEmpty
+                // Search first, then apply the operational status filter below.
+                final searchedDocs = _q.isEmpty
                     ? allDocs
                     : allDocs.where((doc) {
                         final data = doc.data();
@@ -2016,25 +2114,13 @@ class _RequestsListState extends State<_RequestsList> {
                             id.contains(_q);
                       }).toList();
 
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Text(
-                      _q.isEmpty
-                          ? 'No request links yet.'
-                          : 'No results found.',
-                      style: const TextStyle(color: Color(0xFF667085)),
-                    ),
-                  );
-                }
-
                 // Normalize rows
-                final rows = docs.map((d) {
+                final baseRows = searchedDocs.map((d) {
                   final data = d.data();
                   final email = (data['clientEmail'] ?? '').toString();
                   final name = (data['clientName'] ?? '').toString();
                   final url = (data['url'] ?? '').toString();
                   final status = (data['status'] ?? 'open').toString();
-                  final isArchived = status.toLowerCase().trim() == 'deleted';
                   final businessName = (data['businessName'] ?? '').toString();
 
                   final fileCount = (data['fileCount'] is num)
@@ -2062,6 +2148,49 @@ class _RequestsListState extends State<_RequestsList> {
                     expiresAt: expiresAt,
                   );
                 }).toList();
+
+                final rows = isArchivedView
+                    ? baseRows
+                    : baseRows
+                          .where((r) => _matchesStatusFilter(r, _statusFilter))
+                          .toList();
+
+                if (rows.isEmpty) {
+                  String emptyText;
+                  if (_q.isNotEmpty) {
+                    emptyText = 'No results found.';
+                  } else if (!isArchivedView &&
+                      _statusFilter == _RequestStatusFilter.expiringSoon) {
+                    emptyText = 'No links are expiring soon.';
+                  } else if (!isArchivedView &&
+                      _statusFilter == _RequestStatusFilter.expired) {
+                    emptyText = 'No expired links.';
+                  } else if (!isArchivedView &&
+                      _statusFilter == _RequestStatusFilter.closed) {
+                    emptyText = 'No closed links.';
+                  } else {
+                    emptyText = isArchivedView
+                        ? 'No archived links.'
+                        : 'No request links yet.';
+                  }
+
+                  return Column(
+                    children: [
+                      if (!isArchivedView) ...[
+                        _statusFilterBar(theme, baseRows),
+                        const SizedBox(height: 10),
+                      ],
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            emptyText,
+                            style: const TextStyle(color: Color(0xFF667085)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
 
                 // Sort (local)
                 int cmpString(String a, String b) =>
@@ -2103,6 +2232,10 @@ class _RequestsListState extends State<_RequestsList> {
                 // Header line: Select all (enterprise)
                 return Column(
                   children: [
+                    if (!isArchivedView) ...[
+                      _statusFilterBar(theme, baseRows),
+                      const SizedBox(height: 10),
+                    ],
                     Container(
                       height: 42,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -2230,9 +2363,6 @@ class _RequestsListState extends State<_RequestsList> {
                               });
                             },
                             onTap: () => widget.onSelect(r.id),
-                            statusColor: _statusAccent(
-                              r.status.toLowerCase().trim(),
-                            ),
                             title: r.title,
                             email: r.email,
                             businessName: r.businessName,
@@ -2309,7 +2439,6 @@ class _DenseRequestRow extends StatefulWidget {
   final ValueChanged<bool> onSelected;
 
   final VoidCallback onTap;
-  final Color statusColor;
   final String title;
   final String email;
   final String businessName;
@@ -2332,7 +2461,6 @@ class _DenseRequestRow extends StatefulWidget {
     required this.selected,
     required this.onSelected,
     required this.onTap,
-    required this.statusColor,
     required this.title,
     required this.email,
     required this.businessName,
@@ -2402,16 +2530,8 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                 ),
                 const SizedBox(width: 12),
 
-                // Status dot
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: widget.statusColor,
-                  ),
-                ),
-                const SizedBox(width: 10),
+                _StatusPill(status: widget.status),
+                const SizedBox(width: 12),
 
                 // Client name + email (mobile-friendly)
                 Expanded(
@@ -2489,20 +2609,15 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          expirationStatusLabel(
-                            status: widget.status,
-                            expiresAt: widget.expiresAt,
-                          ),
+                          widget.expiresAt == null
+                              ? '—'
+                              : formatDateTimeCompact(widget.expiresAt!),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.right,
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: isExpired
-                                ? const Color(0xFFB42318)
-                                : isExpiringSoon(widget.expiresAt)
-                                ? const Color(0xFFB54708)
-                                : const Color(0xFF667085),
-                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -2512,9 +2627,8 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.right,
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: isExpired
-                                ? const Color(0xFFB42318)
-                                : isExpiringSoon(widget.expiresAt)
+                            color:
+                                !isExpired && isExpiringSoon(widget.expiresAt)
                                 ? const Color(0xFFB54708)
                                 : const Color(0xFF98A2B3),
                             fontWeight: FontWeight.w700,
@@ -2847,57 +2961,68 @@ class _StatusPill extends StatelessWidget {
     final s = status.toLowerCase().trim();
     Color bg;
     Color fg;
+    Color border;
     String label;
 
     switch (s) {
       case 'open':
-        bg = Colors.green.withOpacity(0.12);
-        fg = Colors.green.shade800;
+        bg = const Color(0xFFF0FDF4);
+        fg = const Color(0xFF067647);
+        border = const Color(0xFFBBF7D0);
         label = 'Open';
         break;
       case 'closed':
-        bg = Colors.red.withOpacity(0.14);
-        fg = Colors.red.shade800;
+        bg = const Color(0xFFF2F4F7);
+        fg = const Color(0xFF475467);
+        border = const Color(0xFFD0D5DD);
         label = 'Closed';
         break;
       case 'expired':
-        bg = Colors.red.withOpacity(0.20);
-        fg = const Color.fromARGB(255, 128, 10, 10);
+        bg = const Color(0xFFFFF1F3);
+        fg = const Color(0xFFB42318);
+        border = const Color(0xFFFECDD6);
         label = 'Expired';
         break;
+      case 'deleted':
+        bg = const Color(0xFFF8F9FC);
+        fg = const Color(0xFF667085);
+        border = const Color(0xFFE4E7EC);
+        label = 'Archived';
+        break;
       default:
-        bg = Colors.amber.withOpacity(0.18);
-        fg = Colors.amber.shade900;
+        bg = const Color(0xFFFFFAEB);
+        fg = const Color(0xFFB54708);
+        border = const Color(0xFFFEDF89);
         label = status.isEmpty ? '—' : status;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      height: 22,
+      constraints: const BoxConstraints(minWidth: 54),
+      padding: const EdgeInsets.symmetric(horizontal: 7),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: fg.withOpacity(0.25)),
+        border: Border.all(color: border),
       ),
-      child: Text(
-        label,
-        style: TextStyle(color: fg, fontWeight: FontWeight.w900, fontSize: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w800,
+              fontSize: 10.5,
+              height: 1.0,
+            ),
+          ),
+        ],
       ),
     );
-  }
-}
-
-Color _statusAccent(String statusLower) {
-  switch (statusLower) {
-    case 'open':
-      return Colors.green.shade700;
-    case 'closed':
-      return Colors.red.shade700;
-    case 'deleted':
-      return Colors.grey.shade600; // ✅ archived
-    case 'expired':
-      return Colors.red.shade900;
-    default:
-      return Colors.amber.shade800;
   }
 }
 
