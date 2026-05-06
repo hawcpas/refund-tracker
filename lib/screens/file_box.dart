@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../widgets/page_scaffold.dart';
 import '../utils/file_kind.dart';
 
-enum _SortField { name, size, date }
+enum _SortField { name, client, size, date }
 
 enum _TypeFilter { all, pdf, doc, xls, img, txt, other }
 
@@ -105,23 +105,23 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
   }
 
   _TypeFilter _inferTypeFilter(String name, String contentType) {
-  final kind = detectFileKind(fileName: name, contentType: contentType);
+    final kind = detectFileKind(fileName: name, contentType: contentType);
 
-  switch (kind) {
-    case FileKind.pdf:
-      return _TypeFilter.pdf;
-    case FileKind.word:
-      return _TypeFilter.doc;
-    case FileKind.excel:
-      return _TypeFilter.xls;
-    case FileKind.image:
-      return _TypeFilter.img;
-    case FileKind.text:
-      return _TypeFilter.txt;
-    default:
-      return _TypeFilter.other;
+    switch (kind) {
+      case FileKind.pdf:
+        return _TypeFilter.pdf;
+      case FileKind.word:
+        return _TypeFilter.doc;
+      case FileKind.excel:
+        return _TypeFilter.xls;
+      case FileKind.image:
+        return _TypeFilter.img;
+      case FileKind.text:
+        return _TypeFilter.txt;
+      default:
+        return _TypeFilter.other;
+    }
   }
-}
 
   bool _passesDateFilter(DateTime? when) {
     if (_dateFilter == _DateFilter.all) return true;
@@ -466,26 +466,162 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
         _sortAsc = !_sortAsc;
       } else {
         _sortField = field;
-        _sortAsc = true;
+        _sortAsc = field != _SortField.date;
       }
       _visibleCount = _pageSize;
     });
   }
 
-  Widget _typeChip(String label, _TypeFilter value) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: _typeFilter == value,
-        onSelected: (_) {
+  void _applySearch(String value) {
+    setState(() {
+      _q = value.trim().toLowerCase();
+      _visibleCount = _pageSize;
+      _selected.clear();
+    });
+  }
+
+  String _typeLabel(_TypeFilter value) {
+    switch (value) {
+      case _TypeFilter.all:
+        return 'All';
+      case _TypeFilter.pdf:
+        return 'PDF';
+      case _TypeFilter.doc:
+        return 'Word';
+      case _TypeFilter.xls:
+        return 'Excel';
+      case _TypeFilter.img:
+        return 'Images';
+      case _TypeFilter.txt:
+        return 'Text';
+      case _TypeFilter.other:
+        return 'Other';
+    }
+  }
+
+  String _dateLabel(_DateFilter value) {
+    switch (value) {
+      case _DateFilter.all:
+        return 'Any date';
+      case _DateFilter.today:
+        return 'Today';
+      case _DateFilter.last7:
+        return '7 days';
+      case _DateFilter.last30:
+        return '30 days';
+    }
+  }
+
+  bool _dateMatches(DateTime? when, _DateFilter filter) {
+    if (filter == _DateFilter.all) return true;
+    if (when == null) return false;
+
+    final now = DateTime.now();
+    DateTime start;
+
+    switch (filter) {
+      case _DateFilter.today:
+        start = DateTime(now.year, now.month, now.day);
+        break;
+      case _DateFilter.last7:
+        start = now.subtract(const Duration(days: 7));
+        break;
+      case _DateFilter.last30:
+        start = now.subtract(const Duration(days: 30));
+        break;
+      case _DateFilter.all:
+        return true;
+    }
+    return when.isAfter(start);
+  }
+
+  Widget _filterChip({
+    required ThemeData theme,
+    required String label,
+    required int count,
+    required bool selected,
+    required VoidCallback onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text('$label $count'),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelStyle: theme.textTheme.labelSmall?.copyWith(
+        color: selected ? const Color(0xFF344054) : const Color(0xFF667085),
+        fontWeight: FontWeight.w800,
+      ),
+      selectedColor: Colors.white,
+      backgroundColor: const Color(0xFFF9FAFB),
+      side: BorderSide(
+        color: selected ? const Color(0xFFD0D5DD) : const Color(0xFFE4E7EC),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      onSelected: (_) => onSelected(),
+    );
+  }
+
+  Widget _filterBar(ThemeData theme, List<_UploadDoc> rows) {
+    int typeCount(_TypeFilter type) {
+      if (type == _TypeFilter.all) return rows.length;
+      return rows
+          .where((r) => _inferTypeFilter(r.originalName, r.contentType) == type)
+          .length;
+    }
+
+    int dateCount(_DateFilter date) =>
+        rows.where((r) => _dateMatches(r.when, date)).length;
+
+    Widget typeChip(_TypeFilter type) {
+      return _filterChip(
+        theme: theme,
+        label: _typeLabel(type),
+        count: typeCount(type),
+        selected: _typeFilter == type,
+        onSelected: () {
           setState(() {
-            _typeFilter = value;
+            _typeFilter = type;
             _visibleCount = _pageSize;
             _selected.clear();
           });
         },
-      ),
+      );
+    }
+
+    Widget dateChip(_DateFilter date) {
+      return _filterChip(
+        theme: theme,
+        label: _dateLabel(date),
+        count: dateCount(date),
+        selected: _dateFilter == date,
+        onSelected: () {
+          setState(() {
+            _dateFilter = date;
+            _visibleCount = _pageSize;
+            _selected.clear();
+          });
+        },
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        typeChip(_TypeFilter.all),
+        typeChip(_TypeFilter.pdf),
+        typeChip(_TypeFilter.doc),
+        typeChip(_TypeFilter.xls),
+        typeChip(_TypeFilter.img),
+        typeChip(_TypeFilter.txt),
+        typeChip(_TypeFilter.other),
+        const SizedBox(width: 6),
+        dateChip(_DateFilter.all),
+        dateChip(_DateFilter.today),
+        dateChip(_DateFilter.last7),
+        dateChip(_DateFilter.last30),
+      ],
     );
   }
 
@@ -531,6 +667,28 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
         .trim();
 
     final requestId = (m['requestId'] ?? '').toString().trim();
+    final lastActivityAt = _tsToDate(m['lastActivityAt']);
+    final lastActivityAction = (m['lastActivityAction'] ?? '')
+        .toString()
+        .trim();
+    final lastActivityActor = (m['lastActivityActorName'] ?? '')
+        .toString()
+        .trim();
+
+    String activityLabel(String action) {
+      switch (action.toLowerCase().trim()) {
+        case 'upload':
+          return 'Uploaded';
+        case 'view':
+          return 'Viewed';
+        case 'download':
+          return 'Downloaded';
+        case 'delete':
+          return 'Deleted';
+        default:
+          return action.trim().isEmpty ? '—' : action.trim();
+      }
+    }
 
     if (!mounted) return;
 
@@ -554,6 +712,21 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                   label: 'Uploaded',
                   value: uploadedAt == null ? '—' : _fmt(context, uploadedAt),
                 ),
+                _DetailRow(
+                  label: 'Request ID',
+                  value: requestId.isEmpty ? '—' : requestId,
+                ),
+                _DetailRow(
+                  label: 'Last activity',
+                  value: activityLabel(lastActivityAction),
+                ),
+                if (lastActivityAt != null)
+                  _DetailRow(
+                    label: 'Activity time',
+                    value: _fmt(context, lastActivityAt),
+                  ),
+                if (lastActivityActor.isNotEmpty)
+                  _DetailRow(label: 'Activity by', value: lastActivityActor),
                 const SizedBox(height: 12),
                 const Divider(height: 1),
                 const SizedBox(height: 12),
@@ -580,23 +753,6 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     );
   }
 
-  Widget _dateChip(String label, _DateFilter value) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: _dateFilter == value,
-        onSelected: (_) {
-          setState(() {
-            _dateFilter = value;
-            _visibleCount = _pageSize;
-            _selected.clear();
-          });
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -617,107 +773,76 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
       hideHeader: false,
       wrapInCard: false,
       scrollable: false,
+      maxContentWidth: 1400,
 
       // ✅ CRITICAL: give PageScaffold a flex child so it gets height
       child: Expanded(
-        child: Card(
-          margin: EdgeInsets.zero,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ===== Search =====
-                TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => setState(() {
-                    _q = v.toLowerCase();
-                    _visibleCount = _pageSize;
-                    _selected.clear();
-                  }),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search by file name, client name, or path…',
+                Container(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    border: Border.all(color: const Color(0xFFE4E7EC)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _applySearch,
+                    onSubmitted: _applySearch,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF344054),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      hintText:
+                          'Search files, clients, businesses, or request IDs',
+                      hintStyle: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFD0D5DD)),
+                      ),
+                      suffixIcon: _q.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                _applySearch('');
+                              },
+                            ),
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 10),
-
-                // ===== Filters =====
-                if (isMobile)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _typeChip('All', _TypeFilter.all),
-                        _typeChip('PDF', _TypeFilter.pdf),
-                        _typeChip('Word', _TypeFilter.doc),
-                        _typeChip('Excel', _TypeFilter.xls),
-                        _typeChip('Images', _TypeFilter.img),
-                        const SizedBox(width: 8),
-                        _dateChip('Today', _DateFilter.today),
-                        _dateChip('7d', _DateFilter.last7),
-                        _dateChip('30d', _DateFilter.last30),
-                      ],
-                    ),
-                  )
-                else
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      SizedBox(
-                        width: 260,
-                        child: DropdownButtonFormField<_TypeFilter>(
-                          value: _typeFilter,
-                          isDense: true,
-                          decoration: const InputDecoration(
-                            labelText: 'File type',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: _TypeFilter.all,
-                              child: Text('All types'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.pdf,
-                              child: Text('PDF'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.doc,
-                              child: Text('Word'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.xls,
-                              child: Text('Excel / CSV'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.img,
-                              child: Text('Images'),
-                            ),
-                            DropdownMenuItem(
-                              value: _TypeFilter.other,
-                              child: Text('Other'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() {
-                              _typeFilter = v;
-                              _visibleCount = _pageSize;
-                              _selected.clear();
-                            });
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
                 const SizedBox(height: 12),
-                const Divider(height: 1),
 
                 // ===== Table =====
                 Expanded(
@@ -758,6 +883,12 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         final requestedBy = _s(m['requestCreatedByName']);
                         final companyName = _s(m['requestBusinessName']);
                         final clientEmail = _s(m['requestClientEmail']);
+                        final requestId = _s(m['requestId']);
+                        final lastActivityAt = _asDate(m['lastActivityAt']);
+                        final lastActivityAction = _s(m['lastActivityAction']);
+                        final lastActivityActorName = _s(
+                          m['lastActivityActorName'],
+                        );
 
                         return _UploadDoc(
                           id: d.id,
@@ -780,7 +911,11 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                               ? clientEmail
                               : '—',
                           when: createdAt,
+                          lastActivityAt: lastActivityAt,
+                          lastActivityAction: lastActivityAction,
+                          lastActivityActorName: lastActivityActorName,
                           sizeBytes: sizeBytes,
+                          requestId: requestId,
                           data: m,
                         );
                       }).toList();
@@ -791,7 +926,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         if (q.isNotEmpty) {
                           final hay =
                               ('${r.originalName} ${r.storagePath} ${r.clientName} '
-                                      '${r.requestedBy} ${r.companyName} ${r.clientEmail}')
+                                      '${r.requestedBy} ${r.companyName} ${r.clientEmail} ${r.requestId}')
                                   .toLowerCase();
                           if (!hay.contains(q)) return false;
                         }
@@ -814,6 +949,11 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                           case _SortField.name:
                             res = a.originalName.toLowerCase().compareTo(
                               b.originalName.toLowerCase(),
+                            );
+                            break;
+                          case _SortField.client:
+                            res = a.clientName.toLowerCase().compareTo(
+                              b.clientName.toLowerCase(),
                             );
                             break;
                           case _SortField.size:
@@ -840,15 +980,73 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
                       return Column(
                         children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              border: Border(
+                                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+                              ),
+                            ),
+                            child: _filterBar(theme, all),
+                          ),
+                          if (isAdmin && _selected.isNotEmpty) ...[
+                            Container(
+                              height: 40,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9FAFB),
+                                border: Border.all(
+                                  color: const Color(0xFFE4E7EC),
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '${_selected.length} selected',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF344054),
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  SizedBox(
+                                    height: 32,
+                                    child: FilledButton.icon(
+                                      onPressed:
+                                          (_busy || _selectedDocsCache.isEmpty)
+                                          ? null
+                                          : () => _deleteSelectedAdmin(
+                                              _selectedDocsCache,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Delete selected'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
                           // ===== Table header =====
                           Container(
-                            height: 44,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF9FAFB),
                               border: Border(
                                 bottom: BorderSide(
-                                  color: Colors.black.withOpacity(0.06),
+                                  color: Colors.black.withValues(alpha: 0.06),
                                 ),
                               ),
                             ),
@@ -880,6 +1078,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                           'File',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w800,
+                                            color: Color(0xFF475467),
                                           ),
                                         ),
                                         const SizedBox(width: 6),
@@ -892,26 +1091,25 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                   ),
                                 ),
 
-                                // ✅ Optional: keep your other columns like before
                                 if (!isMobile)
                                   SizedBox(
-                                    width: 100,
+                                    width: 220,
                                     child: InkWell(
-                                      onTap: () => _toggleSort(_SortField.size),
+                                      onTap: () =>
+                                          _toggleSort(_SortField.client),
                                       child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
                                         children: [
                                           const Text(
-                                            'Size',
+                                            'Client',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
                                           _SortIndicator(
                                             active:
-                                                _sortField == _SortField.size,
+                                                _sortField == _SortField.client,
                                             asc: _sortAsc,
                                           ),
                                         ],
@@ -921,7 +1119,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
                                 if (!isMobile)
                                   SizedBox(
-                                    width: 180,
+                                    width: 160,
                                     child: InkWell(
                                       onTap: () => _toggleSort(_SortField.date),
                                       child: Row(
@@ -932,6 +1130,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                             'Uploaded',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
@@ -945,84 +1144,117 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                     ),
                                   ),
 
-                                const SizedBox(width: 10),
-
-                                // ✅ Bulk delete (RESTORED): only shows when selection exists
-                                if (_selected.isNotEmpty) ...[
-                                  Text(
-                                    '${_selected.length} selected',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  FilledButton.icon(
-                                    onPressed:
-                                        (!isAdmin ||
-                                            _busy ||
-                                            _selectedDocsCache.isEmpty)
-                                        ? null
-                                        : () => _deleteSelectedAdmin(
-                                            _selectedDocsCache,
+                                if (!isMobile)
+                                  SizedBox(
+                                    width: 90,
+                                    child: InkWell(
+                                      onTap: () => _toggleSort(_SortField.size),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          const Text(
+                                            'Size',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
+                                            ),
                                           ),
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 18,
+                                          const SizedBox(width: 6),
+                                          _SortIndicator(
+                                            active:
+                                                _sortField == _SortField.size,
+                                            asc: _sortAsc,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    label: Text('Delete (${_selected.length})'),
                                   ),
-                                ],
+
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 78,
+                                  child: Text(
+                                    'Actions',
+                                    textAlign: TextAlign.right,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF475467),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
 
                           // ===== Rows =====
                           Expanded(
-                            child: ListView.separated(
-                              itemCount: visible.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (c, i) {
-                                final row = visible[i];
-                                return _UploadRowEnhanced(
-                                  id: row.id,
-                                  docPath: row.docPath,
-                                  data: row.data,
-                                  selected: _selected.contains(row.id),
-                                  isMobile: isMobile,
-                                  isAdmin: isAdmin,
-                                  clientName: row.clientName,
-                                  requestedBy: row.requestedBy,
-                                  companyName: row.companyName,
-                                  clientEmail: row.clientEmail,
-                                  onShowDetails: () =>
-                                      _showUploadDetailsDialog(doc: row),
-                                  onShowHistory: () =>
-                                      _showActivityHistoryDialog(doc: row),
-                                  formatWhen: (dt) => _fmt(context, dt),
-                                  onSelect: (v) {
-                                    setState(() {
-                                      if (v) {
-                                        _selected.add(row.id);
-                                      } else {
-                                        _selected.remove(row.id);
-                                      }
-                                    });
-                                  },
-                                  busy: _busy,
-                                  onDownload: (path, name, type) =>
-                                      _downloadFile(
+                            child: visible.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      q.isEmpty
+                                          ? 'No uploads found.'
+                                          : 'No files match your search.',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF667085),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    itemCount: visible.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (c, i) {
+                                      final row = visible[i];
+                                      return _UploadRowEnhanced(
+                                        id: row.id,
+                                        docPath: row.docPath,
+                                        data: row.data,
+                                        selected: _selected.contains(row.id),
+                                        isMobile: isMobile,
                                         isAdmin: isAdmin,
-                                        storagePath: path,
-                                        filename: name,
-                                        contentType: type,
-                                        requestId: (row.data['requestId'] ?? '')
-                                            .toString(),
-                                        fileId: row.id,
-                                      ),
-                                );
-                              },
-                            ),
+                                        clientName: row.clientName,
+                                        requestedBy: row.requestedBy,
+                                        companyName: row.companyName,
+                                        clientEmail: row.clientEmail,
+                                        lastActivityAt: row.lastActivityAt,
+                                        lastActivityAction:
+                                            row.lastActivityAction,
+                                        lastActivityActorName:
+                                            row.lastActivityActorName,
+                                        onShowDetails: () =>
+                                            _showUploadDetailsDialog(doc: row),
+                                        onShowHistory: () =>
+                                            _showActivityHistoryDialog(
+                                              doc: row,
+                                            ),
+                                        formatWhen: (dt) => _fmt(context, dt),
+                                        onSelect: (v) {
+                                          setState(() {
+                                            if (v) {
+                                              _selected.add(row.id);
+                                            } else {
+                                              _selected.remove(row.id);
+                                            }
+                                          });
+                                        },
+                                        busy: _busy,
+                                        onDownload: (path, name, type) =>
+                                            _downloadFile(
+                                              isAdmin: isAdmin,
+                                              storagePath: path,
+                                              filename: name,
+                                              contentType: type,
+                                              requestId:
+                                                  (row.data['requestId'] ?? '')
+                                                      .toString(),
+                                              fileId: row.id,
+                                            ),
+                                      );
+                                    },
+                                  ),
                           ),
                         ],
                       );
@@ -1099,29 +1331,6 @@ class _SortIndicator extends StatelessWidget {
   }
 }
 
-class _MetaText extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _MetaText(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final v = value.trim().isEmpty ? '—' : value.trim();
-
-    return Text(
-      label.trim().isEmpty ? v : '$label: $v',
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.labelSmall?.copyWith(
-        color: const Color(0xFF667085),
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-}
-
 class _UploadDoc {
   final String id;
   final String docPath;
@@ -1135,7 +1344,11 @@ class _UploadDoc {
   final String clientEmail;
 
   final DateTime? when;
+  final DateTime? lastActivityAt;
+  final String lastActivityAction;
+  final String lastActivityActorName;
   final int sizeBytes;
+  final String requestId;
   final Map<String, dynamic> data;
 
   _UploadDoc({
@@ -1149,7 +1362,11 @@ class _UploadDoc {
     required this.companyName,
     required this.clientEmail,
     required this.when,
+    required this.lastActivityAt,
+    required this.lastActivityAction,
+    required this.lastActivityActorName,
     required this.sizeBytes,
+    required this.requestId,
     required this.data,
   });
 }
@@ -1170,6 +1387,9 @@ class _UploadRowEnhanced extends StatelessWidget {
   final String requestedBy;
   final String companyName;
   final String clientEmail;
+  final DateTime? lastActivityAt;
+  final String lastActivityAction;
+  final String lastActivityActorName;
   final ValueChanged<bool> onSelect;
   final void Function(String storagePath, String filename, String? contentType)
   onDownload;
@@ -1189,6 +1409,9 @@ class _UploadRowEnhanced extends StatelessWidget {
     required this.requestedBy,
     required this.companyName,
     required this.clientEmail,
+    required this.lastActivityAt,
+    required this.lastActivityAction,
+    required this.lastActivityActorName,
     required this.onDownload,
     required this.onShowDetails,
     required this.onShowHistory,
@@ -1206,11 +1429,71 @@ class _UploadRowEnhanced extends StatelessWidget {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  String _formatDateMDY(DateTime dt) {
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final y = dt.year.toString();
-    return '$m-$d-$y • ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+  String _activityLabel(String action) {
+    switch (action.toLowerCase().trim()) {
+      case 'upload':
+        return 'Uploaded';
+      case 'view':
+        return 'Viewed';
+      case 'download':
+        return 'Downloaded';
+      case 'delete':
+        return 'Deleted';
+      default:
+        return action.trim().isEmpty ? 'No activity' : action.trim();
+    }
+  }
+
+  String _fileTypeLabel(String fileName, String contentType) {
+    final kind = detectFileKind(fileName: fileName, contentType: contentType);
+    switch (kind) {
+      case FileKind.pdf:
+        return 'PDF document';
+      case FileKind.word:
+        return 'Word document';
+      case FileKind.excel:
+        return 'Excel spreadsheet';
+      case FileKind.powerpoint:
+        return 'Presentation';
+      case FileKind.accounting:
+        return 'Accounting file';
+      case FileKind.image:
+        return 'Image file';
+      case FileKind.text:
+        return 'Text file';
+      case FileKind.archive:
+        return 'Archive file';
+      case FileKind.video:
+        return 'Video file';
+      case FileKind.audio:
+        return 'Audio file';
+      case FileKind.code:
+        return 'Code file';
+      case FileKind.data:
+        return 'Data file';
+      case FileKind.email:
+        return 'Email file';
+      case FileKind.cad:
+        return 'CAD file';
+      case FileKind.threeD:
+        return '3D model';
+      case FileKind.link:
+        return 'Web link';
+      case FileKind.executable:
+        return 'Executable file';
+      case FileKind.unknown:
+        return 'File';
+    }
+  }
+
+  String? _notableActivityText() {
+    final action = lastActivityAction.toLowerCase().trim();
+    if (action.isEmpty || action == 'upload') return null;
+
+    final label = _activityLabel(action);
+    final at = lastActivityAt;
+    final when = at == null ? '' : formatWhen(at);
+    return when.isEmpty ? label : '$label • $when';
   }
 
   @override
@@ -1233,16 +1516,20 @@ class _UploadRowEnhanced extends StatelessWidget {
     if (createdAt is Timestamp) when = createdAt.toDate();
 
     final meta = resolveFileMeta(fileName: name, contentType: contentType);
+    final fileTypeLabel = _fileTypeLabel(name, contentType);
+    final notableActivity = _notableActivityText();
 
-    return InkWell(
-      onTap: busy ? null : () => onSelect(!selected),
-      child: SizedBox(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        hoverColor: const Color(0xFF101828).withValues(alpha: 0.06),
+        splashColor: const Color(0xFF101828).withValues(alpha: 0.04),
+        highlightColor: const Color(0xFF101828).withValues(alpha: 0.04),
+        onTap: busy ? null : () => onSelect(!selected),
         child: SizedBox(
-          height: isMobile ? 56 : 66, // ✅ denser rows
+          height: isMobile ? 58 : 56,
           child: Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: 4,
-            ), // ✅ less vertical spacing
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             child: Row(
               children: [
                 Checkbox(
@@ -1251,29 +1538,36 @@ class _UploadRowEnhanced extends StatelessWidget {
                 ),
                 Tooltip(
                   message: meta.tooltip,
-                  child: Icon(meta.icon, color: meta.color, size: 20),
+                  child: Icon(
+                    meta.icon,
+                    color: const Color(0xFF475467),
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 if (!isMobile)
                   SizedBox(
-                    width: 42, // ✅ reserved space prevents horizontal jitter
+                    width: 30,
                     child: meta.badge.isEmpty
                         ? const SizedBox()
                         : Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
+                              horizontal: 4,
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: meta.color.withOpacity(0.12),
+                              color: const Color(0xFFF2F4F7),
                               borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(0xFFE4E7EC),
+                              ),
                             ),
                             child: Text(
                               meta.badge,
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: meta.color,
-                                fontSize: 11,
+                              style: const TextStyle(
+                                color: Color(0xFF667085),
+                                fontSize: 9.5,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -1284,6 +1578,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
                         isDeleted ? '$name (Deleted)' : name,
@@ -1301,37 +1596,40 @@ class _UploadRowEnhanced extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       if (isMobile)
-                        Text(
-                          clientName.isNotEmpty ? clientName : '—',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        )
-                      else
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 1,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (clientName.isNotEmpty)
-                              Text(
-                                clientName,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: const Color(0xFF667085),
-                                  fontWeight: FontWeight.w700,
-                                ),
+                            Text(
+                              clientName.isNotEmpty ? clientName : '—',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
                               ),
-                            if (companyName.isNotEmpty)
+                            ),
+                            if (notableActivity != null)
                               Text(
-                                companyName,
+                                notableActivity,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelSmall?.copyWith(
-                                  color: const Color(0xFF667085),
+                                  color: const Color(0xFF98A2B3),
                                   fontWeight: FontWeight.w600,
+                                  fontSize: 10.5,
                                 ),
                               ),
                           ],
+                        )
+                      else
+                        Text(
+                          fileTypeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF98A2B3),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
 
                       if (_showImagePreview &&
@@ -1373,7 +1671,76 @@ class _UploadRowEnhanced extends StatelessWidget {
                 if (!isMobile) ...[
                   const SizedBox(width: 10),
                   SizedBox(
-                    width: 100,
+                    width: 220,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          clientName.isNotEmpty ? clientName : '—',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF344054),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          companyName.isNotEmpty ? companyName : clientEmail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (!isMobile) ...[
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 160,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          when != null ? formatWhen(when) : '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (notableActivity != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            notableActivity,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: const Color(0xFF98A2B3),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (!isMobile) ...[
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 90,
                     child: Text(
                       _formatSize(sizeBytes),
                       textAlign: TextAlign.right,
@@ -1385,135 +1752,146 @@ class _UploadRowEnhanced extends StatelessWidget {
                   ),
                 ],
 
-                if (!isMobile) ...[
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 180,
-                    child: Text(
-                      when != null ? formatWhen(when!) : '',
-                      textAlign: TextAlign.right,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-
                 const SizedBox(width: 8),
 
-                PopupMenuButton<String>(
-                  tooltip: 'File actions',
-                  itemBuilder: (c) => [
-                    const PopupMenuItem(
-                      value: 'download',
-                      child: Text('Download'),
-                    ),
-                    const PopupMenuDivider(),
+                IconButton(
+                  tooltip: 'Download',
+                  icon: const Icon(Icons.download_outlined, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  onPressed: (busy || isDeleted || storagePath.isEmpty)
+                      ? null
+                      : () => onDownload(storagePath, name, contentType),
+                ),
 
-                    const PopupMenuItem(
-                      value: 'copyName',
-                      child: Text('Copy file name'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'copyClient',
-                      child: Text('Copy client name'),
-                    ),
-                    const PopupMenuDivider(),
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Center(
+                    child: PopupMenuButton<String>(
+                      tooltip: 'File actions',
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      itemBuilder: (c) => [
+                        const PopupMenuItem(
+                          value: 'download',
+                          child: Text('Download'),
+                        ),
+                        const PopupMenuDivider(),
 
-                    const PopupMenuItem(
-                      value: 'details',
-                      child: Text('View upload details'),
-                    ),
+                        const PopupMenuItem(
+                          value: 'copyName',
+                          child: Text('Copy file name'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'copyClient',
+                          child: Text('Copy client name'),
+                        ),
+                        const PopupMenuDivider(),
 
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Text(
-                        'Delete file',
-                        style: TextStyle(color: Color(0xFFB42318)),
-                      ),
-                    ),
+                        const PopupMenuItem(
+                          value: 'details',
+                          child: Text('View upload details'),
+                        ),
 
-                    if (isAdmin)
-                      const PopupMenuItem(
-                        value: 'history',
-                        child: Text('View activity history'),
-                      ),
-                  ],
-                  onSelected: (v) async {
-                    switch (v) {
-                      case 'download':
-                        if (busy) return;
-                        if (storagePath.isEmpty) return;
-                        onDownload(storagePath, name, contentType);
-                        break;
-                      case 'copyName':
-                        await Clipboard.setData(ClipboardData(text: name));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('File name copied')),
-                          );
-                        }
-                        break;
-
-                      case 'copyClient':
-                        await Clipboard.setData(
-                          ClipboardData(text: clientName),
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Client name copied')),
-                          );
-                        }
-                        break;
-
-                      case 'details':
-                        onShowDetails();
-                        break;
-
-                      case 'delete':
-                        if (busy) return;
-
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Delete file'),
-                            content: Text(
-                              'Delete "$name"? The upload link will remain active, but this file will be marked as deleted.',
+                        if (isAdmin)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text(
+                              'Delete file',
+                              style: TextStyle(color: Color(0xFFB42318)),
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('Cancel'),
-                              ),
-                              FilledButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                child: const Text('Delete'),
-                              ),
-                            ],
                           ),
-                        );
 
-                        if (confirm != true) return;
+                        if (isAdmin)
+                          const PopupMenuItem(
+                            value: 'history',
+                            child: Text('View activity history'),
+                          ),
+                      ],
+                      onSelected: (v) async {
+                        switch (v) {
+                          case 'download':
+                            if (busy) return;
+                            if (storagePath.isEmpty) return;
+                            onDownload(storagePath, name, contentType);
+                            break;
+                          case 'copyName':
+                            await Clipboard.setData(ClipboardData(text: name));
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('File name copied'),
+                                ),
+                              );
+                            }
+                            break;
 
-                        await FirebaseFunctions.instanceFor(
-                          region: 'us-central1',
-                        ).httpsCallable('softDeleteUploadFile').call({
-                          'docPath': docPath,
-                        });
+                          case 'copyClient':
+                            await Clipboard.setData(
+                              ClipboardData(text: clientName),
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Client name copied'),
+                                ),
+                              );
+                            }
+                            break;
 
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('File deleted')),
-                          );
+                          case 'details':
+                            onShowDetails();
+                            break;
+
+                          case 'delete':
+                            if (busy) return;
+
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Delete file'),
+                                content: Text(
+                                  'Delete "$name"? The upload link will remain active, but this file will be marked as deleted.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            if (confirm != true) return;
+
+                            await FirebaseFunctions.instanceFor(
+                              region: 'us-central1',
+                            ).httpsCallable('softDeleteUploadFile').call({
+                              'docPath': docPath,
+                            });
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('File deleted')),
+                              );
+                            }
+                            break;
+
+                          case 'history':
+                            onShowHistory();
+                            break;
                         }
-                        break;
-
-                      case 'history':
-                        onShowHistory();
-                        break;
-                    }
-                  },
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
