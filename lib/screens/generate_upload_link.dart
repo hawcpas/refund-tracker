@@ -27,6 +27,46 @@ String formatDateTimeCompact(DateTime dt) {
   return '$m/$d/$y • $hour:$minute $ampm';
 }
 
+bool isExpiringSoon(DateTime? dt) {
+  if (dt == null) return false;
+  final now = DateTime.now();
+  return dt.isAfter(now) && dt.difference(now).inHours <= 24;
+}
+
+String timeRemainingLabel(DateTime? dt) {
+  if (dt == null) return 'No expiration';
+
+  final diff = dt.difference(DateTime.now());
+
+  if (diff.isNegative) return 'Expired';
+
+  if (diff.inDays >= 1) {
+    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} left';
+  }
+
+  if (diff.inHours >= 1) {
+    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} left';
+  }
+
+  final minutes = diff.inMinutes.clamp(0, 59);
+  return '$minutes minute${minutes == 1 ? '' : 's'} left';
+}
+
+String expirationStatusLabel({
+  required String status,
+  required DateTime? expiresAt,
+}) {
+  if (expiresAt == null) return 'No expiration set';
+
+  final expired =
+      status.toLowerCase().trim() == 'expired' ||
+      expiresAt.isBefore(DateTime.now());
+
+  return expired
+      ? 'Expired ${formatDateTimeCompact(expiresAt)}'
+      : 'Expires ${formatDateTimeCompact(expiresAt)}';
+}
+
 /// Sort options for the links list
 enum _DropoffSortField {
   clientName,
@@ -234,12 +274,17 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     return _db.collection('dropoff_requests').doc(rid).get();
   }
 
-  Future<void> _setDropoffStatus(String requestId, String status) async {
+  Future<void> _setDropoffStatus(
+    String requestId,
+    String status, {
+    int? expirationHours,
+  }) async {
     setState(() => _busy = true);
     try {
       await _setDropoffStatusCallable.call({
         'requestId': requestId,
-        'status': status, // "open" or "closed"
+        'status': status,
+        if (expirationHours != null) 'expirationHours': expirationHours,
       });
 
       if (!mounted) return;
@@ -558,13 +603,18 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
             final data = Map<String, dynamic>.from(res.data as Map);
             final url = (data['url'] ?? '').toString().trim();
-            final urlController = TextEditingController(text: url);
+
+            final expiresAtMillis = data['expiresAtMillis'];
+            final expiresAt = expiresAtMillis is num
+                ? DateTime.fromMillisecondsSinceEpoch(expiresAtMillis.toInt())
+                : null;
 
             Future<void> _showShareLinkDialog(
               BuildContext context,
               String url, {
               required String clientName,
               required int expirationHours,
+              required DateTime? expiresAt,
             }) async {
               final theme = Theme.of(context);
               final appTheme = theme.extension<AppTheme>()!;
@@ -686,7 +736,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      'This link expires in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.',
+                                      expiresAt == null
+                                          ? 'This link expires in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.'
+                                          : 'This link expires on ${formatDateTimeCompact(expiresAt)}. Only people with the link can access the upload page.',
+
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
                                             color: const Color(0xFF475467),
@@ -799,6 +852,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 url,
                 clientName: clientName,
                 expirationHours: expirationHours,
+                expiresAt: expiresAt,
               );
             }
           } on FirebaseFunctionsException catch (e) {
@@ -1532,7 +1586,13 @@ class _RequestsList extends StatefulWidget {
 
   final VoidCallback? onCreate; // ✅ ADD
   final void Function(String requestId) onSelect;
-  final Future<void> Function(String requestId, String status) onSetStatus;
+  final Future<void> Function(
+    String requestId,
+    String status, {
+    int? expirationHours,
+  })
+  onSetStatus;
+
   final Future<void> Function(
     List<String> requestIds, {
     required bool isArchived,
@@ -1983,6 +2043,7 @@ class _RequestsListState extends State<_RequestsList> {
 
                   final createdAt = _asDate(data['createdAt']);
                   final lastUploadedAt = _asDate(data['lastUploadedAt']);
+                  final expiresAt = _asDate(data['expiresAt']);
 
                   final title = name.isNotEmpty
                       ? name
@@ -1998,6 +2059,7 @@ class _RequestsListState extends State<_RequestsList> {
                     fileCount: fileCount,
                     createdAt: createdAt,
                     lastUploadedAt: lastUploadedAt,
+                    expiresAt: expiresAt,
                   );
                 }).toList();
 
@@ -2104,6 +2166,18 @@ class _RequestsListState extends State<_RequestsList> {
                             ),
                             const SizedBox(width: 10),
                             SizedBox(
+                              width: 160,
+                              child: Text(
+                                'Expires',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF475467),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
                               width: 150,
                               child: Text(
                                 'Latest upload',
@@ -2131,6 +2205,9 @@ class _RequestsListState extends State<_RequestsList> {
 
                           final createdText = r.createdAt != null
                               ? _formatDate(r.createdAt!)
+                              : '';
+                          final expiresText = r.expiresAt != null
+                              ? _formatDateTime(r.expiresAt!)
                               : '';
                           final lastUploadText = r.lastUploadedAt != null
                               ? _formatDate(r.lastUploadedAt!)
@@ -2161,12 +2238,19 @@ class _RequestsListState extends State<_RequestsList> {
                             businessName: r.businessName,
                             fileCount: r.fileCount,
                             createdText: createdText,
+                            expiresText: expiresText,
+                            expiresAt: r.expiresAt,
                             lastUploadText: lastUploadText,
+
                             url: r.url,
                             status: r.status,
 
-                            onToggleStatus: (nextStatus) =>
-                                widget.onSetStatus(r.id, nextStatus),
+                            onToggleStatus: (nextStatus, {expirationHours}) =>
+                                widget.onSetStatus(
+                                  r.id,
+                                  nextStatus,
+                                  expirationHours: expirationHours,
+                                ),
 
                             // ✅ ADD THESE TWO
                             requestId: r.id,
@@ -2202,6 +2286,7 @@ class _DropoffRowModel {
   final int fileCount;
   final DateTime? createdAt;
   final DateTime? lastUploadedAt;
+  final DateTime? expiresAt;
 
   _DropoffRowModel({
     required this.id,
@@ -2213,6 +2298,7 @@ class _DropoffRowModel {
     required this.fileCount,
     required this.createdAt,
     required this.lastUploadedAt,
+    required this.expiresAt,
   });
 }
 
@@ -2229,13 +2315,16 @@ class _DenseRequestRow extends StatefulWidget {
   final String businessName;
   final int fileCount;
   final String createdText;
+  final String expiresText;
+  final DateTime? expiresAt;
   final String lastUploadText;
   final String url;
   final String status;
   final String requestId;
   final Future<void> Function(bool isArchived) onDelete;
 
-  final Future<void> Function(String nextStatus) onToggleStatus;
+  final Future<void> Function(String nextStatus, {int? expirationHours})
+  onToggleStatus;
 
   const _DenseRequestRow({
     required this.busy,
@@ -2249,6 +2338,8 @@ class _DenseRequestRow extends StatefulWidget {
     required this.businessName,
     required this.fileCount,
     required this.createdText,
+    required this.expiresText,
+    required this.expiresAt,
     required this.lastUploadText,
     required this.url,
     required this.status,
@@ -2276,6 +2367,12 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
     final isOpen = statusLower == 'open';
     final isExpired = statusLower == 'expired';
 
+    final toggleLabel = isExpired
+        ? 'Reopen link'
+        : isOpen
+        ? 'Disable link'
+        : 'Enable link';
+
     final isArchived = widget.archived;
 
     return MouseRegion(
@@ -2287,8 +2384,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
           onTap: widget.busy ? null : widget.onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            curve: Curves.easeOut,
-            height: isMobile ? 54 : 46,
+            height: isMobile ? 58 : 54,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: _hover ? hoverBg : normalBg,
@@ -2387,6 +2483,50 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                   ),
                   const SizedBox(width: 10),
                   SizedBox(
+                    width: 160,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          expirationStatusLabel(
+                            status: widget.status,
+                            expiresAt: widget.expiresAt,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: isExpired
+                                ? const Color(0xFFB42318)
+                                : isExpiringSoon(widget.expiresAt)
+                                ? const Color(0xFFB54708)
+                                : const Color(0xFF667085),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          timeRemainingLabel(widget.expiresAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: isExpired
+                                ? const Color(0xFFB42318)
+                                : isExpiringSoon(widget.expiresAt)
+                                ? const Color(0xFFB54708)
+                                : const Color(0xFF98A2B3),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 10),
+                  SizedBox(
                     width: 150,
                     child: Text(
                       widget.lastUploadText.isEmpty
@@ -2448,14 +2588,13 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           widget.onTap();
                           return;
                         }
-
                         if (value == 'toggle') {
                           await widget.onToggleStatus(
                             isOpen ? 'closed' : 'open',
+                            expirationHours: isOpen ? null : 14 * 24,
                           );
                           return;
                         }
-
                         if (value == 'delete') {
                           final confirm = await showDialog<bool>(
                             context: context,
@@ -2506,9 +2645,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                         if (!isArchived)
                           PopupMenuItem(
                             value: 'toggle',
-                            child: Text(
-                              isOpen ? 'Disable link' : 'Enable link',
-                            ),
+                            child: Text(toggleLabel),
                           ),
                         const PopupMenuDivider(),
                         const PopupMenuItem(

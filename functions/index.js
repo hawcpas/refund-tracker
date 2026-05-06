@@ -1,5 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+
 const {
   defineSecret,
   defineString,
@@ -559,6 +561,52 @@ async function markDropoffExpired(ref) {
     { merge: true }
   );
 }
+
+exports.expireDropoffRequests = onSchedule(
+  {
+    region: "us-central1",
+    schedule: "every 5 minutes",
+    timeZone: "America/Los_Angeles",
+  },
+  async () => {
+    const now = admin.firestore.Timestamp.now();
+    let total = 0;
+
+    while (true) {
+      const snap = await db
+        .collection("dropoff_requests")
+        .where("status", "==", "open")
+        .where("expiresAt", "<=", now)
+        .limit(400)
+        .get();
+
+      if (snap.empty) break;
+
+      const batch = db.batch();
+
+      snap.docs.forEach((doc) => {
+        batch.set(
+          doc.ref,
+          {
+            status: "expired",
+            expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+            statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            statusUpdatedBy: "system",
+          },
+          { merge: true }
+        );
+      });
+
+      await batch.commit();
+      total += snap.size;
+
+      if (snap.size < 400) break;
+    }
+
+    console.log("Expired dropoff requests:", total);
+  }
+);
+
 
 
 exports.verifyLoginOtp = onCall(
@@ -2399,7 +2447,14 @@ exports.createDropoffRequest = onCall(
       fileCount: 0,
     });
 
-    return { ok: true, requestId: ref.id, url };
+    return {
+      ok: true,
+      requestId: ref.id,
+      url,
+      expiresAtMillis: expiresAt.toMillis(),
+      expirationHours,
+    };
+
   }
 );
 
@@ -2421,22 +2476,24 @@ exports.validateDropoffLink = onCall({ region: "us-central1" }, async (request) 
     throw new HttpsError("permission-denied", "Invalid token.");
   }
 
-  // Stamp view
-  await ref.set(
-    { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
-    { merge: true }
-  );
-
-  const clientName = (doc.clientName || "").toString().trim();
-  const businessName = (doc.businessName || "").toString().trim();
-  const clientEmail = (doc.clientEmail || "").toString().trim();
-  const message = (doc.message || "").toString();
   let status = (doc.status || "open").toString();
 
   if (status === "open" && dropoffExpired(doc)) {
     await markDropoffExpired(ref);
     status = "expired";
   }
+
+  if (status === "open") {
+    await ref.set(
+      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  }
+
+  const clientName = (doc.clientName || "").toString().trim();
+  const businessName = (doc.businessName || "").toString().trim();
+  const clientEmail = (doc.clientEmail || "").toString().trim();
+  const message = (doc.message || "").toString();
 
   const createdByUid = (doc.createdByUid || "").toString().trim();
   const createdByEmail = (doc.createdByEmail || "").toString().trim();
