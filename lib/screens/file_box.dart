@@ -549,13 +549,13 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       labelStyle: theme.textTheme.labelSmall?.copyWith(
-        color: selected ? const Color(0xFF0B62D6) : const Color(0xFF344054),
-        fontWeight: FontWeight.w900,
+        color: selected ? const Color(0xFF344054) : const Color(0xFF667085),
+        fontWeight: FontWeight.w800,
       ),
-      selectedColor: const Color(0xFFEFF6FF),
+      selectedColor: Colors.white,
       backgroundColor: const Color(0xFFF9FAFB),
       side: BorderSide(
-        color: selected ? const Color(0xFFB2DDFF) : const Color(0xFFE4E7EC),
+        color: selected ? const Color(0xFFD0D5DD) : const Color(0xFFE4E7EC),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       onSelected: (_) => onSelected(),
@@ -777,35 +777,68 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
       // ✅ CRITICAL: give PageScaffold a flex child so it gets height
       child: Expanded(
-        child: Card(
-          margin: EdgeInsets.zero,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ===== Search =====
-                TextField(
-                  controller: _searchCtrl,
-                  textInputAction: TextInputAction.search,
-                  onChanged: _applySearch,
-                  onSubmitted: _applySearch,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search),
-                    hintText:
-                        'Search files, clients, businesses, or request IDs',
-                    suffixIcon: _q.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear search',
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              _applySearch('');
-                            },
-                          ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    border: Border.all(color: const Color(0xFFE4E7EC)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _applySearch,
+                    onSubmitted: _applySearch,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF344054),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      hintText:
+                          'Search files, clients, businesses, or request IDs',
+                      hintStyle: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Color(0xFFD0D5DD)),
+                      ),
+                      suffixIcon: _q.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                _applySearch('');
+                              },
+                            ),
+                    ),
                   ),
                 ),
 
@@ -947,8 +980,20 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
                       return Column(
                         children: [
-                          _filterBar(theme, all),
-                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              border: Border(
+                                bottom: BorderSide(color: Color(0xFFE4E7EC)),
+                              ),
+                            ),
+                            child: _filterBar(theme, all),
+                          ),
                           if (isAdmin && _selected.isNotEmpty) ...[
                             Container(
                               height: 40,
@@ -991,13 +1036,12 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 10),
                           ],
 
                           // ===== Table header =====
                           Container(
-                            height: 44,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            height: 42,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF9FAFB),
                               border: Border(
@@ -1034,6 +1078,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                           'File',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w800,
+                                            color: Color(0xFF475467),
                                           ),
                                         ),
                                         const SizedBox(width: 6),
@@ -1058,6 +1103,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                             'Client',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
@@ -1084,6 +1130,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                             'Uploaded',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
@@ -1110,6 +1157,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                             'Size',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w800,
+                                              color: Color(0xFF475467),
                                             ),
                                           ),
                                           const SizedBox(width: 6),
@@ -1471,13 +1519,17 @@ class _UploadRowEnhanced extends StatelessWidget {
     final fileTypeLabel = _fileTypeLabel(name, contentType);
     final notableActivity = _notableActivityText();
 
-    return InkWell(
-      onTap: busy ? null : () => onSelect(!selected),
-      child: SizedBox(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        hoverColor: const Color(0xFF101828).withValues(alpha: 0.06),
+        splashColor: const Color(0xFF101828).withValues(alpha: 0.04),
+        highlightColor: const Color(0xFF101828).withValues(alpha: 0.04),
+        onTap: busy ? null : () => onSelect(!selected),
         child: SizedBox(
           height: isMobile ? 58 : 56,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             child: Row(
               children: [
                 Checkbox(
@@ -1486,7 +1538,11 @@ class _UploadRowEnhanced extends StatelessWidget {
                 ),
                 Tooltip(
                   message: meta.tooltip,
-                  child: Icon(meta.icon, color: meta.color, size: 18),
+                  child: Icon(
+                    meta.icon,
+                    color: const Color(0xFF475467),
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 if (!isMobile)
@@ -1500,14 +1556,17 @@ class _UploadRowEnhanced extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: meta.color.withValues(alpha: 0.08),
+                              color: const Color(0xFFF2F4F7),
                               borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: const Color(0xFFE4E7EC),
+                              ),
                             ),
                             child: Text(
                               meta.badge,
                               textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: meta.color,
+                              style: const TextStyle(
+                                color: Color(0xFF667085),
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1697,7 +1756,7 @@ class _UploadRowEnhanced extends StatelessWidget {
 
                 IconButton(
                   tooltip: 'Download',
-                  icon: const Icon(Icons.download_outlined, size: 17),
+                  icon: const Icon(Icons.download_outlined, size: 16),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(
                     width: 34,
@@ -1708,119 +1767,131 @@ class _UploadRowEnhanced extends StatelessWidget {
                       : () => onDownload(storagePath, name, contentType),
                 ),
 
-                PopupMenuButton<String>(
-                  tooltip: 'File actions',
-                  itemBuilder: (c) => [
-                    const PopupMenuItem(
-                      value: 'download',
-                      child: Text('Download'),
-                    ),
-                    const PopupMenuDivider(),
-
-                    const PopupMenuItem(
-                      value: 'copyName',
-                      child: Text('Copy file name'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'copyClient',
-                      child: Text('Copy client name'),
-                    ),
-                    const PopupMenuDivider(),
-
-                    const PopupMenuItem(
-                      value: 'details',
-                      child: Text('View upload details'),
-                    ),
-
-                    if (isAdmin)
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text(
-                          'Delete file',
-                          style: TextStyle(color: Color(0xFFB42318)),
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Center(
+                    child: PopupMenuButton<String>(
+                      tooltip: 'File actions',
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      itemBuilder: (c) => [
+                        const PopupMenuItem(
+                          value: 'download',
+                          child: Text('Download'),
                         ),
-                      ),
+                        const PopupMenuDivider(),
 
-                    if (isAdmin)
-                      const PopupMenuItem(
-                        value: 'history',
-                        child: Text('View activity history'),
-                      ),
-                  ],
-                  onSelected: (v) async {
-                    switch (v) {
-                      case 'download':
-                        if (busy) return;
-                        if (storagePath.isEmpty) return;
-                        onDownload(storagePath, name, contentType);
-                        break;
-                      case 'copyName':
-                        await Clipboard.setData(ClipboardData(text: name));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('File name copied')),
-                          );
-                        }
-                        break;
+                        const PopupMenuItem(
+                          value: 'copyName',
+                          child: Text('Copy file name'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'copyClient',
+                          child: Text('Copy client name'),
+                        ),
+                        const PopupMenuDivider(),
 
-                      case 'copyClient':
-                        await Clipboard.setData(
-                          ClipboardData(text: clientName),
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Client name copied')),
-                          );
-                        }
-                        break;
+                        const PopupMenuItem(
+                          value: 'details',
+                          child: Text('View upload details'),
+                        ),
 
-                      case 'details':
-                        onShowDetails();
-                        break;
-
-                      case 'delete':
-                        if (busy) return;
-
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Delete file'),
-                            content: Text(
-                              'Delete "$name"? The upload link will remain active, but this file will be marked as deleted.',
+                        if (isAdmin)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text(
+                              'Delete file',
+                              style: TextStyle(color: Color(0xFFB42318)),
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('Cancel'),
-                              ),
-                              FilledButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                child: const Text('Delete'),
-                              ),
-                            ],
                           ),
-                        );
 
-                        if (confirm != true) return;
+                        if (isAdmin)
+                          const PopupMenuItem(
+                            value: 'history',
+                            child: Text('View activity history'),
+                          ),
+                      ],
+                      onSelected: (v) async {
+                        switch (v) {
+                          case 'download':
+                            if (busy) return;
+                            if (storagePath.isEmpty) return;
+                            onDownload(storagePath, name, contentType);
+                            break;
+                          case 'copyName':
+                            await Clipboard.setData(ClipboardData(text: name));
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('File name copied'),
+                                ),
+                              );
+                            }
+                            break;
 
-                        await FirebaseFunctions.instanceFor(
-                          region: 'us-central1',
-                        ).httpsCallable('softDeleteUploadFile').call({
-                          'docPath': docPath,
-                        });
+                          case 'copyClient':
+                            await Clipboard.setData(
+                              ClipboardData(text: clientName),
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Client name copied'),
+                                ),
+                              );
+                            }
+                            break;
 
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('File deleted')),
-                          );
+                          case 'details':
+                            onShowDetails();
+                            break;
+
+                          case 'delete':
+                            if (busy) return;
+
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Delete file'),
+                                content: Text(
+                                  'Delete "$name"? The upload link will remain active, but this file will be marked as deleted.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            if (confirm != true) return;
+
+                            await FirebaseFunctions.instanceFor(
+                              region: 'us-central1',
+                            ).httpsCallable('softDeleteUploadFile').call({
+                              'docPath': docPath,
+                            });
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('File deleted')),
+                              );
+                            }
+                            break;
+
+                          case 'history':
+                            onShowHistory();
+                            break;
                         }
-                        break;
-
-                      case 'history':
-                        onShowHistory();
-                        break;
-                    }
-                  },
+                      },
+                    ),
+                  ),
                 ),
               ],
             ),
