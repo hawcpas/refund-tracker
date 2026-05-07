@@ -920,15 +920,25 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                         );
                       }).toList();
 
+                      final searchTokens = q
+                          .split(RegExp(r'\s+'))
+                          .where((part) => part.trim().isNotEmpty)
+                          .toList();
+
                       final filtered = all.where((r) {
                         if (r.data['deleted'] == true) return false;
 
-                        if (q.isNotEmpty) {
+                        if (searchTokens.isNotEmpty) {
+                          final meta = resolveFileMeta(
+                            fileName: r.originalName,
+                            contentType: r.contentType,
+                          );
                           final hay =
                               ('${r.originalName} ${r.storagePath} ${r.clientName} '
-                                      '${r.requestedBy} ${r.companyName} ${r.clientEmail} ${r.requestId}')
+                                      '${r.requestedBy} ${r.companyName} ${r.clientEmail} '
+                                      '${r.requestId} ${r.contentType} ${meta.badge} ${meta.tooltip}')
                                   .toLowerCase();
-                          if (!hay.contains(q)) return false;
+                          if (!searchTokens.every(hay.contains)) return false;
                         }
 
                         if (_typeFilter != _TypeFilter.all) {
@@ -1371,6 +1381,27 @@ class _UploadDoc {
   });
 }
 
+class _FileKindIconTile extends StatelessWidget {
+  const _FileKindIconTile({required this.meta});
+
+  final FileKindMeta meta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      width: 28,
+      decoration: BoxDecoration(
+        color: meta.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(meta.icon, size: 16, color: meta.color),
+    );
+  }
+}
+
 /// ============================
 /// ROW (ENHANCED + SELECT + CLIENT NAME)
 /// ============================
@@ -1538,41 +1569,8 @@ class _UploadRowEnhanced extends StatelessWidget {
                 ),
                 Tooltip(
                   message: meta.tooltip,
-                  child: Icon(
-                    meta.icon,
-                    color: const Color(0xFF475467),
-                    size: 18,
-                  ),
+                  child: _FileKindIconTile(meta: meta),
                 ),
-                const SizedBox(width: 6),
-                if (!isMobile)
-                  SizedBox(
-                    width: 30,
-                    child: meta.badge.isEmpty
-                        ? const SizedBox()
-                        : Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF2F4F7),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: const Color(0xFFE4E7EC),
-                              ),
-                            ),
-                            child: Text(
-                              meta.badge,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Color(0xFF667085),
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                  ),
                 const SizedBox(width: 10),
 
                 Expanded(

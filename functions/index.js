@@ -517,29 +517,35 @@ function isValidHttpUrl(url) {
   );
 }
 
-const DEFAULT_DROPOFF_EXPIRATION_HOURS = 14 * 24;
-const MAX_DROPOFF_EXPIRATION_HOURS = 90 * 24;
-const MIN_DROPOFF_EXPIRATION_HOURS = 1;
+const DEFAULT_DROPOFF_EXPIRATION_MINUTES = 14 * 24 * 60;
+const MAX_DROPOFF_EXPIRATION_MINUTES = 90 * 24 * 60;
+const MIN_DROPOFF_EXPIRATION_MINUTES = 1;
 
-function normalizeExpirationHours(value, legacyDaysValue) {
+function normalizeExpirationMinutes(value, legacyHoursValue, legacyDaysValue) {
+  if (value === null) return null;
+
   const raw =
     value != null
       ? Number(value)
-      : legacyDaysValue != null
-        ? Number(legacyDaysValue) * 24
-        : DEFAULT_DROPOFF_EXPIRATION_HOURS;
+      : legacyHoursValue != null
+        ? Number(legacyHoursValue) * 60
+        : legacyDaysValue != null
+          ? Number(legacyDaysValue) * 24 * 60
+          : DEFAULT_DROPOFF_EXPIRATION_MINUTES;
 
-  if (!Number.isFinite(raw)) return DEFAULT_DROPOFF_EXPIRATION_HOURS;
+  if (!Number.isFinite(raw)) return DEFAULT_DROPOFF_EXPIRATION_MINUTES;
 
   return Math.max(
-    MIN_DROPOFF_EXPIRATION_HOURS,
-    Math.min(MAX_DROPOFF_EXPIRATION_HOURS, Math.floor(raw))
+    MIN_DROPOFF_EXPIRATION_MINUTES,
+    Math.min(MAX_DROPOFF_EXPIRATION_MINUTES, Math.floor(raw))
   );
 }
 
-function makeDropoffExpiresAtFromHours(hours) {
+function makeDropoffExpiresAtFromMinutes(minutes) {
+  if (minutes == null) return null;
+
   return admin.firestore.Timestamp.fromMillis(
-    Date.now() + hours * 60 * 60 * 1000
+    Date.now() + minutes * 60 * 1000
   );
 }
 
@@ -2396,11 +2402,17 @@ exports.createDropoffRequest = onCall(
     const clientEmail = normalizeEmail(data.clientEmail);
     const businessName = normalizeName(data.businessName);
 
-    const expirationHours = normalizeExpirationHours(
-      data.expirationHours,
-      data.expirationDays
-    );
-    const expiresAt = makeDropoffExpiresAtFromHours(expirationHours);
+    const expirationMinutes = data.noExpiration === true
+      ? null
+      : normalizeExpirationMinutes(
+          data.expirationMinutes,
+          data.expirationHours,
+          data.expirationDays
+        );
+    const expirationHours = expirationMinutes == null
+      ? null
+      : Math.ceil(expirationMinutes / 60);
+    const expiresAt = makeDropoffExpiresAtFromMinutes(expirationMinutes);
 
     if (!firstName || !lastName) {
       throw new HttpsError("invalid-argument", "First and last name required.");
@@ -2436,8 +2448,10 @@ exports.createDropoffRequest = onCall(
 
       message: message || "",
       status: "open",
+      noExpiration: expirationMinutes == null,
+      expirationMinutes,
       expirationHours,
-      expirationDays: Math.ceil(expirationHours / 24),
+      expirationDays: expirationHours == null ? null : Math.ceil(expirationHours / 24),
       expiresAt,
       expiredAt: null,
       tokenHash,
@@ -2451,7 +2465,8 @@ exports.createDropoffRequest = onCall(
       ok: true,
       requestId: ref.id,
       url,
-      expiresAtMillis: expiresAt.toMillis(),
+      expiresAtMillis: expiresAt?.toMillis?.() ?? null,
+      expirationMinutes,
       expirationHours,
     };
 
@@ -3353,13 +3368,21 @@ exports.setDropoffStatus = onCall(
     };
 
     if (status === "open") {
-      const expirationHours = normalizeExpirationHours(
-        data?.expirationHours,
-        data?.expirationDays
-      );
+      const expirationMinutes = data?.noExpiration === true
+        ? null
+        : normalizeExpirationMinutes(
+            data?.expirationMinutes,
+            data?.expirationHours,
+            data?.expirationDays
+          );
+      const expirationHours = expirationMinutes == null
+        ? null
+        : Math.ceil(expirationMinutes / 60);
+      update.noExpiration = expirationMinutes == null;
+      update.expirationMinutes = expirationMinutes;
       update.expirationHours = expirationHours;
-      update.expirationDays = Math.ceil(expirationHours / 24);
-      update.expiresAt = makeDropoffExpiresAtFromHours(expirationHours);
+      update.expirationDays = expirationHours == null ? null : Math.ceil(expirationHours / 24);
+      update.expiresAt = makeDropoffExpiresAtFromMinutes(expirationMinutes);
       update.expiredAt = null;
     }
 
