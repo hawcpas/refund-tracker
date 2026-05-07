@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -48,8 +50,13 @@ String timeRemainingLabel(DateTime? dt) {
     return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} left';
   }
 
-  final minutes = diff.inMinutes.clamp(0, 59);
-  return '$minutes minute${minutes == 1 ? '' : 's'} left';
+  if (diff.inMinutes >= 1) {
+    final minutes = diff.inMinutes.clamp(1, 59);
+    return '$minutes minute${minutes == 1 ? '' : 's'} left';
+  }
+
+  final seconds = diff.inSeconds.clamp(0, 59);
+  return '$seconds second${seconds == 1 ? '' : 's'} left';
 }
 
 String expirationStatusLabel({
@@ -510,7 +517,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final businessCtrl = TextEditingController();
     final messageCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    int expirationHours = 14 * 24;
+    int? expirationMinutes;
 
     bool triedSubmit = false; // controls when errors appear
 
@@ -536,23 +543,16 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
           ),
         );
 
-        String expirationLabel(int hours) {
-          if (hours < 24) return '$hours hours';
+        String expirationLabel(int? minutes) {
+          if (minutes == null) return 'No expiration';
+          if (minutes < 60) {
+            return '$minutes minute${minutes == 1 ? '' : 's'}';
+          }
+          final hours = minutes ~/ 60;
+          if (hours < 24) return '$hours hour${hours == 1 ? '' : 's'}';
           final days = hours ~/ 24;
           return days == 1 ? '1 day' : '$days days';
         }
-
-        final expirationOptions = <int>[
-          2,
-          4,
-          12,
-          24,
-          7 * 24,
-          14 * 24,
-          30 * 24,
-          60 * 24,
-          90 * 24,
-        ];
 
         String _resolveClientFirstName({
           required TextEditingController firstCtrl,
@@ -600,7 +600,10 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               'clientEmail': email,
               'businessName': business,
               'message': message,
-              'expirationHours': expirationHours,
+              if (expirationMinutes == null)
+                'noExpiration': true
+              else
+                'expirationMinutes': expirationMinutes,
             });
 
             final data = Map<String, dynamic>.from(res.data as Map);
@@ -615,18 +618,11 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               BuildContext context,
               String url, {
               required String clientName,
-              required int expirationHours,
               required DateTime? expiresAt,
             }) async {
               final theme = Theme.of(context);
               final appTheme = theme.extension<AppTheme>()!;
               final urlController = TextEditingController(text: url);
-
-              String expirationLabel(int hours) {
-                if (hours < 24) return '$hours hours';
-                final days = hours ~/ 24;
-                return days == 1 ? '1 day' : '$days days';
-              }
 
               Future<void> copyLink(BuildContext ctx) async {
                 await Clipboard.setData(ClipboardData(text: url));
@@ -739,7 +735,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   Expanded(
                                     child: Text(
                                       expiresAt == null
-                                          ? 'This link expires in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.'
+                                          ? 'This link has no expiration. Only people with the link can access the upload page.'
                                           : 'This link expires on ${formatDateTimeCompact(expiresAt)}. Only people with the link can access the upload page.',
 
                                       style: theme.textTheme.bodySmall
@@ -853,7 +849,6 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 context,
                 url,
                 clientName: clientName,
-                expirationHours: expirationHours,
                 expiresAt: expiresAt,
               );
             }
@@ -882,11 +877,11 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 lastCtrl.text.trim().isNotEmpty &&
                 !submitting;
 
-            Widget expiryChip(int hours) {
-              final selected = expirationHours == hours;
+            Widget expiryChip(int? minutes) {
+              final selected = expirationMinutes == minutes;
 
               return ChoiceChip(
-                label: Text(expirationLabel(hours)),
+                label: Text(expirationLabel(minutes)),
                 selected: selected,
                 showCheckmark: false,
                 visualDensity: VisualDensity.compact,
@@ -894,7 +889,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 onSelected: submitting
                     ? null
                     : (_) {
-                        expirationHours = hours;
+                        expirationMinutes = minutes;
                         setLocalState(() {});
                       },
                 labelStyle: TextStyle(
@@ -912,7 +907,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               );
             }
 
-            Widget expiryGroup(String label, List<int> values) {
+            Widget expiryGroup(String label, List<int?> values) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1244,7 +1239,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   const _FieldHeader(
                                     'Link expiration',
                                     helper:
-                                        'The upload link automatically stops accepting files after this period.',
+                                        'Choose a time limit, or leave the link open until you close it.',
                                   ),
 
                                   Column(
@@ -1252,18 +1247,21 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       expiryGroup('Short term', const [
-                                        2,
-                                        4,
-                                        12,
-                                        24,
+                                        1,
+                                        60,
+                                        2 * 60,
+                                        4 * 60,
+                                        12 * 60,
+                                        24 * 60,
                                       ]),
                                       const SizedBox(height: 10),
                                       expiryGroup('Standard', const [
-                                        7 * 24,
-                                        14 * 24,
-                                        30 * 24,
-                                        60 * 24,
-                                        90 * 24,
+                                        null,
+                                        7 * 24 * 60,
+                                        14 * 24 * 60,
+                                        30 * 24 * 60,
+                                        60 * 24 * 60,
+                                        90 * 24 * 60,
                                       ]),
                                     ],
                                   ),
@@ -1406,7 +1404,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  'This link will expire in ${expirationLabel(expirationHours)}. Only people with the link can access the upload page.',
+                                  expirationMinutes == null
+                                      ? 'This link will not expire automatically. Only people with the link can access the upload page.'
+                                      : 'This link will expire in ${expirationLabel(expirationMinutes)}. Only people with the link can access the upload page.',
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: const Color(0xFF475467),
                                     fontWeight: FontWeight.w700,
@@ -1625,6 +1625,8 @@ class _RequestsList extends StatefulWidget {
 class _RequestsListState extends State<_RequestsList> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _q = '';
+  Timer? _expirationTicker;
+  Duration _expirationTickerInterval = const Duration(seconds: 30);
 
   // Multi-select
   final Set<String> _selected = {};
@@ -1635,7 +1637,14 @@ class _RequestsListState extends State<_RequestsList> {
   _RequestStatusFilter _statusFilter = _RequestStatusFilter.all;
 
   @override
+  void initState() {
+    super.initState();
+    _startExpirationTicker(_expirationTickerInterval);
+  }
+
+  @override
   void dispose() {
+    _expirationTicker?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -1679,18 +1688,51 @@ class _RequestsListState extends State<_RequestsList> {
     return null;
   }
 
+  void _startExpirationTicker(Duration interval) {
+    _expirationTicker?.cancel();
+    _expirationTickerInterval = interval;
+    _expirationTicker = Timer.periodic(interval, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _syncExpirationTicker(List<_DropoffRowModel> rows) {
+    final now = DateTime.now();
+    final needsSecondTicker = rows.any((row) {
+      if (!_rowIsOpen(row) || row.expiresAt == null) return false;
+      final diff = row.expiresAt!.difference(now);
+      return !diff.isNegative && diff.inSeconds < 60;
+    });
+
+    final nextInterval = needsSecondTicker
+        ? const Duration(seconds: 1)
+        : const Duration(seconds: 30);
+
+    if (_expirationTickerInterval != nextInterval) {
+      _startExpirationTicker(nextInterval);
+    }
+  }
+
+  String _effectiveStatus(String status, DateTime? expiresAt) {
+    final normalized = status.toLowerCase().trim();
+    if (normalized == 'open' &&
+        expiresAt != null &&
+        !expiresAt.isAfter(DateTime.now())) {
+      return 'expired';
+    }
+    return normalized.isEmpty ? 'open' : normalized;
+  }
+
   bool _rowIsExpired(_DropoffRowModel row) {
-    final status = row.status.toLowerCase().trim();
-    return status == 'expired' ||
-        (row.expiresAt != null && row.expiresAt!.isBefore(DateTime.now()));
+    return _effectiveStatus(row.status, row.expiresAt) == 'expired';
   }
 
   bool _rowIsOpen(_DropoffRowModel row) {
-    return row.status.toLowerCase().trim() == 'open' && !_rowIsExpired(row);
+    return _effectiveStatus(row.status, row.expiresAt) == 'open';
   }
 
   bool _matchesStatusFilter(_DropoffRowModel row, _RequestStatusFilter filter) {
-    final status = row.status.toLowerCase().trim();
+    final status = _effectiveStatus(row.status, row.expiresAt);
 
     switch (filter) {
       case _RequestStatusFilter.all:
@@ -2120,7 +2162,7 @@ class _RequestsListState extends State<_RequestsList> {
                   final email = (data['clientEmail'] ?? '').toString();
                   final name = (data['clientName'] ?? '').toString();
                   final url = (data['url'] ?? '').toString();
-                  final status = (data['status'] ?? 'open').toString();
+                  final rawStatus = (data['status'] ?? 'open').toString();
                   final businessName = (data['businessName'] ?? '').toString();
 
                   final fileCount = (data['fileCount'] is num)
@@ -2130,6 +2172,7 @@ class _RequestsListState extends State<_RequestsList> {
                   final createdAt = _asDate(data['createdAt']);
                   final lastUploadedAt = _asDate(data['lastUploadedAt']);
                   final expiresAt = _asDate(data['expiresAt']);
+                  final status = _effectiveStatus(rawStatus, expiresAt);
 
                   final title = name.isNotEmpty
                       ? name
@@ -2154,6 +2197,8 @@ class _RequestsListState extends State<_RequestsList> {
                     : baseRows
                           .where((r) => _matchesStatusFilter(r, _statusFilter))
                           .toList();
+
+                _syncExpirationTicker(rows);
 
                 if (rows.isEmpty) {
                   String emptyText;
@@ -2491,7 +2536,13 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
     final hoverBg = const Color(0xFF101828).withOpacity(0.10);
     final normalBg = Colors.transparent;
 
-    final statusLower = widget.status.toLowerCase().trim();
+    final rawStatusLower = widget.status.toLowerCase().trim();
+    final statusLower =
+        rawStatusLower == 'open' &&
+            widget.expiresAt != null &&
+            !widget.expiresAt!.isAfter(DateTime.now())
+        ? 'expired'
+        : rawStatusLower;
     final isOpen = statusLower == 'open';
     final isExpired = statusLower == 'expired';
 
@@ -2530,7 +2581,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                 ),
                 const SizedBox(width: 12),
 
-                _StatusPill(status: widget.status),
+                _StatusPill(status: statusLower),
                 const SizedBox(width: 12),
 
                 // Client name + email (mobile-friendly)
