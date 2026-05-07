@@ -1246,21 +1246,12 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      expiryGroup('Short term', const [
-                                        1,
-                                        60,
-                                        2 * 60,
-                                        4 * 60,
-                                        12 * 60,
-                                        24 * 60,
-                                      ]),
-                                      const SizedBox(height: 10),
-                                      expiryGroup('Standard', const [
+                                      expiryGroup('Options', const [
                                         null,
+                                        24 * 60,
                                         7 * 24 * 60,
                                         14 * 24 * 60,
                                         30 * 24 * 60,
-                                        60 * 24 * 60,
                                         90 * 24 * 60,
                                       ]),
                                     ],
