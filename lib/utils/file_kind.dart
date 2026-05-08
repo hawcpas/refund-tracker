@@ -45,121 +45,130 @@ class FileKindMeta {
   });
 }
 
+const _royalBlue = Color(0xFF1D4ED8);
+const _pdfRed = Color(0xFFE11D2E);
+const _excelGreen = Color(0xFF107C41);
+const _quickBooksGreen = Color(0xFF66CC00);
+const _imageCyan = Color(0xFF00DBF1);
+const _wordBlue = Color(0xFF3262A9);
+const _powerPointOrange = Color(0xFFEC603D);
+const _executableBlack = Color(0xFF000000);
+
 const Map<FileKind, FileKindMeta> fileKindMeta = {
   FileKind.pdf: FileKindMeta(
-    icon: Icons.picture_as_pdf_outlined,
-    color: Color(0xFFD92D20),
+    icon: Icons.picture_as_pdf,
+    color: _pdfRed,
     badge: 'PDF',
     tooltip: 'PDF document',
   ),
   FileKind.word: FileKindMeta(
     icon: Icons.description_outlined,
-    color: Color(0xFF1570EF),
+    color: _wordBlue,
     badge: 'DOC',
     tooltip: 'Word document',
   ),
   FileKind.excel: FileKindMeta(
     icon: Icons.table_chart_outlined,
-    color: Color(0xFF027A48),
+    color: _excelGreen,
     badge: 'XLS',
     tooltip: 'Spreadsheet',
   ),
   FileKind.powerpoint: FileKindMeta(
     icon: Icons.slideshow_outlined,
-    color: Color(0xFFF04438),
+    color: _powerPointOrange,
     badge: 'PPT',
     tooltip: 'Presentation',
   ),
   FileKind.accounting: FileKindMeta(
     icon: Icons.account_balance_wallet_outlined,
-    color: Color(0xFF0B62D6),
+    color: _quickBooksGreen,
     badge: 'QB',
     tooltip: 'Accounting file (QuickBooks / Quicken)',
   ),
   FileKind.image: FileKindMeta(
     icon: Icons.image_outlined,
-    color: Color(0xFF2E90FA),
+    color: _imageCyan,
     badge: 'IMG',
     tooltip: 'Image file',
     isImage: true,
   ),
   FileKind.text: FileKindMeta(
     icon: Icons.article_outlined,
-    color: Color(0xFF0E7090),
+    color: _royalBlue,
     badge: 'TXT',
     tooltip: 'Text file',
   ),
   FileKind.archive: FileKindMeta(
     icon: Icons.archive_outlined,
-    color: Color(0xFF475467),
+    color: _royalBlue,
     badge: 'ZIP',
     tooltip: 'Archive',
   ),
   FileKind.audio: FileKindMeta(
     icon: Icons.audiotrack_outlined,
-    color: Color(0xFF6941C6),
+    color: _royalBlue,
     badge: 'AUD',
     tooltip: 'Audio file',
   ),
   FileKind.video: FileKindMeta(
     icon: Icons.movie_outlined,
-    color: Color(0xFF7A5AF8),
+    color: _royalBlue,
     badge: 'VID',
     tooltip: 'Video file',
   ),
 
   FileKind.code: FileKindMeta(
     icon: Icons.code_outlined,
-    color: Color(0xFF344054), // steel / engineering
+    color: _royalBlue,
     badge: 'CODE',
     tooltip: 'Source code',
   ),
 
   FileKind.data: FileKindMeta(
     icon: Icons.data_object_outlined,
-    color: Color(0xFF0E7090), // deep cyan
+    color: _royalBlue,
     badge: 'DATA',
     tooltip: 'Data file',
   ),
 
   FileKind.email: FileKindMeta(
     icon: Icons.mail_outline,
-    color: Color(0xFF0B62D6),
+    color: _royalBlue,
     badge: 'MAIL',
     tooltip: 'Email message',
   ),
 
   FileKind.cad: FileKindMeta(
     icon: Icons.architecture_outlined,
-    color: Color(0xFF0B8F87), // teal (blueprints / drafting)
+    color: _royalBlue,
     badge: 'CAD',
     tooltip: 'CAD file',
   ),
 
   FileKind.threeD: FileKindMeta(
     icon: Icons.view_in_ar_outlined,
-    color: Color(0xFF2E90FA), // spatial / XR blue
+    color: _royalBlue,
     badge: '3D',
     tooltip: '3D model',
   ),
 
   FileKind.executable: FileKindMeta(
     icon: Icons.apps_outlined,
-    color: Color(0xFFF79009), // ⚠️ amber/orange (security‑sensitive)
+    color: _executableBlack,
     badge: 'EXE',
     tooltip: 'Executable file',
   ),
 
   FileKind.link: FileKindMeta(
     icon: Icons.link_outlined,
-    color: Color(0xFF1570EF), // navigation blue
+    color: _royalBlue,
     badge: 'URL',
     tooltip: 'Web link',
   ),
 
   FileKind.unknown: FileKindMeta(
     icon: Icons.insert_drive_file_outlined,
-    color: Color(0xFF667085), // neutral fallback
+    color: _royalBlue,
     badge: 'FILE',
     tooltip: 'File',
   ),
