@@ -1539,6 +1539,7 @@ exports.finalizeDropoffUpload = onCall(
       requestBusinessName: requestBusinessName || "",
       requestClientEmail: requestClientEmail || "",
       requestClientName: requestClientName || "",
+      requestExpiresAt: doc.expiresAt || null,
     });
 
     // bump counters
@@ -2972,40 +2973,110 @@ exports.getDropoffZipDownloadUrl = onCall(
 
       const requestId = String(data?.requestId || "").trim();
       const fileIds = Array.isArray(data?.fileIds) ? data.fileIds : [];
+      const requestedFiles = Array.isArray(data?.files)
+        ? data.files
+          .map((item) => ({
+            requestId: String(item?.requestId || "").trim(),
+            fileId: String(item?.fileId || "").trim(),
+          }))
+          .filter((item) => item.requestId && item.fileId)
+        : [];
 
-      if (!requestId || fileIds.length === 0) {
+      if (requestedFiles.length === 0 && (!requestId || fileIds.length === 0)) {
         throw new HttpsError(
           "invalid-argument",
-          "requestId and fileIds[] are required."
+          "files[] or requestId and fileIds[] are required."
+        );
+      }
+
+      const targets = requestedFiles.length > 0
+        ? requestedFiles
+        : fileIds
+          .map((fileId) => ({
+            requestId,
+            fileId: String(fileId || "").trim(),
+          }))
+          .filter((item) => item.requestId && item.fileId);
+
+      if (targets.length < 2) {
+        throw new HttpsError(
+          "invalid-argument",
+          "At least two files are required for a ZIP download."
+        );
+      }
+
+      const MAX_FILES = 75;
+      if (targets.length > MAX_FILES) {
+        throw new HttpsError(
+          "failed-precondition",
+          `Too many files selected. Max is ${MAX_FILES}.`
+        );
+      }
+
+      const callerSnap = await db.collection("users").doc(auth.uid).get();
+      const caller = callerSnap.data() || {};
+      const callerRole = String(caller.role || "").toLowerCase().trim();
+      const isAdmin = callerRole === "admin";
+      const isAssociate = callerRole === "associate";
+
+      const reqCache = new Map();
+      const metas = [];
+
+      for (const target of targets) {
+        let req = reqCache.get(target.requestId);
+        if (!req) {
+          const reqRef = db.collection("dropoff_requests").doc(target.requestId);
+          const reqSnap = await reqRef.get();
+          if (!reqSnap.exists) continue;
+
+          const reqData = reqSnap.data() || {};
+          const isOwner = reqData.createdByUid === auth.uid;
+          if (!isAdmin && !isOwner && !isAssociate) continue;
+
+          req = { ref: reqRef, data: reqData, isOwner };
+          reqCache.set(target.requestId, req);
+        }
+
+        const fileSnap = await req.ref.collection("files").doc(target.fileId).get();
+        if (!fileSnap.exists) continue;
+
+        const fileData = fileSnap.data() || {};
+        if (fileData.deleted === true) continue;
+        if (!fileData.storagePath) continue;
+
+        const fileRequestCreatedByRole = String(fileData.requestCreatedByRole || "").toLowerCase().trim();
+        const canAccessFile =
+          isAdmin ||
+          req.isOwner ||
+          (isAssociate && fileRequestCreatedByRole === "associate");
+        if (!canAccessFile) continue;
+
+        metas.push({
+          requestId: target.requestId,
+          fileId: target.fileId,
+          storagePath: String(fileData.storagePath || "").trim(),
+          originalName: String(fileData.originalName || target.fileId).trim(),
+        });
+      }
+
+      console.log("ZIP FILE METADATA LOADED", {
+        requestedFiles: targets.length,
+        foundFiles: metas.length,
+        requestCount: reqCache.size,
+      });
+
+      if (metas.length < 2) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Not enough eligible files to zip."
         );
       }
 
       // ✅ Verify dropoff
-      const reqRef = db.collection("dropoff_requests").doc(requestId);
-      const reqSnap = await reqRef.get();
-      if (!reqSnap.exists) {
-        throw new HttpsError("not-found", "Drop-off request not found.");
-      }
-
-      const filesSnap = await reqRef
-        .collection("files")
-        .where(admin.firestore.FieldPath.documentId(), "in", fileIds)
-        .get();
-
-      console.log("ZIP FILE METADATA LOADED", {
-        requestId,
-        requestedFileIds: fileIds.length,
-        foundFiles: filesSnap.size,
-      });
-
-      if (filesSnap.empty) {
-        throw new HttpsError("not-found", "No files found.");
-      }
-
       // ✅ Prepare temp ZIP
       const bucket = admin.storage().bucket();
       const tmpDir = os.tmpdir();
-      const zipPath = path.join(tmpDir, `dropoff_${requestId}.zip`);
+      const zipPath = path.join(tmpDir, `file_box_${auth.uid}_${Date.now()}.zip`);
       const output = fs.createWriteStream(zipPath);
       const archive = archiver("zip", { zlib: { level: 9 } });
 
@@ -3020,14 +3091,28 @@ exports.getDropoffZipDownloadUrl = onCall(
 
       archive.pipe(output);
 
-      for (const doc of filesSnap.docs) {
-        const f = doc.data();
-        if (f.deleted === true) continue;
-        if (!f.storagePath) continue;
+      const seenNames = new Set();
+      function uniqueZipName(meta) {
+        let name = safeFilename(meta.originalName || meta.fileId) || `file-${meta.fileId}`;
+        if (!seenNames.has(name)) {
+          seenNames.add(name);
+          return name;
+        }
 
-        const file = bucket.file(f.storagePath);
+        const dot = name.lastIndexOf(".");
+        const base = dot > 0 ? name.slice(0, dot) : name;
+        const ext = dot > 0 ? name.slice(dot) : "";
+        let n = 2;
+        while (seenNames.has(`${base} (${n})${ext}`)) n++;
+        name = `${base} (${n})${ext}`;
+        seenNames.add(name);
+        return name;
+      }
+
+      for (const meta of metas) {
+        const file = bucket.file(meta.storagePath);
         archive.append(file.createReadStream(), {
-          name: safeFilename(f.originalName || doc.id),
+          name: uniqueZipName(meta),
         });
       }
 
@@ -3036,7 +3121,7 @@ exports.getDropoffZipDownloadUrl = onCall(
       await new Promise((res) => output.on("close", res));
 
       // ✅ Upload ZIP
-      const zipStoragePath = `tmp/zips/${requestId}_${Date.now()}.zip`;
+      const zipStoragePath = `tmp/zips/file_box_${auth.uid}_${Date.now()}.zip`;
       console.log("ZIP CREATED LOCALLY", {
         zipPath,
       });
@@ -3056,7 +3141,7 @@ exports.getDropoffZipDownloadUrl = onCall(
       return {
         ok: true,
         url,
-        fileCount: filesSnap.size,
+        fileCount: metas.length,
       };
     } catch (err) {
       console.error("❌ ZIP GENERATION FAILED", {

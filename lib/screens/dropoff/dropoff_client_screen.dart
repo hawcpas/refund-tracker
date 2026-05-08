@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_web_file_selector/flutter_web_file_selector.dart';
 import 'dart:io';
 import 'dart:async';
@@ -411,8 +413,19 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
       }
     }
 
-    // Fallback for non-Firebase errors
-    return 'An unexpected error occurred. Please try again.';
+    if (e is FirebaseException) {
+      final plugin = e.plugin.isEmpty ? 'firebase' : e.plugin;
+      final message = (e.message ?? '').trim();
+      final detail = message.isEmpty ? e.code : '${e.code}: $message';
+      return 'Upload failed from $plugin.\n$detail';
+    }
+
+    final message = e.toString().trim();
+    if (message.isNotEmpty && message != 'Exception') {
+      return 'Upload failed.\n$message';
+    }
+
+    return 'An unexpected upload error occurred. Please try again.';
   }
 
   // -----------------------------
@@ -1900,7 +1913,12 @@ class _QueuedFilesCard extends StatelessWidget {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  Widget _buildMetaRow(ThemeData theme, PlatformFile f, _UploadItemState s) {
+  Widget _buildMetaRow(
+    ThemeData theme,
+    PlatformFile f,
+    _UploadItemState s, {
+    String? error,
+  }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1928,7 +1946,9 @@ class _QueuedFilesCard extends StatelessWidget {
               : s == _UploadItemState.success
               ? 'Uploaded'
               : s == _UploadItemState.failed
-              ? 'Failed'
+              ? (error == null || error.trim().isEmpty
+                    ? 'Failed'
+                    : 'Failed - details below')
               : '',
           style: theme.textTheme.bodySmall?.copyWith(
             fontSize: 11,
@@ -1944,6 +1964,53 @@ class _QueuedFilesCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFailureDetails(BuildContext context, String message) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(32, 0, 40, 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFECDD6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 16, color: Color(0xFFB42318)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SelectableText(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFFB42318),
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Copy error',
+            icon: const Icon(Icons.copy, size: 16),
+            color: const Color(0xFFB42318),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: message));
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Upload error copied')),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -2052,7 +2119,12 @@ class _QueuedFilesCard extends StatelessWidget {
                                 height: _metaLineHeight,
                                 child: Align(
                                   alignment: Alignment.centerLeft,
-                                  child: _buildMetaRow(theme, f, s),
+                                  child: _buildMetaRow(
+                                    theme,
+                                    f,
+                                    s,
+                                    error: err,
+                                  ),
                                 ),
                               ),
                             ],
@@ -2068,10 +2140,12 @@ class _QueuedFilesCard extends StatelessWidget {
                             ? _buildCompactStatusRow(
                                 state: s,
                                 progress: p ?? 0.0,
+                                error: err,
                               )
                             : _buildInlineStatusRow(
                                 state: s,
                                 progress: p ?? 0.0,
+                                error: err,
                               ),
                       ),
 
@@ -2096,6 +2170,11 @@ class _QueuedFilesCard extends StatelessWidget {
                 ),
 
                 // ✅ divider OUTSIDE the row
+                if (s == _UploadItemState.failed &&
+                    err != null &&
+                    err.trim().isNotEmpty)
+                  _buildFailureDetails(context, err),
+
                 if (i != files.length - 1)
                   const Divider(
                     height: 1,
@@ -2113,6 +2192,7 @@ class _QueuedFilesCard extends StatelessWidget {
   Widget _buildCompactStatusRow({
     required _UploadItemState state,
     required double progress,
+    String? error,
   }) {
     const double iconSize = 16;
     const double percentWidth = 34; // reserve space even when hidden
@@ -2171,9 +2251,16 @@ class _QueuedFilesCard extends StatelessWidget {
 
     // ✅ Failed
     if (state == _UploadItemState.failed) {
-      return const Align(
+      return Align(
         alignment: Alignment.centerRight,
-        child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
+        child: Tooltip(
+          message: error?.trim().isNotEmpty == true ? error! : 'Upload failed',
+          child: const Icon(
+            Icons.error_outline,
+            size: 18,
+            color: Color(0xFFB42318),
+          ),
+        ),
       );
     }
 
@@ -2183,6 +2270,7 @@ class _QueuedFilesCard extends StatelessWidget {
   Widget _buildInlineStatusRow({
     required _UploadItemState state,
     required double progress,
+    String? error,
   }) {
     const double barHeight = 6;
     const double rowHeight = 18;
@@ -2311,9 +2399,16 @@ class _QueuedFilesCard extends StatelessWidget {
     // Failed
     return SizedBox(
       height: rowHeight,
-      child: const Align(
+      child: Align(
         alignment: Alignment.centerRight,
-        child: Icon(Icons.error_outline, size: 18, color: Color(0xFFB42318)),
+        child: Tooltip(
+          message: error?.trim().isNotEmpty == true ? error! : 'Upload failed',
+          child: const Icon(
+            Icons.error_outline,
+            size: 18,
+            color: Color(0xFFB42318),
+          ),
+        ),
       ),
     );
   }

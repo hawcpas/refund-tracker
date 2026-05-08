@@ -321,8 +321,8 @@ class _RecentUploadsFromActivity extends StatelessWidget {
             message: meta.tooltip,
             child: _DashboardListRow(
               leadingIcon: meta.icon,
-              iconColor: meta.color,
-              leadingColor: meta.color.withOpacity(0.12),
+              iconColor: Colors.white,
+              leadingColor: meta.color,
               title: fileName,
               subtitle: subtitleParts.join(' • '),
               onTap: () {
