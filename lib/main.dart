@@ -21,6 +21,7 @@ import 'screens/generate_upload_link.dart';
 import 'screens/auth_action_screen.dart';
 import 'screens/file_box.dart';
 import 'screens/otp_verify_screen.dart';
+import 'screens/secure_share_screen.dart';
 
 import 'services/auth_service.dart';
 import 'shell/app_shell.dart';
@@ -412,6 +413,7 @@ class _MyAppState extends State<MyApp> {
         // ✅ Public routes (no auth, no shell)
         if (route == '/' ||
             route == '/login' ||
+            route == '/secure-share' ||
             route == '/forgot-password' ||
             route == '/verify-email' ||
             route == '/terms' ||
@@ -422,6 +424,8 @@ class _MyAppState extends State<MyApp> {
             settings: settings,
             builder: (_) {
               switch (route) {
+                case '/secure-share':
+                  return const SecureShareScreen();
                 case '/forgot-password':
                   return const ForgotPasswordScreen();
                 case '/privacy':
@@ -545,6 +549,40 @@ class _MyAppState extends State<MyApp> {
                           return const AppShell(initialRoute: '/dashboard');
                         }
                         return const AppShell(initialRoute: '/file-box');
+                      },
+                    ),
+              ),
+            );
+
+          case '/send-files':
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => _AuthGate(
+                requestedRoute: route,
+                builder: (user) =>
+                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .get(),
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Scaffold(
+                            body: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final data = snap.data!.data() ?? {};
+                        final role = (data['role'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .trim();
+                        final hasDropoffAccess =
+                            role == 'admin' ||
+                            (data['capabilities']?['dropoffs'] == true);
+                        if (!hasDropoffAccess) {
+                          return const AppShell(initialRoute: '/dashboard');
+                        }
+                        return const AppShell(initialRoute: '/send-files');
                       },
                     ),
               ),

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -299,6 +299,346 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _showSecureShareDialog(List<_UploadDoc> selectedDocs) async {
+    final eligible = selectedDocs
+        .where(
+          (d) =>
+              d.requestId.trim().isNotEmpty &&
+              d.storagePath.trim().isNotEmpty &&
+              d.data['deleted'] != true,
+        )
+        .toList();
+
+    if (eligible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select at least one file to share.')),
+      );
+      return;
+    }
+
+    final emails = eligible
+        .map((d) => d.clientEmail.trim())
+        .where((e) => e.isNotEmpty && e != '-' && e.contains('@'))
+        .toSet();
+    final names = eligible
+        .map((d) => d.clientName.trim())
+        .where((n) => n.isNotEmpty && n != '-')
+        .toSet();
+
+    final emailCtrl = TextEditingController(
+      text: emails.length == 1 ? emails.first : '',
+    );
+    final nameCtrl = TextEditingController(
+      text: names.length == 1 ? names.first : '',
+    );
+    final passwordCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    bool sendEmail = emailCtrl.text.trim().isNotEmpty;
+    int expirationDays = 7;
+    bool submitting = false;
+
+    Future<void> showCreatedDialog({
+      required String url,
+      required int fileCount,
+      required bool emailed,
+    }) async {
+      final linkCtrl = TextEditingController(text: url);
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Secure share created'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  emailed
+                      ? 'The secure link was emailed and is ready to copy.'
+                      : 'Copy this secure link and provide the password separately.',
+                  style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF475467),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: linkCtrl,
+                  readOnly: true,
+                  maxLines: 1,
+                  decoration: const InputDecoration(
+                    labelText: 'Secure link',
+                    prefixIcon: Icon(Icons.link_outlined),
+                  ),
+                  onTap: () {
+                    linkCtrl.selection = TextSelection(
+                      baseOffset: 0,
+                      extentOffset: linkCtrl.text.length,
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '$fileCount ${fileCount == 1 ? "file" : "files"} shared. Link expires in $expirationDays ${expirationDays == 1 ? "day" : "days"}.',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF667085),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Done'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: url));
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Secure link copied.')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
+      );
+      linkCtrl.dispose();
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !submitting,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            Future<void> submit() async {
+              if (!(formKey.currentState?.validate() ?? false)) return;
+
+              setLocalState(() => submitting = true);
+              setState(() => _busy = true);
+              try {
+                final res =
+                    await FirebaseFunctions.instanceFor(
+                      region: 'us-central1',
+                    ).httpsCallable('createSecureFileShare').call({
+                      'files': eligible
+                          .map(
+                            (d) => {'requestId': d.requestId, 'fileId': d.id},
+                          )
+                          .toList(),
+                      'recipientEmail': emailCtrl.text.trim().toLowerCase(),
+                      'recipientName': nameCtrl.text.trim(),
+                      'password': passwordCtrl.text.trim(),
+                      'message': messageCtrl.text.trim(),
+                      'expirationDays': expirationDays,
+                      'sendEmail': sendEmail,
+                    });
+
+                final data = Map<String, dynamic>.from(res.data as Map);
+                final url = (data['url'] ?? '').toString();
+                final fileCount = data['fileCount'] is num
+                    ? (data['fileCount'] as num).toInt()
+                    : eligible.length;
+                final emailed = data['emailed'] == true;
+
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                await showCreatedDialog(
+                  url: url,
+                  fileCount: fileCount,
+                  emailed: emailed,
+                );
+              } on FirebaseFunctionsException catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Secure share failed: ${e.code} ${e.message ?? ''}',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text('Secure share failed: $e')),
+                );
+              } finally {
+                if (mounted) setState(() => _busy = false);
+                if (ctx.mounted) setLocalState(() => submitting = false);
+              }
+            }
+
+            Widget dayChip(int days) {
+              final selected = expirationDays == days;
+              return ChoiceChip(
+                label: Text(days == 1 ? '1 day' : '$days days'),
+                selected: selected,
+                showCheckmark: false,
+                selectedColor: const Color(0xFFEAF2FF),
+                backgroundColor: const Color(0xFFF9FAFB),
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFFE4E7EC),
+                ),
+                labelStyle: TextStyle(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFF667085),
+                  fontWeight: FontWeight.w800,
+                ),
+                onSelected: submitting
+                    ? null
+                    : (_) => setLocalState(() => expirationDays = days),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Create secure share'),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${eligible.length} ${eligible.length == 1 ? "file" : "files"} selected',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextFormField(
+                          controller: emailCtrl,
+                          keyboardType: TextInputType.emailAddress,
+                          enabled: !submitting,
+                          decoration: const InputDecoration(
+                            labelText: 'Client email',
+                            prefixIcon: Icon(Icons.mail_outline),
+                          ),
+                          validator: (v) {
+                            final value = (v ?? '').trim();
+                            if (sendEmail && !value.contains('@')) {
+                              return 'Enter a valid email or turn off email sending.';
+                            }
+                            return null;
+                          },
+                          onChanged: (_) => setLocalState(() {}),
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: nameCtrl,
+                          enabled: !submitting,
+                          decoration: const InputDecoration(
+                            labelText: 'Client name',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: passwordCtrl,
+                          obscureText: true,
+                          enabled: !submitting,
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                            helperText:
+                                'Share this password with the client separately.',
+                            prefixIcon: Icon(Icons.key_outlined),
+                          ),
+                          validator: (v) {
+                            if ((v ?? '').trim().length < 6) {
+                              return 'Use at least 6 characters.';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          controller: messageCtrl,
+                          enabled: !submitting,
+                          minLines: 2,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            labelText: 'Message',
+                            prefixIcon: Icon(Icons.notes_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'Expiration',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: const Color(0xFF344054),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [1, 7, 14, 30].map(dayChip).toList(),
+                        ),
+                        const SizedBox(height: 12),
+                        CheckboxListTile(
+                          value: sendEmail,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: const Text('Email secure link to client'),
+                          subtitle: const Text(
+                            'The password is not included in the email.',
+                          ),
+                          onChanged: submitting
+                              ? null
+                              : (v) =>
+                                    setLocalState(() => sendEmail = v == true),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: submitting ? null : submit,
+                  icon: submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.lock_outline, size: 16),
+                  label: const Text('Create secure share'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    emailCtrl.dispose();
+    nameCtrl.dispose();
+    passwordCtrl.dispose();
+    messageCtrl.dispose();
   }
 
   Future<void> _logFileView({
@@ -1064,12 +1404,10 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
                       final selectedActionIsSingleDownload =
                           _selectedDocsCache.length == 1;
-                      final selectedActionIcon =
-                          selectedActionIsSingleDownload
+                      final selectedActionIcon = selectedActionIsSingleDownload
                           ? Icons.download_outlined
                           : Icons.archive_outlined;
-                      final selectedActionLabel =
-                          selectedActionIsSingleDownload
+                      final selectedActionLabel = selectedActionIsSingleDownload
                           ? 'Download'
                           : 'Download ZIP';
 
@@ -1112,6 +1450,23 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                     ),
                                   ),
                                   const Spacer(),
+                                  SizedBox(
+                                    height: 32,
+                                    child: FilledButton.icon(
+                                      onPressed:
+                                          (_busy || _selectedDocsCache.isEmpty)
+                                          ? null
+                                          : () => _showSecureShareDialog(
+                                              _selectedDocsCache,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.lock_outline,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Secure share'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   SizedBox(
                                     height: 32,
                                     child: OutlinedButton.icon(
@@ -1294,7 +1649,8 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                           const SizedBox(width: 6),
                                           _SortIndicator(
                                             active:
-                                                _sortField == _SortField.expires,
+                                                _sortField ==
+                                                _SortField.expires,
                                             asc: _sortAsc,
                                           ),
                                         ],
@@ -1346,7 +1702,8 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                           const SizedBox(width: 6),
                                           _SortIndicator(
                                             active:
-                                                _sortField == _SortField.creator,
+                                                _sortField ==
+                                                _SortField.creator,
                                             asc: _sortAsc,
                                           ),
                                         ],
