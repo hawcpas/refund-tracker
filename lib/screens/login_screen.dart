@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
@@ -52,14 +52,14 @@ class _LoginScreenState extends State<LoginScreen>
   bool _checkingEmail = false;
   bool _noAccountBanner = false;
 
-  // ✅ Refined density (matches your “less bulky” direction)
+  // âœ… Refined density (matches your â€œless bulkyâ€ direction)
   static const double _cardRadius = 18;
   static const double _cardPad = 16;
   static const double _fieldGap = 12;
   static const double _blockGap = 16;
   static const double _buttonH = 46;
 
-  // ✅ Logo inside card (larger, no box)
+  // âœ… Logo inside card (larger, no box)
   static const double _logoSize = 80;
   static const double _accentH = 4;
   static const double _accentW = 72;
@@ -90,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen>
       CurvedAnimation(parent: _signinController, curve: Curves.easeOutCubic),
     );
 
-    // ✅ Load async data, then show page
+    // âœ… Load async data, then show page
     Future.microtask(() async {
       await _loadSavedEmail();
 
@@ -121,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // ✅ iOS Safari fix: force pointer + focus restoration
+      // âœ… iOS Safari fix: force pointer + focus restoration
       if (!mounted) return;
 
       FocusScope.of(context).unfocus();
@@ -181,12 +181,12 @@ class _LoginScreenState extends State<LoginScreen>
       if (!exists) {
         setState(() {
           _checkingEmail = false;
-          _noAccountBanner = true; // ✅ Show Intuit-style warning box
+          _noAccountBanner = true; // âœ… Show Intuit-style warning box
         });
         return;
       }
 
-      // ✅ Persist Remember Me ONLY after email is confirmed to exist
+      // âœ… Persist Remember Me ONLY after email is confirmed to exist
       await LocalAuthPrefs.setRememberMe(_rememberMe);
       if (_rememberMe) {
         await LocalAuthPrefs.saveEmail(email);
@@ -246,7 +246,7 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    // ✅ spinner visible at least briefly
+    // âœ… spinner visible at least briefly
     final startedAt = DateTime.now();
     const minSpinnerMs = 300;
 
@@ -284,11 +284,11 @@ class _LoginScreenState extends State<LoginScreen>
     if (!verified) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 420),
+          transitionDuration: const Duration(milliseconds: 320),
 
           pageBuilder: (_, __, ___) => OtpVerifyScreen(
             nextRoute: pendingPostLoginRoute,
-            otpAlreadySent: true, // ✅ ONLY place this should be set
+            otpAlreadySent: true, // âœ… ONLY place this should be set
           ),
 
           transitionsBuilder: (_, animation, __, child) {
@@ -298,7 +298,7 @@ class _LoginScreenState extends State<LoginScreen>
             );
 
             final slide = Tween<Offset>(
-              begin: const Offset(0, 0.02),
+              begin: const Offset(0.04, 0),
               end: Offset.zero,
             ).animate(fade);
 
@@ -314,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 420),
+        transitionDuration: const Duration(milliseconds: 320),
         pageBuilder: (_, __, ___) =>
             OtpVerifyScreen(nextRoute: pendingPostLoginRoute),
         transitionsBuilder: (_, animation, __, child) {
@@ -324,7 +324,7 @@ class _LoginScreenState extends State<LoginScreen>
           );
 
           final slide = Tween<Offset>(
-            begin: const Offset(0, 0.02),
+            begin: const Offset(0.04, 0),
             end: Offset.zero,
           ).animate(fade);
 
@@ -374,7 +374,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'We can’t find an account with what you entered.',
+                  'We canâ€™t find an account with what you entered.',
                   style: TextStyle(
                     color: Color(0xFF374151),
                     height: 1.35,
@@ -430,8 +430,33 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 12), // ✅ NEW: extra space above logo
-                    // ✅ Logo INSIDE card (Intuit-style)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          border: Border.all(color: const Color(0xFFE4E7EC)),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _step == LoginStep.password
+                              ? "Step 2 of 3"
+                              : "Step 1 of 3",
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+                    // âœ… Logo INSIDE card (Intuit-style)
                     Center(
                       child: SvgPicture.string(
                         kBrandLogoSvg2,
@@ -441,14 +466,14 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
 
                     const SizedBox(
-                      height: 20,
+                      height: 18,
                     ), // instead of 16, above or below logo
 
                     Text(
                       _step == LoginStep.password
                           ? "Enter your password"
                           : "Sign in",
-                      textAlign: TextAlign.center, // ✅ CENTERED
+                      textAlign: TextAlign.center, // âœ… CENTERED
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: const Color(0xFF393A3D),
@@ -458,16 +483,20 @@ class _LoginScreenState extends State<LoginScreen>
                     const SizedBox(height: 6),
 
                     Text(
-                      "Use your Axume & Associates account",
-                      textAlign: TextAlign.center, // ✅ CENTERED
+                      _step == LoginStep.password
+                          ? "Confirm your password to continue"
+                          : "Use your Axume & Associates account",
+                      textAlign: TextAlign.center, // âœ… CENTERED
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF6B6C72),
+                        fontWeight: FontWeight.w500,
+                        height: 1.35,
                       ),
                     ),
 
                     const SizedBox(height: 20),
 
-                    // ✅ Intuit-style screen swap
+                    // âœ… Intuit-style screen swap
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 320),
                       switchInCurve: Curves.easeOutCubic,
@@ -501,7 +530,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   errorText: _emailError,
                                 ),
 
-                                // ✅ REMEMBER ME — EXACT PLACEMENT
+                                // âœ… REMEMBER ME â€” EXACT PLACEMENT
                                 const SizedBox(height: 8),
 
                                 Row(
@@ -535,7 +564,7 @@ class _LoginScreenState extends State<LoginScreen>
                               key: const ValueKey('password-step'),
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // ✅ Centered identity block (polished)
+                                // âœ… Centered identity block (polished)
                                 Column(
                                   children: [
                                     Text(
@@ -614,7 +643,7 @@ class _LoginScreenState extends State<LoginScreen>
                               alignment: Alignment.center,
                               child: (isLoading || _checkingEmail)
                                   ? const SizedBox(
-                                      height: 20,
+                                      height: 18,
                                       width: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
@@ -685,7 +714,7 @@ class _LoginScreenState extends State<LoginScreen>
       key: const ValueKey("password-step"),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ✅ Read‑only email (Intuit style)
+        // âœ… Readâ€‘only email (Intuit style)
         Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
@@ -747,16 +776,16 @@ class _LoginScreenState extends State<LoginScreen>
       child: Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 6, // ✅ closer together
+        spacing: 6, // âœ… closer together
         children: [
           link(context, "Legal", () {
             Navigator.pushNamed(context, '/legal');
           }),
-          const Text("·", style: TextStyle(color: Colors.grey)),
+          const Text("Â·", style: TextStyle(color: Colors.grey)),
           link(context, "Privacy", () {
             Navigator.pushNamed(context, '/privacy');
           }),
-          const Text("·", style: TextStyle(color: Colors.grey)),
+          const Text("Â·", style: TextStyle(color: Colors.grey)),
           link(context, "Security", () {
             Navigator.pushNamed(context, '/security');
           }),
@@ -774,13 +803,13 @@ class _LoginScreenState extends State<LoginScreen>
     return CenteredForm(
       child: Column(
         children: [
-          // ✅ ALWAYS above copyright (Intuit-style)
+          // âœ… ALWAYS above copyright (Intuit-style)
           _legalLinksRow(),
 
           const SizedBox(height: 12),
 
           Text(
-            "© 2026 Axume & Associates CPAs, AAC",
+            "Â© 2026 Axume & Associates CPAs, AAC",
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: footerColor,
@@ -811,7 +840,7 @@ class _LoginScreenState extends State<LoginScreen>
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundSoft,
       body: AbsorbPointer(
-        absorbing: !_pageReady, // ✅ prevent interaction while loading
+        absorbing: !_pageReady, // âœ… prevent interaction while loading
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
           switchInCurve: Curves.easeOutCubic,
@@ -820,7 +849,7 @@ class _LoginScreenState extends State<LoginScreen>
               ? SafeArea(
                   key: const ValueKey(
                     'login-ui',
-                  ), // ✅ required for AnimatedSwitcher
+                  ), // âœ… required for AnimatedSwitcher
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       const double footerBreakpoint = 620;
@@ -868,7 +897,7 @@ class _LoginScreenState extends State<LoginScreen>
               : const _LoginLoadingScreen(
                   key: ValueKey(
                     'login-loading',
-                  ), // ✅ required for AnimatedSwitcher
+                  ), // âœ… required for AnimatedSwitcher
                 ),
         ),
       ),
@@ -909,7 +938,7 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: 4, // ✅ tighter than before
+              horizontal: 4, // âœ… tighter than before
               vertical: 2,
             ),
             child: Text(widget.label),
@@ -947,3 +976,4 @@ class _LoginLoadingScreen extends StatelessWidget {
     );
   }
 }
+
