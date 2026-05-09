@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
@@ -127,6 +128,11 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     return _NavSection.home;
   }
 
+  void _updateBrowserUrl(String route, {bool replace = false}) {
+    if (!kIsWeb) return;
+    SystemNavigator.routeInformationUpdated(location: route, replace: replace);
+  }
+
   String _formatUsPhone10(String input) {
     final digits = input.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 10) return input.trim();
@@ -184,6 +190,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
   /// ✅ Public API: open a specific Upload Link / Dropoff detail screen
   void openDropoffDetails(String requestId) {
+    _updateBrowserUrl(
+      '/generate-upload-link?rid=${Uri.encodeQueryComponent(requestId)}',
+    );
     setState(() {
       _dropoffDetailsId = requestId;
       _currentRoute = '/dropoff-details';
@@ -479,6 +488,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   }
 
   void _openDropoffDetails(String requestId) {
+    _updateBrowserUrl(
+      '/generate-upload-link?rid=${Uri.encodeQueryComponent(requestId)}',
+    );
     setState(() {
       _dropoffDetailsId = requestId;
       _currentRoute = '/dropoff-details';
@@ -571,6 +583,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
   }
 
   void _closeDropoffDetails() {
+    _updateBrowserUrl('/generate-upload-link');
     setState(() {
       _currentRoute = '/generate-upload-link';
       _dropoffDetailsId = null;
@@ -1100,7 +1113,9 @@ Please describe the issue below:
       FocusManager.instance.primaryFocus?.unfocus();
     }
 
-    // ✅ Swap content only — do NOT touch Navigator
+    _updateBrowserUrl(route);
+
+    // Swap content only; web URL is updated separately.
     setState(() {
       _currentRoute = route;
       _section = _sectionForRoute(route);
