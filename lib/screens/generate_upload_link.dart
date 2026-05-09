@@ -87,6 +87,24 @@ enum _LinksView { active, archived }
 
 enum _RequestStatusFilter { all, open, expiringSoon, expired, closed }
 
+class _RequestDialogPrefill {
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String businessName;
+  final String message;
+  final int? expirationMinutes;
+
+  const _RequestDialogPrefill({
+    this.firstName = '',
+    this.lastName = '',
+    this.email = '',
+    this.businessName = '',
+    this.message = '',
+    this.expirationMinutes,
+  });
+}
+
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
   final VoidCallback? onCreate;
@@ -449,13 +467,15 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete selected links'),
+        title: Text(
+          isArchived ? 'Delete selected links' : 'Archive selected links',
+        ),
         content: Text(
           isArchived
               ? 'Permanently delete ${requestIds.length} archived request link(s)? '
                     'This action cannot be undone.'
-              : 'Delete ${requestIds.length} Request link(s)? '
-                    'This will remove the request and all associated uploads.',
+              : 'Archive ${requestIds.length} request link(s)? '
+                    'This will prevent clients from using the link while preserving upload history.',
         ),
         actions: [
           TextButton(
@@ -510,14 +530,17 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     }
   }
 
-  Future<void> _openCreateRequestDialog() async {
-    final firstCtrl = TextEditingController();
-    final lastCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final businessCtrl = TextEditingController();
-    final messageCtrl = TextEditingController();
+  Future<void> _openCreateRequestDialog({_RequestDialogPrefill? prefill}) async {
+    final firstCtrl = TextEditingController(text: prefill?.firstName ?? '');
+    final lastCtrl = TextEditingController(text: prefill?.lastName ?? '');
+    final emailCtrl = TextEditingController(text: prefill?.email ?? '');
+    final businessCtrl = TextEditingController(
+      text: prefill?.businessName ?? '',
+    );
+    final messageCtrl = TextEditingController(text: prefill?.message ?? '');
     final formKey = GlobalKey<FormState>();
-    int? expirationMinutes;
+    int? expirationMinutes = prefill?.expirationMinutes;
+    final isDuplicate = prefill != null;
 
     bool triedSubmit = false; // controls when errors appear
 
@@ -992,7 +1015,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Create request link',
+                                    isDuplicate
+                                        ? 'Duplicate request link'
+                                        : 'Create request link',
                                     style: theme.textTheme.titleMedium
                                         ?.copyWith(
                                           fontWeight: FontWeight.w900,
@@ -1003,7 +1028,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Create a secure upload link for a client. Required fields are marked with *.',
+                                    isDuplicate
+                                        ? 'Review the copied details, make any changes, then create a fresh secure upload link.'
+                                        : 'Create a secure upload link for a client. Required fields are marked with *.',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: const Color(0xFF667085),
                                       fontWeight: FontWeight.w600,
@@ -1281,7 +1308,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         items: [
                                           const DropdownMenuItem<String>(
                                             value: '__none__',
-                                            child: Text('— No template —'),
+                                            child: Text('- No template -'),
                                           ),
                                           ..._messageTemplates.map(
                                             (t) => DropdownMenuItem<String>(
@@ -1417,7 +1444,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                         Row(
                           children: [
                             Text(
-                              submitting ? 'Creating…' : '',
+                              submitting ? 'Creating...' : '',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
@@ -1456,7 +1483,11 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                           color: Colors.white,
                                         ),
                                       )
-                                    : const Text('Create link'),
+                                    : Text(
+                                        isDuplicate
+                                            ? 'Create duplicate'
+                                            : 'Create link',
+                                      ),
                               ),
                             ),
                           ],
@@ -1553,7 +1584,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                   onBulkDelete: _bulkDeleteDropoffRequests,
                   onArchive: _deleteDropoffRequest,
                   onPurge: _purgeDropoffRequest,
-                  onCreate: _busy ? null : _openCreateRequestDialog,
+                  onDuplicate: (prefill) =>
+                      _openCreateRequestDialog(prefill: prefill),
+                  onCreate: _busy ? null : () => _openCreateRequestDialog(),
                 ),
               ),
             ),
@@ -1593,6 +1626,7 @@ class _RequestsList extends StatefulWidget {
   onBulkDelete;
   final Future<void> Function(String requestId) onArchive;
   final Future<void> Function(String requestId) onPurge;
+  final void Function(_RequestDialogPrefill prefill) onDuplicate;
 
   const _RequestsList({
     required this.db,
@@ -1606,6 +1640,7 @@ class _RequestsList extends StatefulWidget {
     // ✅ ADD THESE
     required this.onArchive,
     required this.onPurge,
+    required this.onDuplicate,
     this.onCreate, // ✅ ADD
   });
 
@@ -1677,6 +1712,38 @@ class _RequestsListState extends State<_RequestsList> {
   DateTime? _asDate(dynamic v) {
     if (v is Timestamp) return v.toDate();
     return null;
+  }
+
+  int? _asInt(dynamic v) {
+    if (v is num) return v.toInt();
+    return null;
+  }
+
+  int? _expirationMinutesFromData(Map<String, dynamic> data) {
+    if (data['noExpiration'] == true) return null;
+
+    final minutes = _asInt(data['expirationMinutes']);
+    if (minutes != null) return minutes;
+
+    final hours = _asInt(data['expirationHours']);
+    if (hours != null) return hours * 60;
+
+    return 14 * 24 * 60;
+  }
+
+  List<String> _namePartsFromData(
+    Map<String, dynamic> data,
+    String displayName,
+  ) {
+    final first = (data['clientFirstName'] ?? '').toString().trim();
+    final last = (data['clientLastName'] ?? '').toString().trim();
+    if (first.isNotEmpty || last.isNotEmpty) {
+      return [first, last];
+    }
+
+    final parts = displayName.trim().split(RegExp(r'\s+'));
+    if (parts.length <= 1) return [displayName.trim(), ''];
+    return [parts.first, parts.skip(1).join(' ')];
   }
 
   void _startExpirationTicker(Duration interval) {
@@ -1822,11 +1889,11 @@ class _RequestsListState extends State<_RequestsList> {
                     );
                   },
             icon: const Icon(Icons.delete_outline, size: 18),
-            label: Text(
-              widget.view == _LinksView.archived
-                  ? 'Delete permanently ($count)'
-                  : 'Delete ($count)',
-            ),
+        label: Text(
+          widget.view == _LinksView.archived
+              ? 'Delete permanently ($count)'
+              : 'Archive ($count)',
+        ),
           ),
         ),
       ],
@@ -2155,6 +2222,9 @@ class _RequestsListState extends State<_RequestsList> {
                   final url = (data['url'] ?? '').toString();
                   final rawStatus = (data['status'] ?? 'open').toString();
                   final businessName = (data['businessName'] ?? '').toString();
+                  final message = (data['message'] ?? '').toString();
+                  final nameParts = _namePartsFromData(data, name);
+                  final expirationMinutes = _expirationMinutesFromData(data);
 
                   final fileCount = (data['fileCount'] is num)
                       ? (data['fileCount'] as num).toInt()
@@ -2172,8 +2242,12 @@ class _RequestsListState extends State<_RequestsList> {
                   return _DropoffRowModel(
                     id: d.id,
                     title: title,
+                    firstName: nameParts[0],
+                    lastName: nameParts[1],
                     email: email,
                     businessName: businessName,
+                    message: message,
+                    expirationMinutes: expirationMinutes,
                     url: url,
                     status: status,
                     fileCount: fileCount,
@@ -2400,8 +2474,12 @@ class _RequestsListState extends State<_RequestsList> {
                             },
                             onTap: () => widget.onSelect(r.id),
                             title: r.title,
+                            firstName: r.firstName,
+                            lastName: r.lastName,
                             email: r.email,
                             businessName: r.businessName,
+                            message: r.message,
+                            expirationMinutes: r.expirationMinutes,
                             fileCount: r.fileCount,
                             createdText: createdText,
                             expiresText: expiresText,
@@ -2420,6 +2498,18 @@ class _RequestsListState extends State<_RequestsList> {
 
                             // ✅ ADD THESE TWO
                             requestId: r.id,
+                            onDuplicate: () {
+                              widget.onDuplicate(
+                                _RequestDialogPrefill(
+                                  firstName: r.firstName,
+                                  lastName: r.lastName,
+                                  email: r.email,
+                                  businessName: r.businessName,
+                                  message: r.message,
+                                  expirationMinutes: r.expirationMinutes,
+                                ),
+                              );
+                            },
                             onDelete: (isArchived) async {
                               if (isArchived) {
                                 await widget.onPurge(r.id);
@@ -2445,8 +2535,12 @@ class _RequestsListState extends State<_RequestsList> {
 class _DropoffRowModel {
   final String id;
   final String title; // clientName (primary)
+  final String firstName;
+  final String lastName;
   final String email; // clientEmail
   final String businessName; // businessName (optional)
+  final String message;
+  final int? expirationMinutes;
   final String url;
   final String status;
   final int fileCount;
@@ -2457,8 +2551,12 @@ class _DropoffRowModel {
   _DropoffRowModel({
     required this.id,
     required this.title,
+    required this.firstName,
+    required this.lastName,
     required this.email,
     required this.businessName,
+    required this.message,
+    required this.expirationMinutes,
     required this.url,
     required this.status,
     required this.fileCount,
@@ -2476,8 +2574,12 @@ class _DenseRequestRow extends StatefulWidget {
 
   final VoidCallback onTap;
   final String title;
+  final String firstName;
+  final String lastName;
   final String email;
   final String businessName;
+  final String message;
+  final int? expirationMinutes;
   final int fileCount;
   final String createdText;
   final String expiresText;
@@ -2486,6 +2588,7 @@ class _DenseRequestRow extends StatefulWidget {
   final String url;
   final String status;
   final String requestId;
+  final VoidCallback onDuplicate;
   final Future<void> Function(bool isArchived) onDelete;
 
   final Future<void> Function(String nextStatus, {int? expirationHours})
@@ -2498,8 +2601,12 @@ class _DenseRequestRow extends StatefulWidget {
     required this.onSelected,
     required this.onTap,
     required this.title,
+    required this.firstName,
+    required this.lastName,
     required this.email,
     required this.businessName,
+    required this.message,
+    required this.expirationMinutes,
     required this.fileCount,
     required this.createdText,
     required this.expiresText,
@@ -2509,6 +2616,7 @@ class _DenseRequestRow extends StatefulWidget {
     required this.status,
     required this.onToggleStatus,
     required this.requestId,
+    required this.onDuplicate,
     required this.onDelete,
   });
 
@@ -2744,6 +2852,10 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           widget.onTap();
                           return;
                         }
+                        if (value == 'duplicate') {
+                          widget.onDuplicate();
+                          return;
+                        }
                         if (value == 'toggle') {
                           await widget.onToggleStatus(
                             isOpen ? 'closed' : 'open',
@@ -2758,7 +2870,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                               title: Text(
                                 isArchived
                                     ? 'Permanently delete upload link'
-                                    : 'Delete upload link',
+                                    : 'Archive upload link',
                               ),
                               content: Text(
                                 isArchived
@@ -2779,7 +2891,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                                   child: Text(
                                     isArchived
                                         ? 'Delete permanently'
-                                        : 'Delete link',
+                                        : 'Archive link',
                                   ),
                                 ),
                               ],
@@ -2798,17 +2910,26 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           value: 'view',
                           child: Text('View details'),
                         ),
+                        if (isArchived)
+                          const PopupMenuItem(
+                            value: 'duplicate',
+                            child: Text('Duplicate as new link'),
+                          ),
                         if (!isArchived)
                           PopupMenuItem(
                             value: 'toggle',
                             child: Text(toggleLabel),
                           ),
                         const PopupMenuDivider(),
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'delete',
                           child: Text(
-                            'Delete link',
-                            style: TextStyle(color: Color(0xFFB42318)),
+                            isArchived
+                                ? 'Delete permanently'
+                                : 'Archive link',
+                            style: const TextStyle(
+                              color: Color(0xFFB42318),
+                            ),
                           ),
                         ),
                       ],
