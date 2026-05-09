@@ -27,12 +27,62 @@ import '../theme/brand_logo_svg.dart';
 const double kTopBarHeight = 48;
 const double kUtilityControlHeight = 36;
 
+const BorderRadius _kShellFlyoutRadius = BorderRadius.all(Radius.circular(8));
+const Color _kShellFlyoutBorderColor = Color(0xFFE4E7EC);
+const List<BoxShadow> _kShellFlyoutShadow = [
+  BoxShadow(
+    color: Color(0x1A000000),
+    blurRadius: 18,
+    offset: Offset(0, 8),
+  ),
+  BoxShadow(
+    color: Color(0x0A000000),
+    blurRadius: 4,
+    offset: Offset(0, 1),
+  ),
+];
+
 // Admin routes
 const String kAdminUsersRoute = '/admin-users';
 const String kAdminAuditRoute = '/admin-audit';
 const String kAdminLinksRoute = '/admin-links';
 
 enum _NavSection { admin, home, files, requests }
+
+class _ShellFlyoutSurface extends StatelessWidget {
+  const _ShellFlyoutSurface({
+    required this.width,
+    required this.child,
+    this.constraints,
+    this.padding = EdgeInsets.zero,
+  });
+
+  final double width;
+  final BoxConstraints? constraints;
+  final EdgeInsetsGeometry padding;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      constraints: constraints,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: _kShellFlyoutRadius,
+        border: Border.all(color: _kShellFlyoutBorderColor),
+        boxShadow: _kShellFlyoutShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: _kShellFlyoutRadius,
+        child: Material(
+          color: Colors.white,
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+  }
+}
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialRoute = '/dashboard'});
@@ -326,126 +376,105 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                           end: 1.0,
                         ).animate(anim),
                         alignment: Alignment.topRight,
-                        child: Container(
-                          width: 360, // ✅ wider so label/value never collide
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: (_avatarHover || _isAvatarMenuOpen)
-                                  ? AppColors.brandBlue.withOpacity(
-                                      0.45,
-                                    ) // ✅ active ring
-                                  : Colors.black.withOpacity(0.12),
-                              width: 1.25,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.14),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
+                        child: _ShellFlyoutSurface(
+                          width: 360,
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Top row: Org name + Sign out
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Axume & Associates CPAs, AAC',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                        color: Color(0xFF101828),
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.brandBlue,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      textStyle: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    onPressed: () async {
+                                      _closeAvatarMenu();
+                                      await _logout();
+                                    },
+                                    child: const Text('Sign out'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Divider(
+                                height: 1,
+                                color: Colors.black.withOpacity(0.08),
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Profile row: big initials left, info right
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _InitialsCircle(initials: initials),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          displayName,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 16,
+                                            color: Color(0xFF101828),
+                                            height: 1.15,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          email,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            color: Color(0xFF475467),
+                                            height: 1.2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        if (wildixExt.isNotEmpty)
+                                          _ProfileMetaInline(
+                                            label: 'Wildix extension',
+                                            value: wildixExt,
+                                          ),
+                                        if (clearflyNumber.isNotEmpty)
+                                          _ProfileMetaInline(
+                                            label: 'Clearfly / eFax',
+                                            value: clearflyNumber,
+                                          ),
+                                        const SizedBox(height: 12),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Top row: Org name + Sign out
-                                Row(
-                                  children: [
-                                    const Expanded(
-                                      child: Text(
-                                        'Axume & Associates CPAs, AAC',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                          color: Color(0xFF101828),
-                                        ),
-                                      ),
-                                    ),
-                                    TextButton(
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: AppColors.brandBlue,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 8,
-                                        ),
-                                        textStyle: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      onPressed: () async {
-                                        _closeAvatarMenu();
-                                        await _logout();
-                                      },
-                                      child: const Text('Sign out'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Divider(
-                                  height: 1,
-                                  color: Colors.black.withOpacity(0.08),
-                                ),
-                                const SizedBox(height: 12),
-
-                                // Profile row: big initials left, info right
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _InitialsCircle(initials: initials),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            displayName,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 16,
-                                              color: Color(0xFF101828),
-                                              height: 1.15,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            email,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 12.5,
-                                              color: Color(0xFF475467),
-                                              height: 1.2,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          if (wildixExt.isNotEmpty)
-                                            _ProfileMetaInline(
-                                              label: 'Wildix extension',
-                                              value: wildixExt,
-                                            ),
-                                          if (clearflyNumber.isNotEmpty)
-                                            _ProfileMetaInline(
-                                              label: 'Clearfly / eFax',
-                                              value: clearflyNumber,
-                                            ),
-                                          const SizedBox(height: 12),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
                           ),
                         ),
                       ),
@@ -689,23 +718,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                         ),
                       ),
                       alignment: Alignment.topRight,
-                      child: Container(
+                      child: _ShellFlyoutSurface(
                         width: 200,
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.black.withOpacity(0.08),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.12),
-                              blurRadius: 18,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -863,23 +878,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                       ),
                     ),
                     alignment: Alignment.topRight,
-                    child: Container(
+                    child: _ShellFlyoutSurface(
                       width: 360,
                       constraints: const BoxConstraints(maxHeight: 420),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.black.withOpacity(0.12),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.14),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
                       child: _NotificationsPanel(
                         onOpenRequest: (rid) {
                           _closeNotificationsMenu();
@@ -2839,15 +2840,14 @@ class RightSideFlyout extends StatelessWidget {
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(
-                                  0.22 * panelOpacity,
+                                  0.14 * panelOpacity,
                                 ),
-                                blurRadius: 32,
-                                spreadRadius: 2,
+                                blurRadius: 24,
                                 offset: const Offset(-8, 0),
                               ),
                               BoxShadow(
                                 color: Colors.black.withOpacity(
-                                  0.10 * panelOpacity,
+                                  0.06 * panelOpacity,
                                 ),
                                 blurRadius: 8,
                                 offset: const Offset(-2, 0),

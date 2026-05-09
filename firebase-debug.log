@@ -1,0 +1,51 @@
+[debug] [2026-05-09T20:13:17.074Z] ----------------------------------------------------------------------
+[debug] [2026-05-09T20:13:17.076Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\Guillermo Ramirez\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy
+[debug] [2026-05-09T20:13:17.076Z] CLI Version:   15.7.0
+[debug] [2026-05-09T20:13:17.076Z] Platform:      win32
+[debug] [2026-05-09T20:13:17.076Z] Node Version:  v24.13.1
+[debug] [2026-05-09T20:13:17.076Z] Time:          Sat May 09 2026 13:13:17 GMT-0700 (Pacific Daylight Time)
+[debug] [2026-05-09T20:13:17.076Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-09T20:13:17.890Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-05-09T20:13:17.893Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-09T20:13:17.893Z] > authorizing via signed-in user (rguillermo6417@gmail.com)
+[debug] [2026-05-09T20:13:17.893Z] [iam] checking project axume-portal-6bfd3 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2026-05-09T20:13:17.894Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:17.894Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:17.894Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3:testIamPermissions [none]
+[debug] [2026-05-09T20:13:17.895Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3:testIamPermissions  x-goog-user-project=axume-portal-6bfd3
+[debug] [2026-05-09T20:13:17.895Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-05-09T20:13:18.175Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3:testIamPermissions 200
+[debug] [2026-05-09T20:13:18.175Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-05-09T20:13:18.175Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.175Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.175Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/axume-portal-6bfd3/serviceAccounts/axume-portal-6bfd3@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-05-09T20:13:18.175Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/axume-portal-6bfd3/serviceAccounts/axume-portal-6bfd3@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-05-09T20:13:18.539Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/axume-portal-6bfd3/serviceAccounts/axume-portal-6bfd3@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2026-05-09T20:13:18.539Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/axume-portal-6bfd3/serviceAccounts/axume-portal-6bfd3@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-05-09T20:13:18.540Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.540Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.540Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3 [none]
+[debug] [2026-05-09T20:13:18.742Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3 200
+[debug] [2026-05-09T20:13:18.742Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3 {"projectId":"axume-portal-6bfd3","projectNumber":"397125649830","displayName":"Axume-Portal","name":"projects/axume-portal-6bfd3","resources":{"hostingSite":"axume-portal-6bfd3"},"state":"ACTIVE","etag":"1_a6c3bdec-9bad-4064-9805-e83c09b21ff3"}
+[info] 
+[info] === Deploying to 'axume-portal-6bfd3'...
+[info] 
+[info] i  deploying functions, hosting 
+[debug] [2026-05-09T20:13:18.745Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.745Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.745Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3 [none]
+[debug] [2026-05-09T20:13:18.861Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3 200
+[debug] [2026-05-09T20:13:18.861Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/axume-portal-6bfd3 {"projectNumber":"397125649830","projectId":"axume-portal-6bfd3","lifecycleState":"ACTIVE","name":"Axume-Portal","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2026-02-19T22:33:14.627721Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2026-05-09T20:13:18.863Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.863Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:18.863Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3/adminSdkConfig [none]
+[debug] [2026-05-09T20:13:19.098Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3/adminSdkConfig 200
+[debug] [2026-05-09T20:13:19.098Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/axume-portal-6bfd3/adminSdkConfig {"projectId":"axume-portal-6bfd3","storageBucket":"axume-portal-6bfd3.firebasestorage.app"}
+[debug] [2026-05-09T20:13:19.099Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:19.099Z] Checked if tokens are valid: true, expires at: 1778359651918
+[debug] [2026-05-09T20:13:19.099Z] >>> [apiv2][query] GET https://runtimeconfig.googleapis.com/v1beta1/projects/axume-portal-6bfd3/configs [none]
