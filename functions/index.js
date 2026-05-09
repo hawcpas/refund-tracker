@@ -456,6 +456,15 @@ function safeFilename(name) {
     .replace(/"/g, "'");
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function formatBytes(bytes) {
   const n = Number(bytes || 0);
   if (n < 1024) return `${n} B`;
@@ -3166,6 +3175,488 @@ exports.getDropoffZipDownloadUrl = onCall(
       );
     }
 
+  }
+);
+
+function hashSharePassword(password, salt) {
+  return crypto
+    .createHash("sha256")
+    .update(`${salt}:${password}`)
+    .digest("hex");
+}
+
+function secureShareUrl(shareId) {
+  const baseUrl = (APP_URL.value() || "https://portal.axumecpas.com")
+    .toString()
+    .replace(/\/$/, "");
+  return `${baseUrl}/secure-share?sid=${encodeURIComponent(shareId)}`;
+}
+
+async function loadAuthorizedFileMetasForShare(auth, targets) {
+  await assertDropoffAccess(auth.uid);
+
+  const callerSnap = await db.collection("users").doc(auth.uid).get();
+  const caller = callerSnap.data() || {};
+  const callerRole = String(caller.role || "").toLowerCase().trim();
+  const isAdmin = callerRole === "admin";
+  const isAssociate = callerRole === "associate";
+
+  const reqCache = new Map();
+  const metas = [];
+
+  for (const target of targets) {
+    let req = reqCache.get(target.requestId);
+    if (!req) {
+      const reqRef = db.collection("dropoff_requests").doc(target.requestId);
+      const reqSnap = await reqRef.get();
+      if (!reqSnap.exists) continue;
+
+      const reqData = reqSnap.data() || {};
+      const isOwner = reqData.createdByUid === auth.uid;
+      if (!isAdmin && !isOwner && !isAssociate) continue;
+
+      req = { ref: reqRef, data: reqData, isOwner };
+      reqCache.set(target.requestId, req);
+    }
+
+    const fileSnap = await req.ref.collection("files").doc(target.fileId).get();
+    if (!fileSnap.exists) continue;
+
+    const fileData = fileSnap.data() || {};
+    if (fileData.deleted === true) continue;
+
+    const storagePath = String(fileData.storagePath || "").trim();
+    if (!storagePath) continue;
+
+    const fileRequestCreatedByRole = String(
+      fileData.requestCreatedByRole || ""
+    ).toLowerCase().trim();
+    const canAccessFile =
+      isAdmin ||
+      req.isOwner ||
+      (isAssociate && fileRequestCreatedByRole === "associate");
+    if (!canAccessFile) continue;
+
+    metas.push({
+      requestId: target.requestId,
+      fileId: target.fileId,
+      storagePath,
+      originalName: String(fileData.originalName || target.fileId).trim(),
+      contentType: String(fileData.contentType || "").trim(),
+      sizeBytes: Number(fileData.sizeBytes || 0),
+    });
+  }
+
+  return metas;
+}
+
+function renderSecureShareEmail({
+  appName,
+  recipientName,
+  senderName,
+  message,
+  shareUrl,
+  expiresLabel,
+  fileCount,
+}) {
+  const greeting = recipientName ? `Hello ${escapeHtml(recipientName)},` : "Hello,";
+  const safeMessage = String(message || "").trim();
+  const fileLabel = `${fileCount} ${fileCount === 1 ? "file" : "files"}`;
+  const safeAppName = escapeHtml(appName);
+  const safeSenderName = escapeHtml(senderName || "Axume & Associates CPAs");
+  const safeShareUrl = escapeHtml(shareUrl);
+  const safeExpiresLabel = escapeHtml(expiresLabel);
+
+  return `
+<div style="margin:0; padding:0; background:#F6F7F9; font-family:Arial, Helvetica, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; background:#FFFFFF; border:1px solid #E4E7EC;">
+          <tr>
+            <td style="padding:22px 24px; border-bottom:1px solid #E4E7EC;">
+              <img src="${getEmailLogoUrl()}" alt="${safeAppName}" style="max-height:42px; max-width:260px;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; line-height:1.3; color:#101828;">Secure files shared with you</h1>
+              <p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">${greeting}</p>
+              <p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">
+                ${safeSenderName} shared ${fileLabel} with you through ${safeAppName}.
+              </p>
+              ${safeMessage ? `<p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">${escapeHtml(safeMessage).replace(/\n/g, "<br/>")}</p>` : ""}
+              <p style="margin:0 0 20px 0; font-size:13px; line-height:1.45; color:#667085;">
+                This link is password protected. Use the password provided separately by our office.
+              </p>
+              <p style="margin:0 0 20px 0;">
+                <a href="${safeShareUrl}" style="display:inline-block; background:#0B62D6; color:#FFFFFF; text-decoration:none; font-size:14px; font-weight:700; padding:11px 16px; border-radius:6px;">
+                  Open secure files
+                </a>
+              </p>
+              <p style="margin:0; font-size:12.5px; line-height:1.45; color:#667085;">
+                ${safeExpiresLabel}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #E4E7EC; font-size:12px; color:#667085;">
+              This message was generated by ${safeAppName}. Please do not forward this link.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
+exports.createSecureFileShare = onCall(
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+      const targets = Array.isArray(data?.files)
+        ? data.files
+          .map((item) => ({
+            requestId: String(item?.requestId || "").trim(),
+            fileId: String(item?.fileId || "").trim(),
+          }))
+          .filter((item) => item.requestId && item.fileId)
+        : [];
+
+      if (targets.length === 0) {
+        throw new HttpsError("invalid-argument", "Select at least one file.");
+      }
+      if (targets.length > 75) {
+        throw new HttpsError("failed-precondition", "Too many files selected. Max is 75.");
+      }
+
+      const password = String(data?.password || "").trim();
+      if (password.length < 6) {
+        throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+      }
+
+      const recipientEmail = normalizeEmail(data?.recipientEmail);
+      if (recipientEmail && !recipientEmail.includes("@")) {
+        throw new HttpsError("invalid-argument", "Enter a valid client email.");
+      }
+
+      const recipientName = normalizeName(data?.recipientName);
+      const message = normalizeName(data?.message);
+      const sendEmail = data?.sendEmail === true;
+      if (sendEmail && !recipientEmail) {
+        throw new HttpsError("invalid-argument", "Client email is required to send email.");
+      }
+
+      const expirationDaysRaw = Number(data?.expirationDays || 7);
+      const expirationDays = [1, 7, 14, 30].includes(expirationDaysRaw)
+        ? expirationDaysRaw
+        : 7;
+
+      const metas = await loadAuthorizedFileMetasForShare(auth, targets);
+      if (metas.length === 0) {
+        throw new HttpsError("failed-precondition", "No eligible files selected.");
+      }
+
+      const salt = crypto.randomBytes(16).toString("hex");
+      const passwordHash = hashSharePassword(password, salt);
+      const ref = db.collection("secure_file_shares").doc();
+      const expiresAt = admin.firestore.Timestamp.fromMillis(
+        Date.now() + expirationDays * 24 * 60 * 60 * 1000
+      );
+      const shareUrl = secureShareUrl(ref.id);
+
+      const callerSnap = await db.collection("users").doc(auth.uid).get();
+      const caller = callerSnap.data() || {};
+      const first = normalizeName(caller.firstName);
+      const last = normalizeName(caller.lastName);
+      const displayName = normalizeName(caller.displayName);
+      const senderName = first || last
+        ? `${first} ${last}`.trim()
+        : (displayName || normalizeEmail(auth.token?.email) || "Axume & Associates CPAs");
+
+      await ref.set({
+        shareId: ref.id,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdByUid: auth.uid,
+        createdByEmail: normalizeEmail(auth.token?.email),
+        createdByName: senderName,
+        recipientEmail: recipientEmail || "",
+        recipientName: recipientName || "",
+        message: message || "",
+        status: "active",
+        expiresAt,
+        passwordSalt: salt,
+        passwordHash,
+        files: metas,
+        fileCount: metas.length,
+        lastViewedAt: null,
+        lastDownloadedAt: null,
+      });
+
+      if (sendEmail) {
+        await sendAccountEmail({
+          to: recipientEmail,
+          subject: "Secure files from Axume & Associates CPAs",
+          html: renderSecureShareEmail({
+            appName: APP_NAME.value() || "Axume Portal",
+            recipientName,
+            senderName,
+            message,
+            shareUrl,
+            expiresLabel: `This secure link expires in ${expirationDays} ${expirationDays === 1 ? "day" : "days"}.`,
+            fileCount: metas.length,
+          }),
+        });
+      }
+
+      await db.collection("auditLogs").add({
+        type: "secure_file_share_created",
+        shareId: ref.id,
+        fileCount: metas.length,
+        recipientEmail: recipientEmail || "",
+        emailed: sendEmail,
+        actorUid: auth.uid,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        ok: true,
+        shareId: ref.id,
+        url: shareUrl,
+        fileCount: metas.length,
+        emailed: sendEmail,
+        expiresAtMillis: expiresAt.toMillis(),
+      };
+    } catch (err) {
+      console.error("createSecureFileShare failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Could not create secure share.", {
+        message: err?.message || String(err),
+      });
+    }
+  }
+);
+
+exports.openSecureFileShare = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const shareId = String(request.data?.shareId || "").trim();
+    const password = String(request.data?.password || "").trim();
+    if (!shareId || !password) {
+      throw new HttpsError("invalid-argument", "Share link and password are required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Secure share not found.");
+
+    const share = snap.data() || {};
+    if (String(share.status || "").toLowerCase() !== "active") {
+      throw new HttpsError("failed-precondition", "This secure share is no longer active.");
+    }
+
+    const expiresAt = share.expiresAt;
+    if (expiresAt && expiresAt.toMillis && expiresAt.toMillis() <= Date.now()) {
+      throw new HttpsError("deadline-exceeded", "This secure share has expired.");
+    }
+
+    const expected = String(share.passwordHash || "");
+    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+    if (!expected || actual !== expected) {
+      throw new HttpsError("permission-denied", "The password is incorrect.");
+    }
+
+    await ref.set(
+      { lastViewedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    const files = Array.isArray(share.files) ? share.files : [];
+    return {
+      ok: true,
+      shareId,
+      recipientName: share.recipientName || "",
+      message: share.message || "",
+      expiresAtMillis: expiresAt?.toMillis?.() ?? null,
+      files: files.map((f) => ({
+        fileId: String(f.fileId || ""),
+        originalName: String(f.originalName || "File"),
+        contentType: String(f.contentType || ""),
+        sizeBytes: Number(f.sizeBytes || 0),
+      })),
+    };
+  }
+);
+
+exports.getSecureShareDownloadUrl = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const shareId = String(request.data?.shareId || "").trim();
+    const password = String(request.data?.password || "").trim();
+    const fileId = String(request.data?.fileId || "").trim();
+    if (!shareId || !password || !fileId) {
+      throw new HttpsError("invalid-argument", "Share link, password, and file are required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Secure share not found.");
+
+    const share = snap.data() || {};
+    if (String(share.status || "").toLowerCase() !== "active") {
+      throw new HttpsError("failed-precondition", "This secure share is no longer active.");
+    }
+
+    const expiresAt = share.expiresAt;
+    if (expiresAt && expiresAt.toMillis && expiresAt.toMillis() <= Date.now()) {
+      throw new HttpsError("deadline-exceeded", "This secure share has expired.");
+    }
+
+    const expected = String(share.passwordHash || "");
+    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+    if (!expected || actual !== expected) {
+      throw new HttpsError("permission-denied", "The password is incorrect.");
+    }
+
+    const files = Array.isArray(share.files) ? share.files : [];
+    const meta = files.find((f) => String(f.fileId || "") === fileId);
+    if (!meta || !meta.storagePath) {
+      throw new HttpsError("not-found", "File not found in this secure share.");
+    }
+
+    const safeName = safeFilename(meta.originalName || fileId);
+    const [url] = await admin.storage().bucket().file(meta.storagePath).getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 5 * 60 * 1000,
+      responseDisposition:
+        `attachment; filename="${safeName}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(safeName)}`,
+      ...(meta.contentType ? { responseType: meta.contentType } : {}),
+    });
+
+    await ref.set(
+      { lastDownloadedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    return { ok: true, url };
+  }
+);
+
+exports.listSecureFileShares = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+
+    const snap = await db
+      .collection("secure_file_shares")
+      .orderBy("createdAt", "desc")
+      .limit(200)
+      .get();
+
+    const now = Date.now();
+    const shares = [];
+
+    for (const doc of snap.docs) {
+      const share = doc.data() || {};
+      if (!isAdmin && share.createdByUid !== auth.uid) continue;
+
+      const expiresAtMillis = share.expiresAt?.toMillis?.() ?? null;
+      const rawStatus = String(share.status || "active").toLowerCase().trim();
+      const expired = expiresAtMillis != null && expiresAtMillis <= now;
+      const status = rawStatus === "revoked"
+        ? "revoked"
+        : expired
+          ? "expired"
+          : "active";
+
+      const files = Array.isArray(share.files) ? share.files : [];
+      shares.push({
+        shareId: doc.id,
+        url: secureShareUrl(doc.id),
+        recipientName: String(share.recipientName || ""),
+        recipientEmail: String(share.recipientEmail || ""),
+        createdByName: String(share.createdByName || ""),
+        createdByEmail: String(share.createdByEmail || ""),
+        createdAtMillis: share.createdAt?.toMillis?.() ?? null,
+        expiresAtMillis,
+        lastViewedAtMillis: share.lastViewedAt?.toMillis?.() ?? null,
+        lastDownloadedAtMillis: share.lastDownloadedAt?.toMillis?.() ?? null,
+        status,
+        fileCount: Number(share.fileCount || files.length || 0),
+        files: files.map((f) => ({
+          fileId: String(f.fileId || ""),
+          originalName: String(f.originalName || "File"),
+          contentType: String(f.contentType || ""),
+          sizeBytes: Number(f.sizeBytes || 0),
+        })),
+      });
+    }
+
+    return { ok: true, shares };
+  }
+);
+
+exports.revokeSecureFileShare = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const shareId = String(data?.shareId || "").trim();
+    if (!shareId) {
+      throw new HttpsError("invalid-argument", "shareId is required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Secure share not found.");
+    }
+
+    const share = snap.data() || {};
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isOwner = share.createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to revoke this share.");
+    }
+
+    await ref.set(
+      {
+        status: "revoked",
+        revokedAt: admin.firestore.FieldValue.serverTimestamp(),
+        revokedByUid: auth.uid,
+      },
+      { merge: true }
+    );
+
+    await db.collection("auditLogs").add({
+      type: "secure_file_share_revoked",
+      shareId,
+      actorUid: auth.uid,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, shareId, status: "revoked" };
   }
 );
 

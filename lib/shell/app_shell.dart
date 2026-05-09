@@ -12,6 +12,7 @@ import '../screens/resources_screen.dart';
 import '../screens/account_settings_screen.dart';
 import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
+import '../screens/send_files_screen.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/otp_verify_screen.dart';
 import '../screens/dropoff_detail_screen.dart';
@@ -30,16 +31,8 @@ const double kUtilityControlHeight = 36;
 const BorderRadius _kShellFlyoutRadius = BorderRadius.all(Radius.circular(8));
 const Color _kShellFlyoutBorderColor = Color(0xFFE4E7EC);
 const List<BoxShadow> _kShellFlyoutShadow = [
-  BoxShadow(
-    color: Color(0x1A000000),
-    blurRadius: 18,
-    offset: Offset(0, 8),
-  ),
-  BoxShadow(
-    color: Color(0x0A000000),
-    blurRadius: 4,
-    offset: Offset(0, 1),
-  ),
+  BoxShadow(color: Color(0x1A000000), blurRadius: 18, offset: Offset(0, 8)),
+  BoxShadow(color: Color(0x0A000000), blurRadius: 4, offset: Offset(0, 1)),
 ];
 
 // Admin routes
@@ -47,7 +40,7 @@ const String kAdminUsersRoute = '/admin-users';
 const String kAdminAuditRoute = '/admin-audit';
 const String kAdminLinksRoute = '/admin-links';
 
-enum _NavSection { admin, home, files, requests }
+enum _NavSection { admin, home, files, requests, send }
 
 class _ShellFlyoutSurface extends StatelessWidget {
   const _ShellFlyoutSurface({
@@ -101,6 +94,8 @@ String _sectionTitle(_NavSection s) {
       return 'File Box';
     case _NavSection.requests:
       return 'Requests';
+    case _NavSection.send:
+      return 'Send Files';
     case _NavSection.home:
     default:
       return 'Home';
@@ -174,6 +169,8 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     if (route == '/generate-upload-link' || route == '/dropoff-details') {
       return _NavSection.requests;
     }
+
+    if (route == '/send-files') return _NavSection.send;
 
     return _NavSection.home;
   }
@@ -1004,6 +1001,8 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'File Box';
       case '/generate-upload-link':
         return 'Requests';
+      case '/send-files':
+        return 'Send Files';
       case '/admin-users':
         return 'Admin Console';
       case '/dropoff-details':
@@ -1160,6 +1159,8 @@ Please describe the issue below:
         return const AccountSettingsScreen();
       case '/file-box':
         return const FileBoxScreen();
+      case '/send-files':
+        return SendFilesScreen(onOpenFileBox: () => _navigate('/file-box'));
       case '/generate-upload-link':
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
@@ -1405,6 +1406,9 @@ Please describe the issue below:
                     break;
                   case _NavSection.requests:
                     _navigate('/generate-upload-link');
+                    break;
+                  case _NavSection.send:
+                    _navigate('/send-files');
                     break;
                   case _NavSection.admin:
                     setState(() {
@@ -1935,6 +1939,14 @@ class _MiniRail extends StatelessWidget {
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
             ),
+            const SizedBox(height: 6),
+
+            _MiniTile(
+              icon: Icons.send_outlined,
+              label: 'Send Files',
+              active: active == _NavSection.send,
+              onTap: () => onSelect(_NavSection.send),
+            ),
 
             const Spacer(),
 
@@ -2074,6 +2086,12 @@ class _SecondaryPane extends StatelessWidget {
             Icons.link_outlined,
             '/generate-upload-link',
           ),
+        ];
+        break;
+
+      case _NavSection.send:
+        items = const [
+          _PaneItem('Sent files', Icons.send_outlined, '/send-files'),
         ];
         break;
 
@@ -2415,6 +2433,16 @@ class _SidebarNav extends StatelessWidget {
             icon: Icons.request_page_outlined, // ✅ Request icon
             label: 'Requests',
             route: '/generate-upload-link',
+            currentRoute: currentRoute,
+            onNavigate: onNavigate,
+            collapsed: collapsed,
+          ),
+          const SizedBox(height: 4),
+
+          _SidebarNavItem(
+            icon: Icons.send_outlined,
+            label: 'Send Files',
+            route: '/send-files',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
             collapsed: collapsed,
@@ -3051,7 +3079,7 @@ class _NotificationsPanel extends StatelessWidget {
                   final String clientContext = businessName.isNotEmpty
                       ? '$clientName · $businessName'
                       : clientName;
-                      
+
                   final String fromText = clientContext;
 
                   final Timestamp? ts = data['createdAt'] as Timestamp?;
