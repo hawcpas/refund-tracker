@@ -111,7 +111,7 @@ void initState() {
 
     if (code.length != 6) {
       setState(() {
-        _error = 'Enter the 6-digit verification code.';
+        _error = 'Enter the 6-digit code sent to your e-mail.';
       });
       return;
     }
@@ -301,7 +301,7 @@ void initState() {
 
   InputDecoration _codeDecoration({required bool enabled}) {
     return InputDecoration(
-      labelText: 'Enter the 6-digit code',
+      labelText: 'Verification code',
       helperText: _remainingSeconds > 0
           ? 'You can request a new code in $_remainingSeconds seconds.'
           : ' ',
@@ -398,6 +398,7 @@ void initState() {
   // =========================
   Widget _otpCard(ThemeData theme) {
     final enabled = !_loading && !_resending;
+    final email = FirebaseAuth.instance.currentUser?.email?.trim() ?? '';
 
     final bool verifying = _loading; // verification in progress
     final bool fieldEnabled = !_resending; // keep the field styled as enabled
@@ -423,6 +424,31 @@ void initState() {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  border: Border.all(color: const Color(0xFFE4E7EC)),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'Step 3 of 3',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF667085),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
             Center(
               child: SvgPicture.string(
                 kBrandLogoSvg2,
@@ -430,10 +456,10 @@ void initState() {
                 fit: BoxFit.contain,
               ),
             ),
-            const SizedBox(height: 20), // instead of 16, above or below logo
+            const SizedBox(height: 18), // instead of 16, above or below logo
 
             Text(
-              'Enter your verification code',
+              'Verify your identity',
               textAlign: TextAlign.center,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w700,
@@ -442,7 +468,7 @@ void initState() {
             ),
             const SizedBox(height: 6),
             Text(
-              'Enter the 6-digit code sent to your email address.',
+              'Enter the 6-digit code sent to your e-mail.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: const Color(0xFF6B6C72),
@@ -450,6 +476,30 @@ void initState() {
                 height: 1.35,
               ),
             ),
+            if (email.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  border: Border.all(color: const Color(0xFFE4E7EC)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  email,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF393A3D),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
 
             AbsorbPointer(
