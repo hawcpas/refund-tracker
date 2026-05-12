@@ -3326,11 +3326,21 @@ exports.createSecureFileShare = onCall(
           }))
           .filter((item) => item.requestId && item.fileId)
         : [];
+      const uploadedFiles = Array.isArray(data?.uploadedFiles)
+        ? data.uploadedFiles
+          .map((item) => ({
+            storagePath: String(item?.storagePath || "").trim(),
+            originalName: String(item?.originalName || "").trim(),
+            contentType: String(item?.contentType || "").trim(),
+            sizeBytes: Number(item?.sizeBytes || 0),
+          }))
+          .filter((item) => item.storagePath && item.originalName)
+        : [];
 
-      if (targets.length === 0) {
+      if (targets.length === 0 && uploadedFiles.length === 0) {
         throw new HttpsError("invalid-argument", "Select at least one file.");
       }
-      if (targets.length > 75) {
+      if ((targets.length + uploadedFiles.length) > 75) {
         throw new HttpsError("failed-precondition", "Too many files selected. Max is 75.");
       }
 
@@ -3356,7 +3366,28 @@ exports.createSecureFileShare = onCall(
         ? expirationDaysRaw
         : 7;
 
-      const metas = await loadAuthorizedFileMetasForShare(auth, targets);
+      const existingMetas = targets.length > 0
+        ? await loadAuthorizedFileMetasForShare(auth, targets)
+        : [];
+      const uploadedMetas = uploadedFiles.map((file) => {
+        const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
+        if (!file.storagePath.startsWith(expectedPrefix)) {
+          throw new HttpsError(
+            "permission-denied",
+            "Uploaded file path is not allowed."
+          );
+        }
+        return {
+          requestId: "",
+          fileId: crypto.randomBytes(12).toString("hex"),
+          storagePath: file.storagePath,
+          originalName: file.originalName,
+          contentType: file.contentType,
+          sizeBytes: file.sizeBytes,
+          source: "device",
+        };
+      });
+      const metas = [...existingMetas, ...uploadedMetas];
       if (metas.length === 0) {
         throw new HttpsError("failed-precondition", "No eligible files selected.");
       }
@@ -3492,6 +3523,35 @@ exports.openSecureFileShare = onCall(
   }
 );
 
+exports.getSecureShareStatus = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const shareId = String(request.data?.shareId || "").trim();
+    if (!shareId) {
+      throw new HttpsError("invalid-argument", "Share link is required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return { ok: true, status: "unavailable", expiresAtMillis: null };
+    }
+
+    const share = snap.data() || {};
+    const rawStatus = String(share.status || "active").toLowerCase().trim();
+    const expiresAt = share.expiresAt;
+    const expiresAtMillis = expiresAt?.toMillis?.() ?? null;
+    const expired = expiresAtMillis != null && expiresAtMillis <= Date.now();
+    const status = rawStatus === "revoked"
+      ? "revoked"
+      : expired
+        ? "expired"
+        : "active";
+
+    return { ok: true, status, expiresAtMillis };
+  }
+);
+
 exports.getSecureShareDownloadUrl = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -3548,6 +3608,127 @@ exports.getSecureShareDownloadUrl = onCall(
   }
 );
 
+exports.getSecureShareZipDownloadUrl = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const shareId = String(request.data?.shareId || "").trim();
+    const password = String(request.data?.password || "").trim();
+    const requestedFileIds = Array.isArray(request.data?.fileIds)
+      ? request.data.fileIds.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
+
+    if (!shareId || !password) {
+      throw new HttpsError("invalid-argument", "Share link and password are required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Secure share not found.");
+
+    const share = snap.data() || {};
+    if (String(share.status || "").toLowerCase() !== "active") {
+      throw new HttpsError("failed-precondition", "This secure share is no longer active.");
+    }
+
+    const expiresAt = share.expiresAt;
+    if (expiresAt && expiresAt.toMillis && expiresAt.toMillis() <= Date.now()) {
+      throw new HttpsError("deadline-exceeded", "This secure share has expired.");
+    }
+
+    const expected = String(share.passwordHash || "");
+    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+    if (!expected || actual !== expected) {
+      throw new HttpsError("permission-denied", "The password is incorrect.");
+    }
+
+    const allFiles = Array.isArray(share.files) ? share.files : [];
+    const wanted = requestedFileIds.length > 0
+      ? new Set(requestedFileIds)
+      : new Set(allFiles.map((f) => String(f.fileId || "")));
+    const files = allFiles.filter((f) => wanted.has(String(f.fileId || "")) && f.storagePath);
+
+    if (files.length === 0) {
+      throw new HttpsError("failed-precondition", "No files selected for download.");
+    }
+
+    if (files.length === 1) {
+      const file = files[0];
+      const safeName = safeFilename(file.originalName || file.fileId || "file");
+      const [url] = await admin.storage().bucket().file(file.storagePath).getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 5 * 60 * 1000,
+        responseDisposition:
+          `attachment; filename="${safeName}"; ` +
+          `filename*=UTF-8''${encodeURIComponent(safeName)}`,
+        ...(file.contentType ? { responseType: file.contentType } : {}),
+      });
+      return { ok: true, url, fileCount: 1 };
+    }
+
+    const bucket = admin.storage().bucket();
+    const tmpDir = os.tmpdir();
+    const zipPath = path.join(tmpDir, `secure_share_${shareId}_${Date.now()}.zip`);
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    const seenNames = new Set();
+
+    function uniqueZipName(file) {
+      let name = safeFilename(file.originalName || file.fileId || "file");
+      if (!seenNames.has(name)) {
+        seenNames.add(name);
+        return name;
+      }
+      const dot = name.lastIndexOf(".");
+      const base = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let n = 2;
+      while (seenNames.has(`${base} (${n})${ext}`)) n++;
+      name = `${base} (${n})${ext}`;
+      seenNames.add(name);
+      return name;
+    }
+
+    archive.on("error", (e) => {
+      throw e;
+    });
+    archive.pipe(output);
+
+    for (const file of files) {
+      archive.append(bucket.file(file.storagePath).createReadStream(), {
+        name: uniqueZipName(file),
+      });
+    }
+
+    await archive.finalize();
+    await new Promise((resolve, reject) => {
+      output.on("close", resolve);
+      output.on("error", reject);
+    });
+
+    const zipStoragePath = `tmp/zips/secure_share_${shareId}_${Date.now()}.zip`;
+    await bucket.upload(zipPath, {
+      destination: zipStoragePath,
+      contentType: "application/zip",
+    });
+
+    const [url] = await bucket.file(zipStoragePath).getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 5 * 60 * 1000,
+      responseDisposition: 'attachment; filename="secure-files.zip"',
+      responseType: "application/zip",
+    });
+
+    await ref.set(
+      { lastDownloadedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+
+    return { ok: true, url, fileCount: files.length };
+  }
+);
+
 exports.listSecureFileShares = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -3589,6 +3770,7 @@ exports.listSecureFileShares = onCall(
         url: secureShareUrl(doc.id),
         recipientName: String(share.recipientName || ""),
         recipientEmail: String(share.recipientEmail || ""),
+        message: String(share.message || ""),
         createdByName: String(share.createdByName || ""),
         createdByEmail: String(share.createdByEmail || ""),
         createdAtMillis: share.createdAt?.toMillis?.() ?? null,
@@ -3598,6 +3780,7 @@ exports.listSecureFileShares = onCall(
         status,
         fileCount: Number(share.fileCount || files.length || 0),
         files: files.map((f) => ({
+          requestId: String(f.requestId || ""),
           fileId: String(f.fileId || ""),
           originalName: String(f.originalName || "File"),
           contentType: String(f.contentType || ""),
@@ -3607,6 +3790,247 @@ exports.listSecureFileShares = onCall(
     }
 
     return { ok: true, shares };
+  }
+);
+
+exports.updateSecureFileShare = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    try {
+      const { auth, data } = request;
+      if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+      await assertDropoffAccess(auth.uid);
+
+      const shareId = String(data?.shareId || "").trim();
+      if (!shareId) {
+        throw new HttpsError("invalid-argument", "shareId is required.");
+      }
+
+      const ref = db.collection("secure_file_shares").doc(shareId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        throw new HttpsError("not-found", "Secure share not found.");
+      }
+
+      const share = snap.data() || {};
+      const callerSnap = await db.collection("users").doc(auth.uid).get();
+      const caller = callerSnap.data() || {};
+      const role = String(caller.role || "").toLowerCase().trim();
+      const isAdmin = role === "admin";
+      const isOwner = share.createdByUid === auth.uid;
+
+      if (!isAdmin && !isOwner) {
+        throw new HttpsError("permission-denied", "Not allowed to edit this share.");
+      }
+      if (String(share.status || "active").toLowerCase().trim() === "revoked") {
+        throw new HttpsError("failed-precondition", "Revoked shares cannot be edited.");
+      }
+
+      const recipientEmail = normalizeEmail(data?.recipientEmail);
+      if (recipientEmail && !recipientEmail.includes("@")) {
+        throw new HttpsError("invalid-argument", "Enter a valid client email.");
+      }
+
+      const recipientName = normalizeName(data?.recipientName);
+      const message = normalizeName(data?.message);
+      const expirationDaysRaw = Number(data?.expirationDays || 7);
+      const expirationDays = [1, 7, 14, 30].includes(expirationDaysRaw)
+        ? expirationDaysRaw
+        : 7;
+
+      const targets = Array.isArray(data?.files)
+        ? data.files
+          .map((item) => ({
+            requestId: String(item?.requestId || "").trim(),
+            fileId: String(item?.fileId || "").trim(),
+          }))
+          .filter((item) => item.requestId && item.fileId)
+        : [];
+      const uploadedFiles = Array.isArray(data?.uploadedFiles)
+        ? data.uploadedFiles
+          .map((item) => ({
+            storagePath: String(item?.storagePath || "").trim(),
+            originalName: String(item?.originalName || "").trim(),
+            contentType: String(item?.contentType || "").trim(),
+            sizeBytes: Number(item?.sizeBytes || 0),
+          }))
+          .filter((item) => item.storagePath && item.originalName)
+        : [];
+
+      const existingFiles = Array.isArray(share.files) ? share.files : [];
+      const removeTargets = Array.isArray(data?.removeFiles)
+        ? data.removeFiles
+          .map((item) => ({
+            requestId: String(item?.requestId || "").trim(),
+            fileId: String(item?.fileId || "").trim(),
+          }))
+          .filter((item) => item.fileId)
+        : [];
+      const removeKeys = new Set(
+        removeTargets.map((item) => `${item.requestId}/${item.fileId}`)
+      );
+      const keptFiles = existingFiles.filter((file) => {
+        const key = `${String(file.requestId || "").trim()}/${String(file.fileId || "").trim()}`;
+        return !removeKeys.has(key);
+      });
+      const existingKeys = new Set(
+        keptFiles.map((file) => String(file.storagePath || `${file.requestId || ""}/${file.fileId || ""}`))
+      );
+
+      const existingMetas = targets.length > 0
+        ? await loadAuthorizedFileMetasForShare(auth, targets)
+        : [];
+      const uploadedMetas = uploadedFiles.map((file) => {
+        const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
+        if (!file.storagePath.startsWith(expectedPrefix)) {
+          throw new HttpsError(
+            "permission-denied",
+            "Uploaded file path is not allowed."
+          );
+        }
+        return {
+          requestId: "",
+          fileId: crypto.randomBytes(12).toString("hex"),
+          storagePath: file.storagePath,
+          originalName: file.originalName,
+          contentType: file.contentType,
+          sizeBytes: file.sizeBytes,
+          source: "device",
+        };
+      });
+
+      const additions = [];
+      for (const file of [...existingMetas, ...uploadedMetas]) {
+        const key = String(file.storagePath || `${file.requestId || ""}/${file.fileId || ""}`);
+        if (!key || existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        additions.push(file);
+      }
+
+      const files = [...keptFiles, ...additions];
+      if (files.length === 0) {
+        throw new HttpsError("failed-precondition", "A secure share must include at least one file.");
+      }
+      if (files.length > 75) {
+        throw new HttpsError("failed-precondition", "Too many files selected. Max is 75.");
+      }
+
+      const update = {
+        recipientEmail: recipientEmail || "",
+        recipientName: recipientName || "",
+        message: message || "",
+        status: "active",
+        expiresAt: admin.firestore.Timestamp.fromMillis(
+          Date.now() + expirationDays * 24 * 60 * 60 * 1000
+        ),
+        files,
+        fileCount: files.length,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedByUid: auth.uid,
+      };
+
+      const password = String(data?.password || "").trim();
+      if (password) {
+        if (password.length < 6) {
+          throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+        }
+        const salt = crypto.randomBytes(16).toString("hex");
+        update.passwordSalt = salt;
+        update.passwordHash = hashSharePassword(password, salt);
+        update.passwordUpdatedAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+
+      await ref.set(update, { merge: true });
+
+      await db.collection("auditLogs").add({
+        type: "secure_file_share_updated",
+        shareId,
+        fileCount: files.length,
+        addedFileCount: additions.length,
+        removedFileCount: existingFiles.length - keptFiles.length,
+        passwordChanged: Boolean(password),
+        actorUid: auth.uid,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        ok: true,
+        shareId,
+        url: secureShareUrl(shareId),
+        fileCount: files.length,
+        addedFileCount: additions.length,
+        removedFileCount: existingFiles.length - keptFiles.length,
+      };
+    } catch (err) {
+      console.error("updateSecureFileShare failed:", err);
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError("internal", "Could not update secure share.", {
+        message: err?.message || String(err),
+      });
+    }
+  }
+);
+
+exports.listShareableFiles = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isAssociate = role === "associate";
+
+    const snap = await db
+      .collectionGroup("files")
+      .where("deleted", "==", false)
+      .orderBy("createdAt", "desc")
+      .limit(300)
+      .get();
+
+    const requestCache = new Map();
+    const files = [];
+
+    for (const doc of snap.docs) {
+      const file = doc.data() || {};
+      const requestId = String(file.requestId || "").trim();
+      const storagePath = String(file.storagePath || "").trim();
+      if (!requestId || !storagePath) continue;
+
+      let req = requestCache.get(requestId);
+      if (!req) {
+        const reqSnap = await db.collection("dropoff_requests").doc(requestId).get();
+        if (!reqSnap.exists) continue;
+        req = reqSnap.data() || {};
+        requestCache.set(requestId, req);
+      }
+
+      const isOwner = req.createdByUid === auth.uid;
+      const createdByRole = String(file.requestCreatedByRole || req.createdByRole || "")
+        .toLowerCase()
+        .trim();
+      const canAccess = isAdmin || isOwner || (isAssociate && createdByRole === "associate");
+      if (!canAccess) continue;
+
+      files.push({
+        requestId,
+        fileId: doc.id,
+        originalName: String(file.originalName || "File"),
+        contentType: String(file.contentType || ""),
+        sizeBytes: Number(file.sizeBytes || 0),
+        clientName: String(file.requestClientName || req.clientName || ""),
+        clientEmail: String(file.requestClientEmail || req.clientEmail || ""),
+        businessName: String(file.requestBusinessName || req.businessName || ""),
+        uploadedAtMillis: file.createdAt?.toMillis?.() ?? null,
+      });
+    }
+
+    return { ok: true, files };
   }
 );
 
