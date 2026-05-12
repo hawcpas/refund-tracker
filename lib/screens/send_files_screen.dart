@@ -1,4 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,9 +10,7 @@ import '../utils/file_kind.dart';
 import '../widgets/page_scaffold.dart';
 
 class SendFilesScreen extends StatefulWidget {
-  const SendFilesScreen({super.key, required this.onOpenFileBox});
-
-  final VoidCallback onOpenFileBox;
+  const SendFilesScreen({super.key});
 
   @override
   State<SendFilesScreen> createState() => _SendFilesScreenState();
@@ -77,6 +78,132 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Secure link copied.')));
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '-';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _applyShareTemplateTokens(String text, String clientName) {
+    final name = clientName.trim();
+    final firstName = name.isEmpty
+        ? 'Client'
+        : name.split(RegExp(r'\s+')).first;
+    return text
+        .replaceAll('{{clientName}}', name.isEmpty ? 'Client' : name)
+        .replaceAll('{{clientFirstName}}', firstName);
+  }
+
+  List<_ShareMessageTemplate> get _shareMessageTemplates => const [
+    _ShareMessageTemplate(
+      id: 'secure_delivery',
+      title: 'Secure file delivery',
+      body:
+          'Dear {{clientFirstName}},\n\n'
+          'Please use the secure link provided to access the files we have shared with you. For your protection, the password will be provided separately.\n\n'
+          'Best regards,\n'
+          'Axume & Associates CPAs',
+    ),
+    _ShareMessageTemplate(
+      id: 'tax_documents',
+      title: 'Tax documents',
+      body:
+          'Dear {{clientFirstName}},\n\n'
+          'We have securely shared documents related to your tax file. Please use the secure link to view or download the files at your convenience.\n\n'
+          'Best regards,\n'
+          'Axume & Associates CPAs',
+    ),
+    _ShareMessageTemplate(
+      id: 'review_and_download',
+      title: 'Review and download',
+      body:
+          'Dear {{clientFirstName}},\n\n'
+          'The requested files are ready for your review. Please access them through the secure link and download a copy for your records.\n\n'
+          'Best regards,\n'
+          'Axume & Associates CPAs',
+    ),
+  ];
+
+  Future<List<_ShareableFile>> _loadShareableFiles() async {
+    final res = await _functions.httpsCallable('listShareableFiles').call();
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final raw = (data['files'] is List) ? data['files'] as List : [];
+    return raw
+        .map((f) => _ShareableFile.fromMap(Map<String, dynamic>.from(f)))
+        .toList();
+  }
+
+  Future<List<_DeviceShareFile>> _pickDeviceFiles() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: true,
+    );
+    if (result == null) return const [];
+
+    return result.files
+        .where((f) => f.bytes != null && f.bytes!.isNotEmpty)
+        .map(
+          (f) => _DeviceShareFile(
+            name: f.name,
+            sizeBytes: f.size,
+            bytes: f.bytes!,
+            contentType: _guessContentType(f.name),
+          ),
+        )
+        .toList();
+  }
+
+  String _guessContentType(String fileName) {
+    final name = fileName.toLowerCase().trim();
+    if (name.endsWith('.pdf')) return 'application/pdf';
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    if (name.endsWith('.xlsx')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (name.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (name.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (name.endsWith('.doc')) return 'application/msword';
+    if (name.endsWith('.txt')) return 'text/plain';
+    if (name.endsWith('.zip')) return 'application/zip';
+    return 'application/octet-stream';
+  }
+
+  Future<List<Map<String, dynamic>>> _uploadDeviceFiles(
+    List<_DeviceShareFile> files,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      throw Exception('Sign-in required.');
+    }
+
+    final uploaded = <Map<String, dynamic>>[];
+    for (var i = 0; i < files.length; i++) {
+      final file = files[i];
+      final safeName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final objectId =
+          '${DateTime.now().microsecondsSinceEpoch}_${i}_${safeName.hashCode}';
+      final storagePath = 'secure_share_uploads/$uid/$objectId-$safeName';
+      final ref = FirebaseStorage.instance.ref(storagePath);
+
+      await ref.putData(
+        file.bytes,
+        SettableMetadata(contentType: file.contentType),
+      );
+
+      uploaded.add({
+        'storagePath': storagePath,
+        'originalName': file.name,
+        'contentType': file.contentType,
+        'sizeBytes': file.sizeBytes,
+      });
+    }
+    return uploaded;
   }
 
   Future<void> _revoke(_SecureShareRow share) async {
@@ -216,6 +343,1422 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     );
   }
 
+  int _defaultExpirationDaysFor(DateTime? expiresAt) {
+    if (expiresAt == null) return 7;
+    final diff = expiresAt.difference(DateTime.now());
+    if (diff.inDays <= 1) return 1;
+    if (diff.inDays <= 7) return 7;
+    if (diff.inDays <= 14) return 14;
+    return 30;
+  }
+
+  Future<void> _showEditSecureShareDialog(_SecureShareRow share) async {
+    var currentShare = share;
+    final emailCtrl = TextEditingController(text: share.recipientEmail);
+    final nameCtrl = TextEditingController(text: share.recipientName);
+    final messageCtrl = TextEditingController(text: share.message);
+    final passwordCtrl = TextEditingController();
+    final confirmPasswordCtrl = TextEditingController();
+    final searchCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    var expirationDays = _defaultExpirationDaysFor(currentShare.expiresAt);
+    var submitting = false;
+    var loadingFiles = false;
+    var showFileBoxPicker = false;
+    List<_ShareableFile> availableFiles = const [];
+    final selectedFileKeys = <String>{};
+    final removedFileKeys = <String>{};
+    final deviceFiles = <_DeviceShareFile>[];
+    var search = '';
+
+    Future<void> loadFileBox(StateSetter setLocalState) async {
+      setLocalState(() {
+        showFileBoxPicker = true;
+        loadingFiles = true;
+      });
+      try {
+        final files = await _loadShareableFiles();
+        final existingKeys = currentShare.files
+            .map((f) => f.sourceKey)
+            .where((key) => key.isNotEmpty)
+            .toSet();
+        setLocalState(() {
+          availableFiles = files
+              .where((file) => !existingKeys.contains(file.key))
+              .toList();
+          loadingFiles = false;
+        });
+      } catch (_) {
+        setLocalState(() => loadingFiles = false);
+      }
+    }
+
+    Future<void> addDeviceFiles(StateSetter setLocalState) async {
+      final files = await _pickDeviceFiles();
+      if (files.isEmpty) return;
+      setLocalState(() {
+        final existingKeys = deviceFiles.map((f) => f.key).toSet();
+        for (final file in files) {
+          if (existingKeys.add(file.key)) {
+            deviceFiles.add(file);
+          }
+        }
+      });
+    }
+
+    Future<void> finish(
+      BuildContext dialogContext,
+      StateSetter setLocalState,
+    ) async {
+      if (!(formKey.currentState?.validate() ?? false)) return;
+      final remainingExistingCount = currentShare.files
+          .where((file) => !removedFileKeys.contains(file.removalKey))
+          .length;
+      if (remainingExistingCount +
+              selectedFileKeys.length +
+              deviceFiles.length ==
+          0) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(
+            content: Text('A secure share must include at least one file.'),
+          ),
+        );
+        return;
+      }
+
+      setLocalState(() => submitting = true);
+      setState(() => _busy = true);
+
+      try {
+        final selectedFiles = availableFiles
+            .where((f) => selectedFileKeys.contains(f.key))
+            .toList();
+        final uploadedFiles = deviceFiles.isEmpty
+            ? const <Map<String, dynamic>>[]
+            : await _uploadDeviceFiles(deviceFiles);
+
+        final payload = <String, dynamic>{
+          'shareId': currentShare.shareId,
+          'files': selectedFiles
+              .map((f) => {'requestId': f.requestId, 'fileId': f.fileId})
+              .toList(),
+          'removeFiles': currentShare.files
+              .where((file) => removedFileKeys.contains(file.removalKey))
+              .map(
+                (file) => {'requestId': file.requestId, 'fileId': file.fileId},
+              )
+              .toList(),
+          'uploadedFiles': uploadedFiles,
+          'recipientEmail': emailCtrl.text.trim().toLowerCase(),
+          'recipientName': nameCtrl.text.trim(),
+          'message': messageCtrl.text.trim(),
+          'expirationDays': expirationDays,
+        };
+        final password = passwordCtrl.text.trim();
+        if (password.isNotEmpty) payload['password'] = password;
+
+        final res = await _functions
+            .httpsCallable('updateSecureFileShare')
+            .call(payload);
+        final data = Map<String, dynamic>.from(res.data as Map);
+        final addedFileCount = data['addedFileCount'] is num
+            ? (data['addedFileCount'] as num).toInt()
+            : selectedFiles.length + uploadedFiles.length;
+        final removedFileCount = data['removedFileCount'] is num
+            ? (data['removedFileCount'] as num).toInt()
+            : removedFileKeys.length;
+
+        final refreshedShares = await _loadShares();
+        _SecureShareRow? updatedShare;
+        for (final item in refreshedShares) {
+          if (item.shareId == currentShare.shareId) {
+            updatedShare = item;
+            break;
+          }
+        }
+
+        if (!dialogContext.mounted) return;
+        setState(() => _future = Future.value(refreshedShares));
+        setLocalState(() {
+          if (updatedShare != null) {
+            currentShare = updatedShare;
+            emailCtrl.text = updatedShare.recipientEmail;
+            nameCtrl.text = updatedShare.recipientName;
+            messageCtrl.text = updatedShare.message;
+            expirationDays = _defaultExpirationDaysFor(updatedShare.expiresAt);
+          }
+          passwordCtrl.clear();
+          confirmPasswordCtrl.clear();
+          selectedFileKeys.clear();
+          removedFileKeys.clear();
+          deviceFiles.clear();
+          availableFiles = const [];
+          showFileBoxPicker = false;
+          search = '';
+          searchCtrl.clear();
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              addedFileCount > 0 || removedFileCount > 0
+                  ? 'Secure share updated. Added $addedFileCount and removed $removedFileCount file(s).'
+                  : 'Secure share updated.',
+            ),
+          ),
+        );
+      } on FirebaseFunctionsException catch (e) {
+        if (!dialogContext.mounted) return;
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          SnackBar(
+            content: Text('Update failed: ${e.code} ${e.message ?? ''}'),
+          ),
+        );
+      } catch (e) {
+        if (!dialogContext.mounted) return;
+        ScaffoldMessenger.of(
+          dialogContext,
+        ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      } finally {
+        if (mounted) setState(() => _busy = false);
+        if (dialogContext.mounted) {
+          setLocalState(() => submitting = false);
+        }
+      }
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final filteredFiles = availableFiles.where((f) {
+              final q = search.trim().toLowerCase();
+              if (q.isEmpty) return true;
+              return ('${f.originalName} ${f.clientName} ${f.clientEmail} ${f.businessName}')
+                  .toLowerCase()
+                  .contains(q);
+            }).toList();
+
+            Widget dayChip(int days) {
+              final selected = expirationDays == days;
+              return ChoiceChip(
+                label: Text(days == 1 ? '1 day' : '$days days'),
+                selected: selected,
+                showCheckmark: false,
+                selectedColor: const Color(0xFFEAF2FF),
+                backgroundColor: const Color(0xFFF9FAFB),
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFFE4E7EC),
+                ),
+                labelStyle: TextStyle(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFF667085),
+                  fontWeight: FontWeight.w800,
+                ),
+                onSelected: submitting
+                    ? null
+                    : (_) => setLocalState(() => expirationDays = days),
+              );
+            }
+
+            Widget linkPanel() => Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                border: Border.all(color: const Color(0xFFE4E7EC)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.link_outlined,
+                    color: AppColors.brandBlue,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      currentShare.url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF475467),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _copyLink(currentShare),
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('Copy'),
+                  ),
+                ],
+              ),
+            );
+
+            Widget sectionTitle(String text, {String? trailing}) => Row(
+              children: [
+                Text(
+                  text,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: const Color(0xFF344054),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const Spacer(),
+                  Text(
+                    trailing,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            );
+
+            Widget currentFilesList() => DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFE4E7EC)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: currentShare.files.map((file) {
+                  final meta = resolveFileMeta(
+                    fileName: file.originalName,
+                    contentType: file.contentType,
+                  );
+                  final removed = removedFileKeys.contains(file.removalKey);
+                  return ListTile(
+                    dense: true,
+                    tileColor: removed ? const Color(0xFFFFF1F3) : Colors.white,
+                    leading: Icon(
+                      meta.icon,
+                      color: removed ? const Color(0xFFB42318) : meta.color,
+                    ),
+                    title: Text(
+                      file.originalName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: removed
+                            ? const Color(0xFFB42318)
+                            : const Color(0xFF101828),
+                        decoration: removed ? TextDecoration.lineThrough : null,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(_formatSize(file.sizeBytes)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          removed ? 'Will remove' : 'Included',
+                          style: TextStyle(
+                            color: removed
+                                ? const Color(0xFFB42318)
+                                : const Color(0xFF667085),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: removed ? 'Keep file' : 'Remove from share',
+                          icon: Icon(
+                            removed ? Icons.undo_outlined : Icons.close,
+                            size: 18,
+                            color: removed
+                                ? AppColors.brandBlue
+                                : const Color(0xFFB42318),
+                          ),
+                          onPressed: submitting
+                              ? null
+                              : () => setLocalState(() {
+                                  if (removed) {
+                                    removedFileKeys.remove(file.removalKey);
+                                  } else {
+                                    removedFileKeys.add(file.removalKey);
+                                  }
+                                }),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            );
+
+            Widget detailsTab() => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Client email',
+                      prefixIcon: Icon(Icons.mail_outline),
+                    ),
+                    validator: (v) {
+                      final value = (v ?? '').trim();
+                      if (value.isNotEmpty && !value.contains('@')) {
+                        return 'Enter a valid email.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Client name',
+                      prefixIcon: Icon(Icons.person_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: messageCtrl,
+                    minLines: 4,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'Message',
+                      prefixIcon: Icon(Icons.notes_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  sectionTitle('Expiration from today'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [1, 7, 14, 30].map(dayChip).toList(),
+                  ),
+                ],
+              ),
+            );
+
+            Widget securityTab() => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  sectionTitle('Password'),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: passwordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'New password',
+                      helperText: 'Leave blank to keep the current password.',
+                      prefixIcon: Icon(Icons.key_outlined),
+                    ),
+                    validator: (v) {
+                      final value = (v ?? '').trim();
+                      if (value.isNotEmpty && value.length < 6) {
+                        return 'Use at least 6 characters.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: confirmPasswordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirm new password',
+                      prefixIcon: Icon(Icons.verified_user_outlined),
+                    ),
+                    validator: (v) {
+                      final password = passwordCtrl.text.trim();
+                      final confirm = (v ?? '').trim();
+                      if (password.isEmpty && confirm.isEmpty) return null;
+                      if (confirm.isEmpty) {
+                        return 'Re-enter the new password.';
+                      }
+                      if (confirm != password) {
+                        return 'Passwords do not match.';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            );
+
+            Widget filesTab() => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  sectionTitle(
+                    'Current files',
+                    trailing:
+                        '${currentShare.files.where((file) => !removedFileKeys.contains(file.removalKey)).length + selectedFileKeys.length + deviceFiles.length} total',
+                  ),
+                  const SizedBox(height: 8),
+                  currentFilesList(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: (submitting || loadingFiles)
+                            ? null
+                            : () => loadFileBox(setLocalState),
+                        icon: const Icon(Icons.inventory_2_outlined, size: 16),
+                        label: Text(
+                          showFileBoxPicker
+                              ? 'Refresh File Box'
+                              : 'Add from File Box',
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: submitting
+                            ? null
+                            : () => addDeviceFiles(setLocalState),
+                        icon: const Icon(Icons.upload_file_outlined, size: 16),
+                        label: Text(
+                          deviceFiles.isEmpty
+                              ? 'Upload from device'
+                              : 'Add more uploads',
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (showFileBoxPicker) ...[
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: searchCtrl,
+                      onChanged: (v) => setLocalState(() => search = v),
+                      decoration: const InputDecoration(
+                        labelText: 'Search File Box',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE4E7EC)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: loadingFiles
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
+                          : filteredFiles.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('No additional files found.'),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: filteredFiles.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final file = filteredFiles[index];
+                                final selected = selectedFileKeys.contains(
+                                  file.key,
+                                );
+                                final meta = resolveFileMeta(
+                                  fileName: file.originalName,
+                                  contentType: file.contentType,
+                                );
+                                return CheckboxListTile(
+                                  value: selected,
+                                  onChanged: submitting
+                                      ? null
+                                      : (v) => setLocalState(() {
+                                          if (v == true) {
+                                            selectedFileKeys.add(file.key);
+                                          } else {
+                                            selectedFileKeys.remove(file.key);
+                                          }
+                                        }),
+                                  secondary: Icon(meta.icon, color: meta.color),
+                                  title: Text(
+                                    file.originalName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    [
+                                      if (file.clientName.isNotEmpty)
+                                        file.clientName,
+                                      if (file.businessName.isNotEmpty)
+                                        file.businessName,
+                                      _formatSize(file.sizeBytes),
+                                    ].join(' - '),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                  if (deviceFiles.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    sectionTitle('Device uploads'),
+                    const SizedBox(height: 8),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFE4E7EC)),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: deviceFiles.map((file) {
+                          final meta = resolveFileMeta(
+                            fileName: file.name,
+                            contentType: file.contentType,
+                          );
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(meta.icon, color: meta.color),
+                            title: Text(file.name),
+                            subtitle: Text(_formatSize(file.sizeBytes)),
+                            trailing: IconButton(
+                              tooltip: 'Remove file',
+                              icon: const Icon(Icons.close, size: 18),
+                              onPressed: submitting
+                                  ? null
+                                  : () => setLocalState(
+                                      () => deviceFiles.remove(file),
+                                    ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+
+            return DefaultTabController(
+              length: 3,
+              child: AlertDialog(
+                backgroundColor: Colors.white,
+                surfaceTintColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+                contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+                title: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.tune_outlined,
+                        color: AppColors.brandBlue,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Manage secure share'),
+                          SizedBox(height: 2),
+                          Text(
+                            'Update access, files, and client-facing details.',
+                            style: TextStyle(
+                              color: Color(0xFF667085),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: 760,
+                  height: 610,
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        linkPanel(),
+                        const SizedBox(height: 14),
+                        const TabBar(
+                          isScrollable: false,
+                          labelColor: AppColors.brandBlue,
+                          unselectedLabelColor: Color(0xFF667085),
+                          indicatorColor: AppColors.brandBlue,
+                          indicatorWeight: 2,
+                          tabs: [
+                            Tab(
+                              icon: Icon(Icons.badge_outlined, size: 18),
+                              text: 'Details',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.folder_outlined, size: 18),
+                              text: 'Files',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.shield_outlined, size: 18),
+                              text: 'Security',
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                        Expanded(
+                          child: TabBarView(
+                            children: [detailsTab(), filesTab(), securityTab()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting ? null : () => Navigator.pop(ctx),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: submitting
+                        ? null
+                        : () => finish(ctx, setLocalState),
+                    icon: submitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined, size: 16),
+                    label: const Text('Save changes'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    emailCtrl.dispose();
+    nameCtrl.dispose();
+    messageCtrl.dispose();
+    passwordCtrl.dispose();
+    confirmPasswordCtrl.dispose();
+    searchCtrl.dispose();
+  }
+
+  Future<void> _showCreateSecureShareDialog() async {
+    final emailCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final confirmPasswordCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
+    final searchCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    String source = '';
+    int expirationDays = 7;
+    bool sendEmail = false;
+    bool submitting = false;
+    bool obscurePassword = true;
+    bool obscureConfirmPassword = true;
+    String? selectedTemplateId;
+    List<_ShareableFile> availableFiles = const [];
+    final selectedFileKeys = <String>{};
+    final deviceFiles = <_DeviceShareFile>[];
+    String search = '';
+
+    Future<void> finish(
+      BuildContext dialogContext,
+      StateSetter setLocalState,
+    ) async {
+      if (!(formKey.currentState?.validate() ?? false)) return;
+      if (source == 'fileBox' && selectedFileKeys.isEmpty) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(content: Text('Select at least one file.')),
+        );
+        return;
+      }
+      if (source == 'device' && deviceFiles.isEmpty) {
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          const SnackBar(content: Text('Choose at least one file.')),
+        );
+        return;
+      }
+
+      setLocalState(() => submitting = true);
+      setState(() => _busy = true);
+
+      try {
+        final selectedFiles = availableFiles
+            .where((f) => selectedFileKeys.contains(f.key))
+            .toList();
+        final uploadedFiles = source == 'device'
+            ? await _uploadDeviceFiles(deviceFiles)
+            : const <Map<String, dynamic>>[];
+
+        final res = await _functions
+            .httpsCallable('createSecureFileShare')
+            .call({
+              'files': selectedFiles
+                  .map((f) => {'requestId': f.requestId, 'fileId': f.fileId})
+                  .toList(),
+              'uploadedFiles': uploadedFiles,
+              'recipientEmail': emailCtrl.text.trim().toLowerCase(),
+              'recipientName': nameCtrl.text.trim(),
+              'password': passwordCtrl.text.trim(),
+              'message': messageCtrl.text.trim(),
+              'expirationDays': expirationDays,
+              'sendEmail': sendEmail,
+            });
+
+        final data = Map<String, dynamic>.from(res.data as Map);
+        final url = (data['url'] ?? '').toString();
+        final fileCount = data['fileCount'] is num
+            ? (data['fileCount'] as num).toInt()
+            : selectedFiles.length + uploadedFiles.length;
+        final emailed = data['emailed'] == true;
+
+        if (!dialogContext.mounted) return;
+        Navigator.pop(dialogContext);
+        _refresh();
+
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Secure share created'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    emailed
+                        ? 'The secure link was emailed to the client.'
+                        : 'Copy this secure link and provide the password separately.',
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF475467),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText(url),
+                  const SizedBox(height: 10),
+                  Text(
+                    '$fileCount ${fileCount == 1 ? "file" : "files"} shared.',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done'),
+              ),
+              FilledButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: url));
+                  if (!ctx.mounted) return;
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Secure link copied.')),
+                  );
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('Copy link'),
+              ),
+            ],
+          ),
+        );
+      } on FirebaseFunctionsException catch (e) {
+        if (!dialogContext.mounted) return;
+        ScaffoldMessenger.of(dialogContext).showSnackBar(
+          SnackBar(
+            content: Text('Secure share failed: ${e.code} ${e.message ?? ''}'),
+          ),
+        );
+      } catch (e) {
+        if (!dialogContext.mounted) return;
+        ScaffoldMessenger.of(
+          dialogContext,
+        ).showSnackBar(SnackBar(content: Text('Secure share failed: $e')));
+      } finally {
+        if (mounted) setState(() => _busy = false);
+        if (dialogContext.mounted) {
+          setLocalState(() => submitting = false);
+        }
+      }
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final filteredFiles = availableFiles.where((f) {
+              final q = search.trim().toLowerCase();
+              if (q.isEmpty) return true;
+              return ('${f.originalName} ${f.clientName} ${f.clientEmail} ${f.businessName}')
+                  .toLowerCase()
+                  .contains(q);
+            }).toList();
+
+            Future<void> chooseFileBox() async {
+              setLocalState(() {
+                source = 'fileBox';
+                submitting = true;
+              });
+              try {
+                final files = await _loadShareableFiles();
+                setLocalState(() {
+                  availableFiles = files;
+                  submitting = false;
+                });
+              } catch (_) {
+                setLocalState(() => submitting = false);
+              }
+            }
+
+            Future<void> chooseDevice() async {
+              final files = await _pickDeviceFiles();
+              if (files.isEmpty) return;
+              setLocalState(() {
+                source = 'device';
+                final existingKeys = deviceFiles.map((f) => f.key).toSet();
+                for (final file in files) {
+                  if (existingKeys.add(file.key)) {
+                    deviceFiles.add(file);
+                  }
+                }
+              });
+            }
+
+            Widget sourceTile({
+              required IconData icon,
+              required String title,
+              required String subtitle,
+              required VoidCallback onTap,
+            }) {
+              return InkWell(
+                onTap: submitting ? null : onTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFE4E7EC)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: AppColors.brandBlue),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                color: Color(0xFF101828),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              style: const TextStyle(
+                                color: Color(0xFF667085),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Color(0xFF98A2B3)),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            Widget dayChip(int days) {
+              final selected = expirationDays == days;
+              return ChoiceChip(
+                label: Text(days == 1 ? '1 day' : '$days days'),
+                selected: selected,
+                showCheckmark: false,
+                selectedColor: const Color(0xFFEAF2FF),
+                backgroundColor: const Color(0xFFF9FAFB),
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFFE4E7EC),
+                ),
+                labelStyle: TextStyle(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFF667085),
+                  fontWeight: FontWeight.w800,
+                ),
+                onSelected: submitting
+                    ? null
+                    : (_) => setLocalState(() => expirationDays = days),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+              contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+              actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+              title: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: AppColors.brandBlue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.lock_outline,
+                      color: AppColors.brandBlue,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Create secure share'),
+                        SizedBox(height: 2),
+                        Text(
+                          'Choose files and protect access with a client password.',
+                          style: TextStyle(
+                            color: Color(0xFF667085),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 720,
+                  maxHeight: 680,
+                ),
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (source.isEmpty) ...[
+                          sourceTile(
+                            icon: Icons.inventory_2_outlined,
+                            title: 'Choose from File Box',
+                            subtitle:
+                                'Send files already stored in the portal.',
+                            onTap: chooseFileBox,
+                          ),
+                          const SizedBox(height: 10),
+                          sourceTile(
+                            icon: Icons.upload_file_outlined,
+                            title: 'Upload from device',
+                            subtitle: 'Upload new files for this secure share.',
+                            onTap: chooseDevice,
+                          ),
+                        ] else ...[
+                          Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed: submitting
+                                    ? null
+                                    : () => setLocalState(() {
+                                        source = '';
+                                        availableFiles = const [];
+                                        selectedFileKeys.clear();
+                                        deviceFiles.clear();
+                                      }),
+                                icon: const Icon(Icons.arrow_back, size: 16),
+                                label: const Text('Change source'),
+                              ),
+                              const Spacer(),
+                              Text(
+                                source == 'fileBox'
+                                    ? '${selectedFileKeys.length} selected'
+                                    : '${deviceFiles.length} selected',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (source == 'fileBox') ...[
+                            TextField(
+                              controller: searchCtrl,
+                              onChanged: (v) => setLocalState(() => search = v),
+                              decoration: const InputDecoration(
+                                labelText: 'Search File Box',
+                                prefixIcon: Icon(Icons.search),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 230),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: const Color(0xFFE4E7EC),
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: submitting
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(24),
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      shrinkWrap: true,
+                                      itemCount: filteredFiles.length,
+                                      separatorBuilder: (_, __) =>
+                                          const Divider(height: 1),
+                                      itemBuilder: (context, index) {
+                                        final file = filteredFiles[index];
+                                        final selected = selectedFileKeys
+                                            .contains(file.key);
+                                        final meta = resolveFileMeta(
+                                          fileName: file.originalName,
+                                          contentType: file.contentType,
+                                        );
+                                        return CheckboxListTile(
+                                          value: selected,
+                                          onChanged: submitting
+                                              ? null
+                                              : (v) => setLocalState(() {
+                                                  if (v == true) {
+                                                    selectedFileKeys.add(
+                                                      file.key,
+                                                    );
+                                                  } else {
+                                                    selectedFileKeys.remove(
+                                                      file.key,
+                                                    );
+                                                  }
+                                                }),
+                                          secondary: Icon(
+                                            meta.icon,
+                                            color: meta.color,
+                                          ),
+                                          title: Text(
+                                            file.originalName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: Text(
+                                            [
+                                              if (file.clientName.isNotEmpty)
+                                                file.clientName,
+                                              if (file.businessName.isNotEmpty)
+                                                file.businessName,
+                                              _formatSize(file.sizeBytes),
+                                            ].join(' - '),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ] else ...[
+                            OutlinedButton.icon(
+                              onPressed: submitting ? null : chooseDevice,
+                              icon: const Icon(Icons.upload_file_outlined),
+                              label: Text(
+                                deviceFiles.isEmpty
+                                    ? 'Choose files'
+                                    : 'Add more files',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: const Color(0xFFE4E7EC),
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: deviceFiles.map((file) {
+                                  final meta = resolveFileMeta(
+                                    fileName: file.name,
+                                    contentType: file.contentType,
+                                  );
+                                  return ListTile(
+                                    dense: true,
+                                    leading: Icon(meta.icon, color: meta.color),
+                                    title: Text(file.name),
+                                    subtitle: Text(_formatSize(file.sizeBytes)),
+                                    trailing: IconButton(
+                                      tooltip: 'Remove file',
+                                      icon: const Icon(Icons.close, size: 18),
+                                      onPressed: submitting
+                                          ? null
+                                          : () => setLocalState(
+                                              () => deviceFiles.remove(file),
+                                            ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: emailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              labelText: 'Client email',
+                              prefixIcon: Icon(Icons.mail_outline),
+                            ),
+                            validator: (v) {
+                              final value = (v ?? '').trim();
+                              if (sendEmail && !value.contains('@')) {
+                                return 'Enter a valid email or turn off email sending.';
+                              }
+                              return null;
+                            },
+                            onChanged: (_) => setLocalState(() {}),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: nameCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Client name',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: passwordCtrl,
+                            obscureText: obscurePassword,
+                            onChanged: (_) {
+                              setLocalState(() {});
+                              if (confirmPasswordCtrl.text.isNotEmpty) {
+                                formKey.currentState?.validate();
+                              }
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              helperText:
+                                  'Share this password with the client separately.',
+                              prefixIcon: const Icon(Icons.key_outlined),
+                              suffixIcon: IconButton(
+                                tooltip: obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                                onPressed: () => setLocalState(
+                                  () => obscurePassword = !obscurePassword,
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              if ((v ?? '').trim().length < 6) {
+                                return 'Use at least 6 characters.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: confirmPasswordCtrl,
+                            obscureText: obscureConfirmPassword,
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            onChanged: (_) => setLocalState(() {}),
+                            decoration: InputDecoration(
+                              labelText: 'Confirm password',
+                              prefixIcon: const Icon(
+                                Icons.verified_user_outlined,
+                              ),
+                              suffixIcon: IconButton(
+                                tooltip: obscureConfirmPassword
+                                    ? 'Show confirmation'
+                                    : 'Hide confirmation',
+                                icon: Icon(
+                                  obscureConfirmPassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                                onPressed: () => setLocalState(
+                                  () => obscureConfirmPassword =
+                                      !obscureConfirmPassword,
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              final password = passwordCtrl.text.trim();
+                              final confirm = (v ?? '').trim();
+                              if (confirm.isEmpty) {
+                                return 'Re-enter the password.';
+                              }
+                              if (confirm != password) {
+                                return 'Passwords do not match.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedTemplateId,
+                            decoration: const InputDecoration(
+                              labelText: 'Message template',
+                              prefixIcon: Icon(Icons.article_outlined),
+                            ),
+                            items: _shareMessageTemplates
+                                .map(
+                                  (template) => DropdownMenuItem<String>(
+                                    value: template.id,
+                                    child: Text(template.title),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: submitting
+                                ? null
+                                : (id) => setLocalState(() {
+                                    selectedTemplateId = id;
+                                    _ShareMessageTemplate? template;
+                                    for (final item in _shareMessageTemplates) {
+                                      if (item.id == id) {
+                                        template = item;
+                                        break;
+                                      }
+                                    }
+                                    if (template != null) {
+                                      messageCtrl.text =
+                                          _applyShareTemplateTokens(
+                                            template.body,
+                                            nameCtrl.text,
+                                          );
+                                    }
+                                  }),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: messageCtrl,
+                            minLines: 2,
+                            maxLines: 4,
+                            decoration: const InputDecoration(
+                              labelText: 'Message',
+                              prefixIcon: Icon(Icons.notes_outlined),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [1, 7, 14, 30].map(dayChip).toList(),
+                          ),
+                          const SizedBox(height: 10),
+                          CheckboxListTile(
+                            value: sendEmail,
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: const Text('Email secure link to client'),
+                            subtitle: const Text(
+                              'The password is not included in the email.',
+                            ),
+                            onChanged: submitting
+                                ? null
+                                : (v) => setLocalState(
+                                    () => sendEmail = v == true,
+                                  ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                if (source.isNotEmpty)
+                  FilledButton.icon(
+                    onPressed: submitting
+                        ? null
+                        : () => finish(ctx, setLocalState),
+                    icon: submitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.lock_outline, size: 16),
+                    label: const Text('Create secure share'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    emailCtrl.dispose();
+    nameCtrl.dispose();
+    passwordCtrl.dispose();
+    confirmPasswordCtrl.dispose();
+    messageCtrl.dispose();
+    searchCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -231,7 +1774,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           FluentCommandAction(
             icon: Icons.add_link_outlined,
             label: 'Create secure share',
-            onPressed: widget.onOpenFileBox,
+            onPressed: _busy ? null : _showCreateSecureShareDialog,
             accent: true,
           ),
           FluentCommandAction(
@@ -271,16 +1814,16 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               icon: Icons.lock_outline,
               title: 'No secure shares yet',
               subtitle:
-                  'Select files in File Box and create a secure share to send files to a client.',
-              actionLabel: 'Go to File Box',
-              onAction: widget.onOpenFileBox,
+                  'Create a secure share from File Box files or files uploaded from your device.',
+              actionLabel: 'Create secure share',
+              onAction: _showCreateSecureShareDialog,
             );
           }
 
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: 1280,
+              width: 1320,
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -307,7 +1850,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                           ),
                           SizedBox(width: 96, child: _HeaderText('Status')),
                           SizedBox(
-                            width: 116,
+                            width: 152,
                             child: _HeaderText('Actions', alignEnd: true),
                           ),
                         ],
@@ -429,7 +1972,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                   ),
                                 ),
                                 SizedBox(
-                                  width: 116,
+                                  width: 152,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
@@ -437,6 +1980,19 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                         tooltip: 'Copy link',
                                         icon: const Icon(Icons.copy, size: 17),
                                         onPressed: () => _copyLink(row),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Manage share',
+                                        icon: const Icon(
+                                          Icons.tune_outlined,
+                                          size: 17,
+                                        ),
+                                        onPressed:
+                                            (_busy || row.status == 'revoked')
+                                            ? null
+                                            : () => _showEditSecureShareDialog(
+                                                row,
+                                              ),
                                       ),
                                       IconButton(
                                         tooltip: 'Revoke',
@@ -592,12 +2148,25 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
+class _ShareMessageTemplate {
+  const _ShareMessageTemplate({
+    required this.id,
+    required this.title,
+    required this.body,
+  });
+
+  final String id;
+  final String title;
+  final String body;
+}
+
 class _SecureShareRow {
   const _SecureShareRow({
     required this.shareId,
     required this.url,
     required this.recipientName,
     required this.recipientEmail,
+    required this.message,
     required this.createdByName,
     required this.createdByEmail,
     required this.createdAt,
@@ -613,6 +2182,7 @@ class _SecureShareRow {
   final String url;
   final String recipientName;
   final String recipientEmail;
+  final String message;
   final String createdByName;
   final String createdByEmail;
   final DateTime? createdAt;
@@ -647,6 +2217,7 @@ class _SecureShareRow {
       url: (map['url'] ?? '').toString(),
       recipientName: (map['recipientName'] ?? '').toString(),
       recipientEmail: (map['recipientEmail'] ?? '').toString(),
+      message: (map['message'] ?? '').toString(),
       createdByName: (map['createdByName'] ?? '').toString(),
       createdByEmail: (map['createdByEmail'] ?? '').toString(),
       createdAt: date(map['createdAtMillis']),
@@ -666,19 +2237,25 @@ class _SecureShareRow {
 
 class _SecureShareFile {
   const _SecureShareFile({
+    required this.requestId,
     required this.fileId,
     required this.originalName,
     required this.contentType,
     required this.sizeBytes,
   });
 
+  final String requestId;
   final String fileId;
   final String originalName;
   final String contentType;
   final int sizeBytes;
 
+  String get sourceKey => requestId.isEmpty ? '' : '$requestId/$fileId';
+  String get removalKey => '$requestId/$fileId';
+
   factory _SecureShareFile.fromMap(Map<String, dynamic> map) {
     return _SecureShareFile(
+      requestId: (map['requestId'] ?? '').toString(),
       fileId: (map['fileId'] ?? '').toString(),
       originalName: (map['originalName'] ?? 'File').toString(),
       contentType: (map['contentType'] ?? '').toString(),
@@ -687,4 +2264,59 @@ class _SecureShareFile {
           : 0,
     );
   }
+}
+
+class _ShareableFile {
+  const _ShareableFile({
+    required this.requestId,
+    required this.fileId,
+    required this.originalName,
+    required this.contentType,
+    required this.sizeBytes,
+    required this.clientName,
+    required this.clientEmail,
+    required this.businessName,
+  });
+
+  final String requestId;
+  final String fileId;
+  final String originalName;
+  final String contentType;
+  final int sizeBytes;
+  final String clientName;
+  final String clientEmail;
+  final String businessName;
+
+  String get key => '$requestId/$fileId';
+
+  factory _ShareableFile.fromMap(Map<String, dynamic> map) {
+    return _ShareableFile(
+      requestId: (map['requestId'] ?? '').toString(),
+      fileId: (map['fileId'] ?? '').toString(),
+      originalName: (map['originalName'] ?? 'File').toString(),
+      contentType: (map['contentType'] ?? '').toString(),
+      sizeBytes: map['sizeBytes'] is num
+          ? (map['sizeBytes'] as num).toInt()
+          : 0,
+      clientName: (map['clientName'] ?? '').toString(),
+      clientEmail: (map['clientEmail'] ?? '').toString(),
+      businessName: (map['businessName'] ?? '').toString(),
+    );
+  }
+}
+
+class _DeviceShareFile {
+  const _DeviceShareFile({
+    required this.name,
+    required this.sizeBytes,
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final String name;
+  final int sizeBytes;
+  final Uint8List bytes;
+  final String contentType;
+
+  String get key => '$name/$sizeBytes/${bytes.length}';
 }

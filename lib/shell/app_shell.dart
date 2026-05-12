@@ -1160,7 +1160,7 @@ Please describe the issue below:
       case '/file-box':
         return const FileBoxScreen();
       case '/send-files':
-        return SendFilesScreen(onOpenFileBox: () => _navigate('/file-box'));
+        return const SendFilesScreen();
       case '/generate-upload-link':
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
