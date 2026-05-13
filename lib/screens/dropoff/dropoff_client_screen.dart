@@ -1151,13 +1151,14 @@ class _DropoffClientScreenState extends State<DropoffClientScreen> {
           child: SafeArea(
             child: Stack(
               children: [
-                Center(
+                Align(
+                  alignment: Alignment.topCenter,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(
                       maxWidth: 720,
                     ), // ✅ OTP-like width
                     child: ListView(
-                      padding: const EdgeInsets.all(18),
+                      padding: const EdgeInsets.fromLTRB(18, 32, 18, 24),
                       children: [
                         // ✅ Main secure card
                         Container(
@@ -2119,12 +2120,7 @@ class _QueuedFilesCard extends StatelessWidget {
                                 height: _metaLineHeight,
                                 child: Align(
                                   alignment: Alignment.centerLeft,
-                                  child: _buildMetaRow(
-                                    theme,
-                                    f,
-                                    s,
-                                    error: err,
-                                  ),
+                                  child: _buildMetaRow(theme, f, s, error: err),
                                 ),
                               ),
                             ],

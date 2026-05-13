@@ -573,10 +573,13 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       }
     }
 
-    await showDialog<void>(
+    await showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) {
+      barrierLabel: 'Manage secure share',
+      barrierColor: Colors.black.withValues(alpha: 0.025),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (ctx, animation, secondaryAnimation) {
         final theme = Theme.of(ctx);
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
@@ -756,40 +759,58 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
             }) {
               return Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: const Color(0xFFE4E7EC)),
                   borderRadius: BorderRadius.circular(8),
                 ),
+                clipBehavior: Clip.antiAlias,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(icon, size: 18, color: AppColors.brandBlue),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: const Color(0xFF344054),
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                    Container(
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF6F9FF),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE4E7EC)),
                         ),
-                        if (trailing != null)
-                          Text(
-                            trailing,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                              fontWeight: FontWeight.w700,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 3,
+                            height: 44,
+                            color: AppColors.brandBlue,
+                          ),
+                          const SizedBox(width: 11),
+                          Icon(icon, size: 18, color: AppColors.brandBlue),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: const Color(0xFF253858),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
-                      ],
+                          if (trailing != null)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 14),
+                              child: Text(
+                                trailing,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    child,
+                    Padding(padding: const EdgeInsets.all(14), child: child),
                   ],
                 ),
               );
@@ -1028,11 +1049,42 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               ],
             );
 
+            final media = MediaQuery.of(ctx);
+            final isCompactPanel = media.size.width < 720;
+            const desktopPanelBodyWidth = 640.0;
+            const desktopPanelOuterWidth = desktopPanelBodyWidth + 48.0;
+            final sidePanelLeftInset = isCompactPanel
+                ? 0.0
+                : (media.size.width - desktopPanelOuterWidth - 12).clamp(
+                    72.0,
+                    media.size.width,
+                  );
+            final panelContentHeight = isCompactPanel
+                ? media.size.height - 172
+                : media.size.height - 202;
+
             return AlertDialog(
+              alignment: isCompactPanel
+                  ? Alignment.center
+                  : Alignment.centerRight,
+              insetPadding: EdgeInsets.only(
+                left: sidePanelLeftInset,
+                right: isCompactPanel ? 0 : 12,
+                top: isCompactPanel ? 0 : 12,
+                bottom: isCompactPanel ? 0 : 12,
+              ),
+              elevation: isCompactPanel ? 0 : 24,
+              shadowColor: Colors.black.withValues(alpha: 0.24),
               backgroundColor: Colors.white,
               surfaceTintColor: Colors.white,
+              clipBehavior: Clip.antiAlias,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(isCompactPanel ? 0 : 14),
+                side: BorderSide(
+                  color: isCompactPanel
+                      ? Colors.transparent
+                      : const Color(0xFFD0D5DD),
+                ),
               ),
               titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
               contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
@@ -1073,8 +1125,10 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                 ],
               ),
               content: SizedBox(
-                width: 760,
-                height: 640,
+                width: isCompactPanel
+                    ? media.size.width
+                    : desktopPanelBodyWidth,
+                height: panelContentHeight < 360 ? 360 : panelContentHeight,
                 child: Form(
                   key: formKey,
                   child: SingleChildScrollView(
@@ -1133,6 +1187,24 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               ],
             );
           },
+        );
+      },
+      transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+
+        return FadeTransition(
+          opacity: Tween<double>(begin: 0.94, end: 1).animate(curved),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
         );
       },
     );

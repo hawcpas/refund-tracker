@@ -266,401 +266,440 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       body: Container(
         decoration: const BoxDecoration(color: Color(0xFFDCDCDC)),
         child: SafeArea(
-          child: Center(
+          child: Align(
+            alignment: Alignment.topCenter,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.black.withValues(alpha: 0.06),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.10),
-                        blurRadius: 18,
-                        offset: const Offset(0, 10),
+              padding: const EdgeInsets.fromLTRB(18, 32, 18, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.black.withValues(alpha: 0.06),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.10),
+                            blurRadius: 18,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _SecureShareBrandHeader(dense: true),
-                        const SizedBox(height: 8),
-                        const Divider(height: 1, color: Color(0xFFE4E7EC)),
-                        const SizedBox(height: 14),
-                        Row(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: AppColors.brandBlue.withValues(
-                                  alpha: 0.10,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.lock_outline,
-                                color: AppColors.brandBlue,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Secure file share',
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: const Color(0xFF101828),
-                                      fontWeight: FontWeight.w700,
+                            const _SecureShareBrandHeader(dense: true),
+                            const SizedBox(height: 8),
+                            const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                            const SizedBox(height: 14),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.brandBlue.withValues(
+                                      alpha: 0.10,
                                     ),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                  if (_blockedStatus == null) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _checkingStatus
-                                          ? 'Verifying this secure link.'
-                                          : unlocked
-                                          ? 'Download the files shared with you.'
-                                          : 'Enter the password provided by our office.',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: const Color(0xFF667085),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        if (_checkingStatus) ...[
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(vertical: 18),
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                        ] else if (_blockedStatus != null) ...[
-                          _SecureShareNotice(
-                            icon: _blockedStatus == 'expired'
-                                ? Icons.schedule_outlined
-                                : Icons.block_outlined,
-                            title: _blockedTitle,
-                            message: _blockedMessage,
-                          ),
-                        ] else if (!unlocked) ...[
-                          TextField(
-                            controller: _passwordCtrl,
-                            obscureText: true,
-                            enabled: !_loading,
-                            onSubmitted: (_) => _unlock(),
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              prefixIcon: const Icon(Icons.key_outlined),
-                              errorText: _error,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.brandBlue,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  child: const Icon(
+                                    Icons.lock_outline,
+                                    color: AppColors.brandBlue,
+                                    size: 20,
+                                  ),
                                 ),
-                              ),
-                              onPressed: _loading ? null : _unlock,
-                              icon: _loading
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.lock_open_outlined,
-                                      size: 18,
-                                    ),
-                              label: const Text('Open secure files'),
-                            ),
-                          ),
-                        ] else ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF9FAFB),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: const Color(0xFFE4E7EC),
-                              ),
-                            ),
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final compact = constraints.maxWidth < 560;
-                                final statusText = _expiresAt == null
-                                    ? 'Secure files are ready.'
-                                    : 'Available until ${_formatDate(_expiresAt!)}';
-                                final status = Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(
-                                      Icons.verified_user_outlined,
-                                      color: AppColors.brandBlue,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        statusText,
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: const Color(0xFF475467),
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                                final actions = Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  alignment: compact
-                                      ? WrapAlignment.start
-                                      : WrapAlignment.end,
-                                  children: [
-                                    TextButton.icon(
-                                      onPressed:
-                                          _selectedFileIds.length ==
-                                              _files.length
-                                          ? () =>
-                                                setState(_selectedFileIds.clear)
-                                          : () => setState(() {
-                                              _selectedFileIds
-                                                ..clear()
-                                                ..addAll(
-                                                  _files.map((f) => f.fileId),
-                                                );
-                                            }),
-                                      icon: const Icon(
-                                        Icons.checklist,
-                                        size: 16,
-                                      ),
-                                      label: Text(
-                                        _selectedFileIds.length == _files.length
-                                            ? 'Clear'
-                                            : 'Select all',
-                                      ),
-                                    ),
-                                    FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: AppColors.brandBlue,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                      ),
-                                      onPressed:
-                                          (_loading || _selectedFileIds.isEmpty)
-                                          ? null
-                                          : _downloadSelected,
-                                      icon: const Icon(
-                                        Icons.download_outlined,
-                                        size: 16,
-                                      ),
-                                      label: Text(
-                                        _selectedFileIds.length <= 1
-                                            ? 'Download'
-                                            : 'Download ZIP',
-                                      ),
-                                    ),
-                                  ],
-                                );
-
-                                if (compact) {
-                                  return Column(
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      status,
-                                      const SizedBox(height: 10),
-                                      actions,
-                                    ],
-                                  );
-                                }
-
-                                return Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(child: status),
-                                    const SizedBox(width: 10),
-                                    actions,
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: const Color(0xFFE4E7EC),
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  height: 40,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                  ),
-                                  color: const Color(0xFFF9FAFB),
-                                  child: Row(
-                                    children: const [
-                                      SizedBox(width: 44),
-                                      Expanded(child: _ShareHeaderText('Name')),
-                                      SizedBox(
-                                        width: 110,
-                                        child: _ShareHeaderText('Size'),
+                                      Text(
+                                        'Secure file share',
+                                        style: theme.textTheme.titleLarge
+                                            ?.copyWith(
+                                              color: const Color(0xFF101828),
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                       ),
-                                      SizedBox(
-                                        width: 88,
-                                        child: _ShareHeaderText(
-                                          'Actions',
-                                          alignEnd: true,
+                                      if (_blockedStatus == null) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _checkingStatus
+                                              ? 'Verifying this secure link.'
+                                              : unlocked
+                                              ? 'Download the files shared with you.'
+                                              : 'Enter the password provided by our office.',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: const Color(0xFF667085),
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                         ),
-                                      ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                const Divider(
-                                  height: 1,
-                                  color: Color(0xFFE4E7EC),
-                                ),
-                                ..._files.map((file) {
-                                  final selected = _selectedFileIds.contains(
-                                    file.fileId,
-                                  );
-                                  return Column(
-                                    children: [
-                                      InkWell(
-                                        onTap: () => setState(() {
-                                          if (selected) {
-                                            _selectedFileIds.remove(
-                                              file.fileId,
-                                            );
-                                          } else {
-                                            _selectedFileIds.add(file.fileId);
-                                          }
-                                        }),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 8,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Checkbox(
-                                                value: selected,
-                                                onChanged: (v) => setState(() {
-                                                  if (v == true) {
-                                                    _selectedFileIds.add(
-                                                      file.fileId,
-                                                    );
-                                                  } else {
-                                                    _selectedFileIds.remove(
-                                                      file.fileId,
-                                                    );
-                                                  }
-                                                }),
-                                              ),
-                                              _ClientShareFileTypeIcon(
-                                                fileName: file.originalName,
-                                                contentType: file.contentType,
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Text(
-                                                  file.originalName,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF101828),
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                ),
-                                              ),
-                                              SizedBox(
-                                                width: 110,
-                                                child: Text(
-                                                  _formatSize(file.sizeBytes),
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF667085),
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ),
-                                              SizedBox(
-                                                width: 88,
-                                                child: Align(
-                                                  alignment:
-                                                      Alignment.centerRight,
-                                                  child: IconButton(
-                                                    tooltip: 'Download file',
-                                                    icon: const Icon(
-                                                      Icons.download_outlined,
-                                                      size: 18,
-                                                    ),
-                                                    onPressed: _loading
-                                                        ? null
-                                                        : () => _download(file),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      if (file != _files.last)
-                                        const Divider(
-                                          height: 1,
-                                          color: Color(0xFFE4E7EC),
-                                        ),
-                                    ],
-                                  );
-                                }),
                               ],
                             ),
-                          ),
-                        ],
-                      ],
+                            const SizedBox(height: 22),
+                            if (_checkingStatus) ...[
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 18),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                            ] else if (_blockedStatus != null) ...[
+                              _SecureShareNotice(
+                                icon: _blockedStatus == 'expired'
+                                    ? Icons.schedule_outlined
+                                    : Icons.block_outlined,
+                                title: _blockedTitle,
+                                message: _blockedMessage,
+                              ),
+                            ] else if (!unlocked) ...[
+                              TextField(
+                                controller: _passwordCtrl,
+                                obscureText: true,
+                                enabled: !_loading,
+                                onSubmitted: (_) => _unlock(),
+                                decoration: InputDecoration(
+                                  labelText: 'Password',
+                                  prefixIcon: const Icon(Icons.key_outlined),
+                                  errorText: _error,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 48,
+                                child: FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppColors.brandBlue,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  onPressed: _loading ? null : _unlock,
+                                  icon: _loading
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.lock_open_outlined,
+                                          size: 18,
+                                        ),
+                                  label: const Text('Open secure files'),
+                                ),
+                              ),
+                            ] else ...[
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF9FAFB),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFE4E7EC),
+                                  ),
+                                ),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final compact = constraints.maxWidth < 560;
+                                    final statusText = _expiresAt == null
+                                        ? 'Secure files are ready.'
+                                        : 'Available until ${_formatDate(_expiresAt!)}';
+                                    final status = Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Icon(
+                                          Icons.verified_user_outlined,
+                                          color: AppColors.brandBlue,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            statusText,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: const Color(
+                                                    0xFF475467,
+                                                  ),
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                    final actions = Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      alignment: compact
+                                          ? WrapAlignment.start
+                                          : WrapAlignment.end,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed:
+                                              _selectedFileIds.length ==
+                                                  _files.length
+                                              ? () => setState(
+                                                  _selectedFileIds.clear,
+                                                )
+                                              : () => setState(() {
+                                                  _selectedFileIds
+                                                    ..clear()
+                                                    ..addAll(
+                                                      _files.map(
+                                                        (f) => f.fileId,
+                                                      ),
+                                                    );
+                                                }),
+                                          icon: const Icon(
+                                            Icons.checklist,
+                                            size: 16,
+                                          ),
+                                          label: Text(
+                                            _selectedFileIds.length ==
+                                                    _files.length
+                                                ? 'Clear'
+                                                : 'Select all',
+                                          ),
+                                        ),
+                                        FilledButton.icon(
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor:
+                                                AppColors.brandBlue,
+                                            foregroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                          ),
+                                          onPressed:
+                                              (_loading ||
+                                                  _selectedFileIds.isEmpty)
+                                              ? null
+                                              : _downloadSelected,
+                                          icon: const Icon(
+                                            Icons.download_outlined,
+                                            size: 16,
+                                          ),
+                                          label: Text(
+                                            _selectedFileIds.length <= 1
+                                                ? 'Download'
+                                                : 'Download ZIP',
+                                          ),
+                                        ),
+                                      ],
+                                    );
+
+                                    if (compact) {
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          status,
+                                          const SizedBox(height: 10),
+                                          actions,
+                                        ],
+                                      );
+                                    }
+
+                                    return Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(child: status),
+                                        const SizedBox(width: 10),
+                                        actions,
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: const Color(0xFFE4E7EC),
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Container(
+                                      height: 40,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                      ),
+                                      color: const Color(0xFFF9FAFB),
+                                      child: Row(
+                                        children: const [
+                                          SizedBox(width: 44),
+                                          Expanded(
+                                            child: _ShareHeaderText('Name'),
+                                          ),
+                                          SizedBox(
+                                            width: 110,
+                                            child: _ShareHeaderText('Size'),
+                                          ),
+                                          SizedBox(
+                                            width: 88,
+                                            child: _ShareHeaderText(
+                                              'Actions',
+                                              alignEnd: true,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Divider(
+                                      height: 1,
+                                      color: Color(0xFFE4E7EC),
+                                    ),
+                                    ..._files.map((file) {
+                                      final selected = _selectedFileIds
+                                          .contains(file.fileId);
+                                      return Column(
+                                        children: [
+                                          InkWell(
+                                            onTap: () => setState(() {
+                                              if (selected) {
+                                                _selectedFileIds.remove(
+                                                  file.fileId,
+                                                );
+                                              } else {
+                                                _selectedFileIds.add(
+                                                  file.fileId,
+                                                );
+                                              }
+                                            }),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 8,
+                                                  ),
+                                              child: Row(
+                                                children: [
+                                                  Checkbox(
+                                                    value: selected,
+                                                    onChanged: (v) => setState(
+                                                      () {
+                                                        if (v == true) {
+                                                          _selectedFileIds.add(
+                                                            file.fileId,
+                                                          );
+                                                        } else {
+                                                          _selectedFileIds
+                                                              .remove(
+                                                                file.fileId,
+                                                              );
+                                                        }
+                                                      },
+                                                    ),
+                                                  ),
+                                                  _ClientShareFileTypeIcon(
+                                                    fileName: file.originalName,
+                                                    contentType:
+                                                        file.contentType,
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Text(
+                                                      file.originalName,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF101828,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  SizedBox(
+                                                    width: 110,
+                                                    child: Text(
+                                                      _formatSize(
+                                                        file.sizeBytes,
+                                                      ),
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF667085,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  SizedBox(
+                                                    width: 88,
+                                                    child: Align(
+                                                      alignment:
+                                                          Alignment.centerRight,
+                                                      child: IconButton(
+                                                        tooltip:
+                                                            'Download file',
+                                                        icon: const Icon(
+                                                          Icons
+                                                              .download_outlined,
+                                                          size: 18,
+                                                        ),
+                                                        onPressed: _loading
+                                                            ? null
+                                                            : () => _download(
+                                                                file,
+                                                              ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          if (file != _files.last)
+                                            const Divider(
+                                              height: 1,
+                                              color: Color(0xFFE4E7EC),
+                                            ),
+                                        ],
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  const _SecureShareFooter(),
+                ],
               ),
             ),
           ),
@@ -776,6 +815,36 @@ class _SecureShareNotice extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SecureShareFooter extends StatelessWidget {
+  const _SecureShareFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(
+          'Copyright ${DateTime.now().year} Axume & Associates CPAs, AAC',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Secure Client Portal.\nAll rights reserved.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            height: 1.4,
+          ),
+        ),
+      ],
     );
   }
 }
