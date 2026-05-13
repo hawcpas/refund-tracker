@@ -2707,6 +2707,51 @@ exports.getDropoffDownloadUrl = onCall(
     }
 
     // ✅ NEW: if both are present they must match (prevents cross-request abuse)
+    if (isFirmFileBoxRequestId(requestId)) {
+      const callerSnap = await admin
+        .firestore()
+        .collection("users")
+        .doc(auth.uid)
+        .get();
+      const role = (callerSnap.data()?.role || "").toLowerCase();
+      const meta = await loadFirmFileBoxMetaForShare({
+        auth,
+        requestId,
+        fileId: fileIdFromData,
+        callerRole: role,
+      });
+
+      if (!meta) {
+        throw new HttpsError("not-found", "File metadata not found.");
+      }
+
+      if (meta.storagePath !== storagePath) {
+        throw new HttpsError(
+          "invalid-argument",
+          "storagePath does not match the file record."
+        );
+      }
+
+      const safeName = safeFilename(rawFilename);
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(storagePath);
+      const options = {
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 5 * 60 * 1000,
+        responseDisposition:
+          `attachment; filename="${safeName}"; ` +
+          `filename*=UTF-8''${encodeURIComponent(safeName)}`,
+      };
+
+      if (contentType) {
+        options.responseType = contentType;
+      }
+
+      const [url] = await file.getSignedUrl(options);
+      return { ok: true, url };
+    }
+
     if (requestIdFromData && requestIdFromPath && requestIdFromData !== requestIdFromPath) {
       throw new HttpsError("invalid-argument", "requestId mismatch.");
     }
@@ -3032,6 +3077,24 @@ exports.getDropoffZipDownloadUrl = onCall(
       const metas = [];
 
       for (const target of targets) {
+        if (isFirmFileBoxRequestId(target.requestId)) {
+          const firmMeta = await loadFirmFileBoxMetaForShare({
+            auth,
+            requestId: target.requestId,
+            fileId: target.fileId,
+            callerRole,
+          });
+          if (firmMeta) {
+            metas.push({
+              requestId: target.requestId,
+              fileId: target.fileId,
+              storagePath: firmMeta.storagePath,
+              originalName: firmMeta.originalName,
+            });
+          }
+          continue;
+        }
+
         let req = reqCache.get(target.requestId);
         if (!req) {
           const reqRef = db.collection("dropoff_requests").doc(target.requestId);
@@ -3192,6 +3255,194 @@ function secureShareUrl(shareId) {
   return `${baseUrl}/secure-share?sid=${encodeURIComponent(shareId)}`;
 }
 
+const FIRM_FILE_BOX_PREFIX = "firm_file_box_";
+
+function firmFileBoxRequestId(uid) {
+  return `${FIRM_FILE_BOX_PREFIX}${uid}`;
+}
+
+function firmFileBoxOwnerUid(requestId) {
+  const value = String(requestId || "").trim();
+  return value.startsWith(FIRM_FILE_BOX_PREFIX)
+    ? value.slice(FIRM_FILE_BOX_PREFIX.length).trim()
+    : "";
+}
+
+function isFirmFileBoxRequestId(requestId) {
+  return firmFileBoxOwnerUid(requestId).length > 0;
+}
+
+async function loadFirmFileBoxMetaForShare({
+  auth,
+  requestId,
+  fileId,
+  callerRole,
+}) {
+  const ownerUid = firmFileBoxOwnerUid(requestId);
+  if (!ownerUid || !fileId) return null;
+
+  const isAdmin = callerRole === "admin";
+  const isOwner = ownerUid === auth.uid;
+  if (!isAdmin && !isOwner) return null;
+
+  const fileRef = db
+    .collection("firm_file_box")
+    .doc(ownerUid)
+    .collection("files")
+    .doc(fileId);
+  const fileSnap = await fileRef.get();
+  if (!fileSnap.exists) return null;
+
+  const fileData = fileSnap.data() || {};
+  if (fileData.deleted === true) return null;
+
+  const storagePath = String(fileData.storagePath || "").trim();
+  if (!storagePath) return null;
+
+  return {
+    requestId,
+    fileId,
+    fileDocPath: fileRef.path,
+    storagePath,
+    originalName: String(fileData.originalName || fileId).trim(),
+    contentType: String(fileData.contentType || "").trim(),
+    sizeBytes: Number(fileData.sizeBytes || 0),
+    source: String(fileData.source || "firm_upload").trim(),
+  };
+}
+
+async function createFirmFileBoxMetasFromUploads({
+  auth,
+  uploadedFiles,
+  caller,
+  recipientName,
+  recipientEmail,
+}) {
+  const callerRole = String(caller.role || "").toLowerCase().trim();
+  const first = normalizeName(caller.firstName);
+  const last = normalizeName(caller.lastName);
+  const displayName = normalizeName(caller.displayName);
+  const createdByName = first || last
+    ? `${first} ${last}`.trim()
+    : (displayName || normalizeEmail(auth.token?.email) || "Axume & Associates CPAs");
+  const createdByEmail = normalizeEmail(caller.email || auth.token?.email);
+  const requestId = firmFileBoxRequestId(auth.uid);
+  const filesCol = db.collection("firm_file_box").doc(auth.uid).collection("files");
+  const metas = [];
+  const existingBySignature = new Map();
+  const existingSnap = await filesCol.where("deleted", "==", false).limit(300).get();
+  for (const doc of existingSnap.docs) {
+    const data = doc.data() || {};
+    const signature = [
+      String(data.originalName || "").trim().toLowerCase(),
+      Number(data.sizeBytes || 0),
+      String(data.contentType || "").trim().toLowerCase(),
+    ].join("|");
+    if (!existingBySignature.has(signature)) {
+      existingBySignature.set(signature, { ref: doc.ref, data });
+    }
+  }
+
+  for (const file of uploadedFiles) {
+    const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
+    if (!file.storagePath.startsWith(expectedPrefix)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Uploaded file path is not allowed."
+      );
+    }
+
+    const signature = [
+      String(file.originalName || "").trim().toLowerCase(),
+      Number(file.sizeBytes || 0),
+      String(file.contentType || "").trim().toLowerCase(),
+    ].join("|");
+    const existing = existingBySignature.get(signature);
+    if (existing) {
+      await admin.storage().bucket().file(file.storagePath).delete().catch(() => { });
+      const existingData = existing.data || {};
+      metas.push({
+        requestId,
+        fileId: existing.ref.id,
+        fileDocPath: existing.ref.path,
+        storagePath: String(existingData.storagePath || "").trim(),
+        originalName: String(existingData.originalName || file.originalName).trim(),
+        contentType: String(existingData.contentType || file.contentType).trim(),
+        sizeBytes: Number(existingData.sizeBytes || file.sizeBytes || 0),
+        source: String(existingData.source || "firm_upload").trim(),
+      });
+      continue;
+    }
+
+    const fileRef = filesCol.doc();
+    const fileId = fileRef.id;
+    const doc = {
+      requestId,
+      fileId,
+      deleted: false,
+      source: "firm_upload",
+      storagePath: file.storagePath,
+      originalName: file.originalName,
+      contentType: file.contentType,
+      sizeBytes: Number(file.sizeBytes || 0),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastActivityAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastActivityAction: "sent",
+      lastActivityActorName: createdByName,
+      requestCreatedByUid: auth.uid,
+      requestCreatedByRole: callerRole || "associate",
+      requestCreatedByName: createdByName,
+      requestCreatedByEmail: createdByEmail,
+      requestClientName: recipientName || "",
+      requestClientEmail: recipientEmail || "",
+      requestBusinessName: "Firm upload",
+      uploadedBy: {
+        type: "staff",
+        uid: auth.uid,
+        name: createdByName,
+        email: createdByEmail,
+      },
+      usageCount: 0,
+    };
+
+    await fileRef.set(doc);
+    existingBySignature.set(signature, { ref: fileRef, data: doc });
+    metas.push({
+      requestId,
+      fileId,
+      fileDocPath: fileRef.path,
+      storagePath: file.storagePath,
+      originalName: file.originalName,
+      contentType: file.contentType,
+      sizeBytes: Number(file.sizeBytes || 0),
+      source: "firm_upload",
+    });
+  }
+
+  return metas;
+}
+
+async function markFileBoxFilesSent(metas, actorName) {
+  const batch = db.batch();
+  let count = 0;
+  for (const meta of metas) {
+    const fileDocPath = String(meta.fileDocPath || "").trim();
+    if (!fileDocPath) continue;
+    batch.set(
+      db.doc(fileDocPath),
+      {
+        lastActivityAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastActivityAction: "sent",
+        lastActivityActorName: actorName || "",
+        usageCount: admin.firestore.FieldValue.increment(1),
+      },
+      { merge: true }
+    );
+    count++;
+  }
+  if (count > 0) await batch.commit();
+}
+
 async function loadAuthorizedFileMetasForShare(auth, targets) {
   await assertDropoffAccess(auth.uid);
 
@@ -3205,6 +3456,17 @@ async function loadAuthorizedFileMetasForShare(auth, targets) {
   const metas = [];
 
   for (const target of targets) {
+    if (isFirmFileBoxRequestId(target.requestId)) {
+      const firmMeta = await loadFirmFileBoxMetaForShare({
+        auth,
+        requestId: target.requestId,
+        fileId: target.fileId,
+        callerRole,
+      });
+      if (firmMeta) metas.push(firmMeta);
+      continue;
+    }
+
     let req = reqCache.get(target.requestId);
     if (!req) {
       const reqRef = db.collection("dropoff_requests").doc(target.requestId);
@@ -3240,6 +3502,7 @@ async function loadAuthorizedFileMetasForShare(auth, targets) {
     metas.push({
       requestId: target.requestId,
       fileId: target.fileId,
+      fileDocPath: fileSnap.ref.path,
       storagePath,
       originalName: String(fileData.originalName || target.fileId).trim(),
       contentType: String(fileData.contentType || "").trim(),
@@ -3366,27 +3629,27 @@ exports.createSecureFileShare = onCall(
         ? expirationDaysRaw
         : 7;
 
+      const callerSnap = await db.collection("users").doc(auth.uid).get();
+      const caller = callerSnap.data() || {};
+      const first = normalizeName(caller.firstName);
+      const last = normalizeName(caller.lastName);
+      const displayName = normalizeName(caller.displayName);
+      const senderName = first || last
+        ? `${first} ${last}`.trim()
+        : (displayName || normalizeEmail(auth.token?.email) || "Axume & Associates CPAs");
+
       const existingMetas = targets.length > 0
         ? await loadAuthorizedFileMetasForShare(auth, targets)
         : [];
-      const uploadedMetas = uploadedFiles.map((file) => {
-        const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
-        if (!file.storagePath.startsWith(expectedPrefix)) {
-          throw new HttpsError(
-            "permission-denied",
-            "Uploaded file path is not allowed."
-          );
-        }
-        return {
-          requestId: "",
-          fileId: crypto.randomBytes(12).toString("hex"),
-          storagePath: file.storagePath,
-          originalName: file.originalName,
-          contentType: file.contentType,
-          sizeBytes: file.sizeBytes,
-          source: "device",
-        };
-      });
+      const uploadedMetas = uploadedFiles.length > 0
+        ? await createFirmFileBoxMetasFromUploads({
+          auth,
+          uploadedFiles,
+          caller,
+          recipientName,
+          recipientEmail,
+        })
+        : [];
       const metas = [...existingMetas, ...uploadedMetas];
       if (metas.length === 0) {
         throw new HttpsError("failed-precondition", "No eligible files selected.");
@@ -3399,15 +3662,6 @@ exports.createSecureFileShare = onCall(
         Date.now() + expirationDays * 24 * 60 * 60 * 1000
       );
       const shareUrl = secureShareUrl(ref.id);
-
-      const callerSnap = await db.collection("users").doc(auth.uid).get();
-      const caller = callerSnap.data() || {};
-      const first = normalizeName(caller.firstName);
-      const last = normalizeName(caller.lastName);
-      const displayName = normalizeName(caller.displayName);
-      const senderName = first || last
-        ? `${first} ${last}`.trim()
-        : (displayName || normalizeEmail(auth.token?.email) || "Axume & Associates CPAs");
 
       await ref.set({
         shareId: ref.id,
@@ -3427,6 +3681,8 @@ exports.createSecureFileShare = onCall(
         lastViewedAt: null,
         lastDownloadedAt: null,
       });
+
+      await markFileBoxFilesSent(metas, senderName);
 
       if (sendEmail) {
         await sendAccountEmail({
@@ -3819,6 +4075,12 @@ exports.updateSecureFileShare = onCall(
       const role = String(caller.role || "").toLowerCase().trim();
       const isAdmin = role === "admin";
       const isOwner = share.createdByUid === auth.uid;
+      const first = normalizeName(caller.firstName);
+      const last = normalizeName(caller.lastName);
+      const displayName = normalizeName(caller.displayName);
+      const senderName = first || last
+        ? `${first} ${last}`.trim()
+        : (displayName || normalizeEmail(auth.token?.email) || "Axume & Associates CPAs");
 
       if (!isAdmin && !isOwner) {
         throw new HttpsError("permission-denied", "Not allowed to edit this share.");
@@ -3881,24 +4143,15 @@ exports.updateSecureFileShare = onCall(
       const existingMetas = targets.length > 0
         ? await loadAuthorizedFileMetasForShare(auth, targets)
         : [];
-      const uploadedMetas = uploadedFiles.map((file) => {
-        const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
-        if (!file.storagePath.startsWith(expectedPrefix)) {
-          throw new HttpsError(
-            "permission-denied",
-            "Uploaded file path is not allowed."
-          );
-        }
-        return {
-          requestId: "",
-          fileId: crypto.randomBytes(12).toString("hex"),
-          storagePath: file.storagePath,
-          originalName: file.originalName,
-          contentType: file.contentType,
-          sizeBytes: file.sizeBytes,
-          source: "device",
-        };
-      });
+      const uploadedMetas = uploadedFiles.length > 0
+        ? await createFirmFileBoxMetasFromUploads({
+          auth,
+          uploadedFiles,
+          caller,
+          recipientName,
+          recipientEmail,
+        })
+        : [];
 
       const additions = [];
       for (const file of [...existingMetas, ...uploadedMetas]) {
@@ -3942,6 +4195,7 @@ exports.updateSecureFileShare = onCall(
       }
 
       await ref.set(update, { merge: true });
+      await markFileBoxFilesSent(additions, senderName);
 
       await db.collection("auditLogs").add({
         type: "secure_file_share_updated",
@@ -4001,6 +4255,30 @@ exports.listShareableFiles = onCall(
       const requestId = String(file.requestId || "").trim();
       const storagePath = String(file.storagePath || "").trim();
       if (!requestId || !storagePath) continue;
+
+      if (isFirmFileBoxRequestId(requestId)) {
+        const ownerUid = firmFileBoxOwnerUid(requestId);
+        const createdByUid = String(file.requestCreatedByUid || ownerUid || "").trim();
+        const createdByRole = String(file.requestCreatedByRole || "").toLowerCase().trim();
+        const canAccessFirmFile =
+          isAdmin ||
+          createdByUid === auth.uid ||
+          (isAssociate && createdByRole === "associate");
+        if (!canAccessFirmFile) continue;
+
+        files.push({
+          requestId,
+          fileId: doc.id,
+          originalName: String(file.originalName || "File"),
+          contentType: String(file.contentType || ""),
+          sizeBytes: Number(file.sizeBytes || 0),
+          clientName: String(file.requestClientName || ""),
+          clientEmail: String(file.requestClientEmail || ""),
+          businessName: String(file.requestBusinessName || "Firm upload"),
+          uploadedAtMillis: file.createdAt?.toMillis?.() ?? null,
+        });
+        continue;
+      }
 
       let req = requestCache.get(requestId);
       if (!req) {

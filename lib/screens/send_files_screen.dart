@@ -46,6 +46,51 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     return '${loc.formatShortDate(dt)} ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt))}';
   }
 
+  String _shortDate(DateTime? dt) {
+    if (dt == null) return '-';
+    final loc = MaterialLocalizations.of(context);
+    return loc.formatShortDate(dt);
+  }
+
+  String _relativeLabel(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hr ago';
+    if (diff.inDays == 1) return 'yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return _shortDate(dt);
+  }
+
+  String _activitySummary(_SecureShareRow row) {
+    if (row.lastViewedAt != null) {
+      return 'Viewed ${_relativeLabel(row.lastViewedAt)}';
+    }
+    if (row.lastDownloadedAt != null) {
+      return 'Downloaded ${_relativeLabel(row.lastDownloadedAt)}';
+    }
+    if (row.createdAt != null) {
+      return 'Sent ${_relativeLabel(row.createdAt)}';
+    }
+    return 'Not viewed';
+  }
+
+  String _expiresSummary(_SecureShareRow row) {
+    final dt = row.expiresAt;
+    if (dt == null) return '-';
+    final now = DateTime.now();
+    final diff = dt.difference(now);
+    if (row.status == 'expired' || diff.isNegative) {
+      return 'Expired ${_shortDate(dt)}';
+    }
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Tomorrow';
+    if (diff.inDays < 14) return 'In ${diff.inDays} days';
+    return _shortDate(dt);
+  }
+
   Color _statusColor(String status) {
     switch (status) {
       case 'active':
@@ -542,6 +587,11 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                   .toLowerCase()
                   .contains(q);
             }).toList();
+            final pendingAddCount =
+                selectedFileKeys.length + deviceFiles.length;
+            final saveLabel = pendingAddCount > 0
+                ? 'Add $pendingAddCount ${pendingAddCount == 1 ? 'file' : 'files'}'
+                : 'Save changes';
 
             Widget dayChip(int days) {
               final selected = expirationDays == days;
@@ -698,364 +748,389 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               ),
             );
 
-            Widget detailsTab() => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextFormField(
-                    controller: emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Client email',
-                      prefixIcon: Icon(Icons.mail_outline),
-                    ),
-                    validator: (v) {
-                      final value = (v ?? '').trim();
-                      if (value.isNotEmpty && !value.contains('@')) {
-                        return 'Enter a valid email.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Client name',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: messageCtrl,
-                    minLines: 4,
-                    maxLines: 6,
-                    decoration: const InputDecoration(
-                      labelText: 'Message',
-                      prefixIcon: Icon(Icons.notes_outlined),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  sectionTitle('Expiration from today'),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [1, 7, 14, 30].map(dayChip).toList(),
-                  ),
-                ],
-              ),
-            );
-
-            Widget securityTab() => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  sectionTitle('Password'),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: passwordCtrl,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'New password',
-                      helperText: 'Leave blank to keep the current password.',
-                      prefixIcon: Icon(Icons.key_outlined),
-                    ),
-                    validator: (v) {
-                      final value = (v ?? '').trim();
-                      if (value.isNotEmpty && value.length < 6) {
-                        return 'Use at least 6 characters.';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: confirmPasswordCtrl,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Confirm new password',
-                      prefixIcon: Icon(Icons.verified_user_outlined),
-                    ),
-                    validator: (v) {
-                      final password = passwordCtrl.text.trim();
-                      final confirm = (v ?? '').trim();
-                      if (password.isEmpty && confirm.isEmpty) return null;
-                      if (confirm.isEmpty) {
-                        return 'Re-enter the new password.';
-                      }
-                      if (confirm != password) {
-                        return 'Passwords do not match.';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-              ),
-            );
-
-            Widget filesTab() => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  sectionTitle(
-                    'Current files',
-                    trailing:
-                        '${currentShare.files.where((file) => !removedFileKeys.contains(file.removalKey)).length + selectedFileKeys.length + deviceFiles.length} total',
-                  ),
-                  const SizedBox(height: 8),
-                  currentFilesList(),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: (submitting || loadingFiles)
-                            ? null
-                            : () => loadFileBox(setLocalState),
-                        icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                        label: Text(
-                          showFileBoxPicker
-                              ? 'Refresh File Box'
-                              : 'Add from File Box',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: submitting
-                            ? null
-                            : () => addDeviceFiles(setLocalState),
-                        icon: const Icon(Icons.upload_file_outlined, size: 16),
-                        label: Text(
-                          deviceFiles.isEmpty
-                              ? 'Upload from device'
-                              : 'Add more uploads',
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (showFileBoxPicker) ...[
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: searchCtrl,
-                      onChanged: (v) => setLocalState(() => search = v),
-                      decoration: const InputDecoration(
-                        labelText: 'Search File Box',
-                        prefixIcon: Icon(Icons.search),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 260),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: const Color(0xFFE4E7EC)),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: loadingFiles
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(24),
-                                child: CircularProgressIndicator(),
-                              ),
-                            )
-                          : filteredFiles.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Text('No additional files found.'),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: filteredFiles.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final file = filteredFiles[index];
-                                final selected = selectedFileKeys.contains(
-                                  file.key,
-                                );
-                                final meta = resolveFileMeta(
-                                  fileName: file.originalName,
-                                  contentType: file.contentType,
-                                );
-                                return CheckboxListTile(
-                                  value: selected,
-                                  onChanged: submitting
-                                      ? null
-                                      : (v) => setLocalState(() {
-                                          if (v == true) {
-                                            selectedFileKeys.add(file.key);
-                                          } else {
-                                            selectedFileKeys.remove(file.key);
-                                          }
-                                        }),
-                                  secondary: Icon(meta.icon, color: meta.color),
-                                  title: Text(
-                                    file.originalName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    [
-                                      if (file.clientName.isNotEmpty)
-                                        file.clientName,
-                                      if (file.businessName.isNotEmpty)
-                                        file.businessName,
-                                      _formatSize(file.sizeBytes),
-                                    ].join(' - '),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                  if (deviceFiles.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    sectionTitle('Device uploads'),
-                    const SizedBox(height: 8),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: const Color(0xFFE4E7EC)),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        children: deviceFiles.map((file) {
-                          final meta = resolveFileMeta(
-                            fileName: file.name,
-                            contentType: file.contentType,
-                          );
-                          return ListTile(
-                            dense: true,
-                            leading: Icon(meta.icon, color: meta.color),
-                            title: Text(file.name),
-                            subtitle: Text(_formatSize(file.sizeBytes)),
-                            trailing: IconButton(
-                              tooltip: 'Remove file',
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: submitting
-                                  ? null
-                                  : () => setLocalState(
-                                      () => deviceFiles.remove(file),
-                                    ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            );
-
-            return DefaultTabController(
-              length: 3,
-              child: AlertDialog(
-                backgroundColor: Colors.white,
-                surfaceTintColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+            Widget sectionShell({
+              required String title,
+              required IconData icon,
+              required Widget child,
+              String? trailing,
+            }) {
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFE4E7EC)),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
-                contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-                title: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandBlue.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.tune_outlined,
-                        color: AppColors.brandBlue,
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Manage secure share'),
-                          SizedBox(height: 2),
-                          Text(
-                            'Update access, files, and client-facing details.',
-                            style: TextStyle(
-                              color: Color(0xFF667085),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                    Row(
+                      children: [
+                        Icon(icon, size: 18, color: AppColors.brandBlue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: const Color(0xFF344054),
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                        ],
+                        ),
+                        if (trailing != null)
+                          Text(
+                            trailing,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    child,
+                  ],
+                ),
+              );
+            }
+
+            Widget fileControls() => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                currentFilesList(),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: (submitting || loadingFiles)
+                          ? null
+                          : () => loadFileBox(setLocalState),
+                      icon: const Icon(Icons.inventory_2_outlined, size: 16),
+                      label: Text(
+                        showFileBoxPicker
+                            ? 'Refresh File Box'
+                            : 'Add from File Box',
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: submitting
+                          ? null
+                          : () => addDeviceFiles(setLocalState),
+                      icon: const Icon(Icons.upload_file_outlined, size: 16),
+                      label: Text(
+                        deviceFiles.isEmpty
+                            ? 'Upload from device'
+                            : 'Add more uploads',
                       ),
                     ),
                   ],
                 ),
-                content: SizedBox(
-                  width: 760,
-                  height: 610,
-                  child: Form(
-                    key: formKey,
+                if (showFileBoxPicker) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: searchCtrl,
+                    onChanged: (v) => setLocalState(() => search = v),
+                    decoration: const InputDecoration(
+                      labelText: 'Search File Box',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFE4E7EC)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: loadingFiles
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        : filteredFiles.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text('No additional files found.'),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: filteredFiles.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final file = filteredFiles[index];
+                              final selected = selectedFileKeys.contains(
+                                file.key,
+                              );
+                              final meta = resolveFileMeta(
+                                fileName: file.originalName,
+                                contentType: file.contentType,
+                              );
+                              return CheckboxListTile(
+                                value: selected,
+                                onChanged: submitting
+                                    ? null
+                                    : (v) => setLocalState(() {
+                                        if (v == true) {
+                                          selectedFileKeys.add(file.key);
+                                        } else {
+                                          selectedFileKeys.remove(file.key);
+                                        }
+                                      }),
+                                secondary: Icon(meta.icon, color: meta.color),
+                                title: Text(
+                                  file.originalName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  [
+                                    if (file.clientName.isNotEmpty)
+                                      file.clientName,
+                                    if (file.businessName.isNotEmpty)
+                                      file.businessName,
+                                    _formatSize(file.sizeBytes),
+                                  ].join(' - '),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+                if (deviceFiles.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  sectionTitle('Device uploads'),
+                  const SizedBox(height: 8),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFE4E7EC)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: deviceFiles.map((file) {
+                        final meta = resolveFileMeta(
+                          fileName: file.name,
+                          contentType: file.contentType,
+                        );
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(meta.icon, color: meta.color),
+                          title: Text(file.name),
+                          subtitle: Text(_formatSize(file.sizeBytes)),
+                          trailing: IconButton(
+                            tooltip: 'Remove file',
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: submitting
+                                ? null
+                                : () => setLocalState(
+                                    () => deviceFiles.remove(file),
+                                  ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ],
+            );
+
+            Widget accessControls() => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                sectionTitle('Expiration from today'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [1, 7, 14, 30].map(dayChip).toList(),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: passwordCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'New password',
+                    helperText: 'Leave blank to keep the current password.',
+                    prefixIcon: Icon(Icons.key_outlined),
+                  ),
+                  validator: (v) {
+                    final value = (v ?? '').trim();
+                    if (value.isNotEmpty && value.length < 6) {
+                      return 'Use at least 6 characters.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: confirmPasswordCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm new password',
+                    prefixIcon: Icon(Icons.verified_user_outlined),
+                  ),
+                  validator: (v) {
+                    final password = passwordCtrl.text.trim();
+                    final confirm = (v ?? '').trim();
+                    if (password.isEmpty && confirm.isEmpty) return null;
+                    if (confirm.isEmpty) {
+                      return 'Re-enter the new password.';
+                    }
+                    if (confirm != password) {
+                      return 'Passwords do not match.';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            );
+
+            Widget messageControls() => Column(
+              children: [
+                TextFormField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Client email',
+                    prefixIcon: Icon(Icons.mail_outline),
+                  ),
+                  validator: (v) {
+                    final value = (v ?? '').trim();
+                    if (value.isNotEmpty && !value.contains('@')) {
+                      return 'Enter a valid email.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Client name',
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: messageCtrl,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Message',
+                    prefixIcon: Icon(Icons.notes_outlined),
+                  ),
+                ),
+              ],
+            );
+
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+              contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+              actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+              title: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: AppColors.brandBlue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.tune_outlined,
+                      color: AppColors.brandBlue,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        linkPanel(),
-                        const SizedBox(height: 14),
-                        const TabBar(
-                          isScrollable: false,
-                          labelColor: AppColors.brandBlue,
-                          unselectedLabelColor: Color(0xFF667085),
-                          indicatorColor: AppColors.brandBlue,
-                          indicatorWeight: 2,
-                          tabs: [
-                            Tab(
-                              icon: Icon(Icons.badge_outlined, size: 18),
-                              text: 'Details',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.folder_outlined, size: 18),
-                              text: 'Files',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.shield_outlined, size: 18),
-                              text: 'Security',
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 1, color: Color(0xFFE4E7EC)),
-                        Expanded(
-                          child: TabBarView(
-                            children: [detailsTab(), filesTab(), securityTab()],
+                        Text('Manage secure share'),
+                        SizedBox(height: 2),
+                        Text(
+                          'Update files, access, and client-facing details.',
+                          style: TextStyle(
+                            color: Color(0xFF667085),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: submitting ? null : () => Navigator.pop(ctx),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton.icon(
-                    onPressed: submitting
-                        ? null
-                        : () => finish(ctx, setLocalState),
-                    icon: submitting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined, size: 16),
-                    label: const Text('Save changes'),
-                  ),
                 ],
               ),
+              content: SizedBox(
+                width: 760,
+                height: 640,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        linkPanel(),
+                        const SizedBox(height: 14),
+                        sectionShell(
+                          title: 'Files',
+                          icon: Icons.folder_outlined,
+                          trailing:
+                              '${currentShare.files.where((file) => !removedFileKeys.contains(file.removalKey)).length + selectedFileKeys.length + deviceFiles.length} total',
+                          child: fileControls(),
+                        ),
+                        const SizedBox(height: 12),
+                        sectionShell(
+                          title: 'Access',
+                          icon: Icons.shield_outlined,
+                          child: accessControls(),
+                        ),
+                        const SizedBox(height: 12),
+                        sectionShell(
+                          title: 'Client message',
+                          icon: Icons.badge_outlined,
+                          child: messageControls(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting ? null : () => Navigator.pop(ctx),
+                  child: const Text('Back'),
+                ),
+                FilledButton.icon(
+                  onPressed: submitting
+                      ? null
+                      : () => finish(ctx, setLocalState),
+                  icon: submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          pendingAddCount > 0
+                              ? Icons.add_outlined
+                              : Icons.save_outlined,
+                          size: 16,
+                        ),
+                  label: Text(saveLabel),
+                ),
+              ],
             );
           },
         );
@@ -1823,7 +1898,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: 1320,
+              width: 1120,
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -1839,16 +1914,11 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Row(
                         children: const [
-                          Expanded(flex: 2, child: _HeaderText('Client')),
-                          SizedBox(width: 96, child: _HeaderText('Files')),
-                          SizedBox(width: 170, child: _HeaderText('Sent by')),
-                          SizedBox(width: 145, child: _HeaderText('Sent')),
-                          SizedBox(width: 145, child: _HeaderText('Expires')),
-                          SizedBox(
-                            width: 145,
-                            child: _HeaderText('Last viewed'),
-                          ),
-                          SizedBox(width: 96, child: _HeaderText('Status')),
+                          Expanded(flex: 3, child: _HeaderText('Client')),
+                          SizedBox(width: 80, child: _HeaderText('Files')),
+                          SizedBox(width: 116, child: _HeaderText('Status')),
+                          SizedBox(width: 180, child: _HeaderText('Activity')),
+                          SizedBox(width: 150, child: _HeaderText('Expires')),
                           SizedBox(
                             width: 152,
                             child: _HeaderText('Actions', alignEnd: true),
@@ -1876,7 +1946,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                             child: Row(
                               children: [
                                 Expanded(
-                                  flex: 2,
+                                  flex: 3,
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -1906,44 +1976,14 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                   ),
                                 ),
                                 SizedBox(
-                                  width: 96,
+                                  width: 80,
                                   child: Text(
                                     '${row.fileCount}',
                                     style: _cellStyle(theme),
                                   ),
                                 ),
                                 SizedBox(
-                                  width: 170,
-                                  child: Text(
-                                    row.senderLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: _cellStyle(theme),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 145,
-                                  child: Text(
-                                    _fmt(row.createdAt),
-                                    style: _cellStyle(theme),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 145,
-                                  child: Text(
-                                    _fmt(row.expiresAt),
-                                    style: _cellStyle(theme),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 145,
-                                  child: Text(
-                                    _fmt(row.lastViewedAt),
-                                    style: _cellStyle(theme),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 96,
+                                  width: 116,
                                   child: Align(
                                     alignment: Alignment.centerLeft,
                                     child: Container(
@@ -1969,6 +2009,24 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                         ),
                                       ),
                                     ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 180,
+                                  child: Text(
+                                    _activitySummary(row),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _cellStyle(theme),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 150,
+                                  child: Text(
+                                    _expiresSummary(row),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _cellStyle(theme),
                                   ),
                                 ),
                                 SizedBox(

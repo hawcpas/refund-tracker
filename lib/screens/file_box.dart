@@ -1374,9 +1374,10 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                             res = a.sizeBytes.compareTo(b.sizeBytes);
                             break;
                           case _SortField.date:
-                            res = (a.when ?? DateTime(0)).compareTo(
-                              b.when ?? DateTime(0),
-                            );
+                            res = (a.lastActivityAt ?? a.when ?? DateTime(0))
+                                .compareTo(
+                                  b.lastActivityAt ?? b.when ?? DateTime(0),
+                                );
                             break;
                           case _SortField.expires:
                             res = (a.expiresAt ?? DateTime(9999)).compareTo(
