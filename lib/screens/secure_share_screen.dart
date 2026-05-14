@@ -21,6 +21,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
 
   bool _loading = false;
   bool _checkingStatus = true;
+  bool _passwordRequired = true;
   String? _error;
   String? _blockedStatus;
   String? _shareId;
@@ -72,15 +73,20 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       final data = Map<String, dynamic>.from(res.data as Map);
       final status = (data['status'] ?? '').toString().toLowerCase().trim();
       final expiresAtMillis = data['expiresAtMillis'];
+      final passwordRequired = data['passwordRequired'] != false;
 
       if (!mounted) return;
       setState(() {
         _checkingStatus = false;
+        _passwordRequired = passwordRequired;
         _expiresAt = expiresAtMillis is num
             ? DateTime.fromMillisecondsSinceEpoch(expiresAtMillis.toInt())
             : null;
         _blockedStatus = status == 'active' ? null : status;
       });
+      if (status == 'active' && !passwordRequired) {
+        await _unlock();
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -122,7 +128,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       setState(() => _error = 'This secure link is missing its share ID.');
       return;
     }
-    if (password.isEmpty) {
+    if (_passwordRequired && password.isEmpty) {
       setState(() => _error = 'Enter the password provided by our office.');
       return;
     }
@@ -141,8 +147,10 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       final data = Map<String, dynamic>.from(res.data as Map);
       final rawFiles = (data['files'] is List) ? data['files'] as List : [];
       final expiresAtMillis = data['expiresAtMillis'];
+      final passwordRequired = data['passwordRequired'] != false;
 
       setState(() {
+        _passwordRequired = passwordRequired;
         _expiresAt = expiresAtMillis is num
             ? DateTime.fromMillisecondsSinceEpoch(expiresAtMillis.toInt())
             : null;
@@ -177,7 +185,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
   Future<void> _download(_SecureSharedFile file) async {
     final shareId = (_shareId ?? '').trim();
     final password = _passwordCtrl.text.trim();
-    if (shareId.isEmpty || password.isEmpty) return;
+    if (shareId.isEmpty || (_passwordRequired && password.isEmpty)) return;
 
     setState(() => _loading = true);
     try {
@@ -217,7 +225,9 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
   Future<void> _downloadSelected() async {
     final shareId = (_shareId ?? '').trim();
     final password = _passwordCtrl.text.trim();
-    if (shareId.isEmpty || password.isEmpty || _selectedFileIds.isEmpty) {
+    if (shareId.isEmpty ||
+        (_passwordRequired && password.isEmpty) ||
+        _selectedFileIds.isEmpty) {
       return;
     }
 
@@ -339,7 +349,9 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                               ? 'Verifying this secure link.'
                                               : unlocked
                                               ? 'Download the files shared with you.'
-                                              : 'Enter the password provided by our office.',
+                                              : _passwordRequired
+                                              ? 'Enter the password provided by our office.'
+                                              : 'Opening secure files.',
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                                 color: const Color(0xFF667085),
@@ -368,7 +380,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                 title: _blockedTitle,
                                 message: _blockedMessage,
                               ),
-                            ] else if (!unlocked) ...[
+                            ] else if (!unlocked && _passwordRequired) ...[
                               TextField(
                                 controller: _passwordCtrl,
                                 obscureText: true,
@@ -409,6 +421,13 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                           size: 18,
                                         ),
                                   label: const Text('Open secure files'),
+                                ),
+                              ),
+                            ] else if (!unlocked) ...[
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 18),
+                                  child: CircularProgressIndicator(),
                                 ),
                               ),
                             ] else ...[

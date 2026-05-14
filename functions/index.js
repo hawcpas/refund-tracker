@@ -3607,8 +3607,9 @@ exports.createSecureFileShare = onCall(
         throw new HttpsError("failed-precondition", "Too many files selected. Max is 75.");
       }
 
+      const passwordRequired = data?.passwordRequired !== false;
       const password = String(data?.password || "").trim();
-      if (password.length < 6) {
+      if (passwordRequired && password.length < 6) {
         throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
       }
 
@@ -3628,6 +3629,15 @@ exports.createSecureFileShare = onCall(
       const expirationDays = [1, 7, 14, 30].includes(expirationDaysRaw)
         ? expirationDaysRaw
         : 7;
+      const expiresAtMillisRaw = Number(data?.expiresAtMillis || 0);
+      const nowMillis = Date.now();
+      const maxExpiresAtMillis = nowMillis + 365 * 24 * 60 * 60 * 1000;
+      const customExpiresAtMillis =
+        Number.isFinite(expiresAtMillisRaw) &&
+          expiresAtMillisRaw > nowMillis &&
+          expiresAtMillisRaw <= maxExpiresAtMillis
+          ? expiresAtMillisRaw
+          : null;
 
       const callerSnap = await db.collection("users").doc(auth.uid).get();
       const caller = callerSnap.data() || {};
@@ -3655,11 +3665,11 @@ exports.createSecureFileShare = onCall(
         throw new HttpsError("failed-precondition", "No eligible files selected.");
       }
 
-      const salt = crypto.randomBytes(16).toString("hex");
-      const passwordHash = hashSharePassword(password, salt);
+      const salt = passwordRequired ? crypto.randomBytes(16).toString("hex") : "";
+      const passwordHash = passwordRequired ? hashSharePassword(password, salt) : "";
       const ref = db.collection("secure_file_shares").doc();
       const expiresAt = admin.firestore.Timestamp.fromMillis(
-        Date.now() + expirationDays * 24 * 60 * 60 * 1000
+        customExpiresAtMillis || (Date.now() + expirationDays * 24 * 60 * 60 * 1000)
       );
       const shareUrl = secureShareUrl(ref.id);
 
@@ -3674,6 +3684,7 @@ exports.createSecureFileShare = onCall(
         message: message || "",
         status: "active",
         expiresAt,
+        passwordRequired,
         passwordSalt: salt,
         passwordHash,
         files: metas,
@@ -3694,7 +3705,9 @@ exports.createSecureFileShare = onCall(
             senderName,
             message,
             shareUrl,
-            expiresLabel: `This secure link expires in ${expirationDays} ${expirationDays === 1 ? "day" : "days"}.`,
+            expiresLabel: customExpiresAtMillis
+              ? "This secure link has a custom expiration time."
+              : `This secure link expires in ${expirationDays} ${expirationDays === 1 ? "day" : "days"}.`,
             fileCount: metas.length,
           }),
         });
@@ -3733,8 +3746,8 @@ exports.openSecureFileShare = onCall(
   async (request) => {
     const shareId = String(request.data?.shareId || "").trim();
     const password = String(request.data?.password || "").trim();
-    if (!shareId || !password) {
-      throw new HttpsError("invalid-argument", "Share link and password are required.");
+    if (!shareId) {
+      throw new HttpsError("invalid-argument", "Share link is required.");
     }
 
     const ref = db.collection("secure_file_shares").doc(shareId);
@@ -3751,10 +3764,16 @@ exports.openSecureFileShare = onCall(
       throw new HttpsError("deadline-exceeded", "This secure share has expired.");
     }
 
-    const expected = String(share.passwordHash || "");
-    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
-    if (!expected || actual !== expected) {
-      throw new HttpsError("permission-denied", "The password is incorrect.");
+    const passwordRequired = share.passwordRequired !== false;
+    if (passwordRequired) {
+      if (!password) {
+        throw new HttpsError("invalid-argument", "Share link and password are required.");
+      }
+      const expected = String(share.passwordHash || "");
+      const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+      if (!expected || actual !== expected) {
+        throw new HttpsError("permission-denied", "The password is incorrect.");
+      }
     }
 
     await ref.set(
@@ -3768,6 +3787,7 @@ exports.openSecureFileShare = onCall(
       shareId,
       recipientName: share.recipientName || "",
       message: share.message || "",
+      passwordRequired,
       expiresAtMillis: expiresAt?.toMillis?.() ?? null,
       files: files.map((f) => ({
         fileId: String(f.fileId || ""),
@@ -3804,7 +3824,12 @@ exports.getSecureShareStatus = onCall(
         ? "expired"
         : "active";
 
-    return { ok: true, status, expiresAtMillis };
+    return {
+      ok: true,
+      status,
+      expiresAtMillis,
+      passwordRequired: share.passwordRequired !== false,
+    };
   }
 );
 
@@ -3814,8 +3839,8 @@ exports.getSecureShareDownloadUrl = onCall(
     const shareId = String(request.data?.shareId || "").trim();
     const password = String(request.data?.password || "").trim();
     const fileId = String(request.data?.fileId || "").trim();
-    if (!shareId || !password || !fileId) {
-      throw new HttpsError("invalid-argument", "Share link, password, and file are required.");
+    if (!shareId || !fileId) {
+      throw new HttpsError("invalid-argument", "Share link and file are required.");
     }
 
     const ref = db.collection("secure_file_shares").doc(shareId);
@@ -3832,10 +3857,16 @@ exports.getSecureShareDownloadUrl = onCall(
       throw new HttpsError("deadline-exceeded", "This secure share has expired.");
     }
 
-    const expected = String(share.passwordHash || "");
-    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
-    if (!expected || actual !== expected) {
-      throw new HttpsError("permission-denied", "The password is incorrect.");
+    const passwordRequired = share.passwordRequired !== false;
+    if (passwordRequired) {
+      if (!password) {
+        throw new HttpsError("invalid-argument", "Share link, password, and file are required.");
+      }
+      const expected = String(share.passwordHash || "");
+      const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+      if (!expected || actual !== expected) {
+        throw new HttpsError("permission-denied", "The password is incorrect.");
+      }
     }
 
     const files = Array.isArray(share.files) ? share.files : [];
@@ -3873,8 +3904,8 @@ exports.getSecureShareZipDownloadUrl = onCall(
       ? request.data.fileIds.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
 
-    if (!shareId || !password) {
-      throw new HttpsError("invalid-argument", "Share link and password are required.");
+    if (!shareId) {
+      throw new HttpsError("invalid-argument", "Share link is required.");
     }
 
     const ref = db.collection("secure_file_shares").doc(shareId);
@@ -3891,10 +3922,16 @@ exports.getSecureShareZipDownloadUrl = onCall(
       throw new HttpsError("deadline-exceeded", "This secure share has expired.");
     }
 
-    const expected = String(share.passwordHash || "");
-    const actual = hashSharePassword(password, String(share.passwordSalt || ""));
-    if (!expected || actual !== expected) {
-      throw new HttpsError("permission-denied", "The password is incorrect.");
+    const passwordRequired = share.passwordRequired !== false;
+    if (passwordRequired) {
+      if (!password) {
+        throw new HttpsError("invalid-argument", "Share link and password are required.");
+      }
+      const expected = String(share.passwordHash || "");
+      const actual = hashSharePassword(password, String(share.passwordSalt || ""));
+      if (!expected || actual !== expected) {
+        throw new HttpsError("permission-denied", "The password is incorrect.");
+      }
     }
 
     const allFiles = Array.isArray(share.files) ? share.files : [];

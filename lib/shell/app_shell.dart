@@ -13,6 +13,7 @@ import '../screens/account_settings_screen.dart';
 import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
 import '../screens/send_files_screen.dart';
+import '../screens/create_secure_share_screen.dart';
 import '../screens/admin_users_screen.dart';
 import '../screens/otp_verify_screen.dart';
 import '../screens/dropoff_detail_screen.dart';
@@ -170,7 +171,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       return _NavSection.requests;
     }
 
-    if (route == '/send-files') return _NavSection.send;
+    if (route == '/send-files' || route == '/send-files/new') {
+      return _NavSection.send;
+    }
 
     return _NavSection.home;
   }
@@ -1003,6 +1006,8 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'Requests';
       case '/send-files':
         return 'Send Files';
+      case '/send-files/new':
+        return 'Create Secure Link';
       case '/admin-users':
         return 'Admin Console';
       case '/dropoff-details':
@@ -1160,7 +1165,13 @@ Please describe the issue below:
       case '/file-box':
         return const FileBoxScreen();
       case '/send-files':
-        return const SendFilesScreen();
+        return SendFilesScreen(
+          onCreateSecureShare: () => _navigate('/send-files/new'),
+        );
+      case '/send-files/new':
+        return CreateSecureShareScreen(
+          onCreated: () => _navigate('/send-files'),
+        );
       case '/generate-upload-link':
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
@@ -1498,6 +1509,8 @@ Please describe the issue below:
                                   onSearch: _onGlobalSearch,
                                   onCreateNew: () =>
                                       _navigate('/generate-upload-link'),
+                                  onCreateSecureShare: () =>
+                                      _navigate('/send-files/new'),
                                   onOpenSettings: () =>
                                       _toggleAccountSettingsFlyout(context),
                                   onOpenSupport: _openSupportEmail,
@@ -1517,6 +1530,8 @@ Please describe the issue below:
                                 onSearch: _onGlobalSearch,
                                 onCreateNew: () =>
                                     _navigate('/generate-upload-link'),
+                                onCreateSecureShare: () =>
+                                    _navigate('/send-files/new'),
                                 onOpenSettings: () =>
                                     _toggleAccountSettingsFlyout(context),
                                 onOpenSupport: _openSupportEmail,
@@ -1548,6 +1563,7 @@ class _ContentUtilityBar extends StatelessWidget {
   const _ContentUtilityBar({
     required this.onSearch,
     required this.onCreateNew,
+    required this.onCreateSecureShare,
     required this.onOpenSettings,
     required this.onOpenSupport,
     required this.onOpenNotifications,
@@ -1563,6 +1579,7 @@ class _ContentUtilityBar extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSupport;
   final VoidCallback onCreateNew;
+  final VoidCallback onCreateSecureShare;
   final Widget avatar;
 
   static const double height = 68; // ✅ adds top breathing room
@@ -1596,6 +1613,7 @@ class _ContentUtilityBar extends StatelessWidget {
                       offset: const Offset(0, 40),
                       onSelected: (v) {
                         if (v == 'request') onCreateNew();
+                        if (v == 'secureShare') onCreateSecureShare();
                       },
                       itemBuilder: (_) => const [
                         PopupMenuItem(
@@ -1606,6 +1624,19 @@ class _ContentUtilityBar extends StatelessWidget {
                               SizedBox(width: 10),
                               Text(
                                 'Request link',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'secureShare',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_link_outlined, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Send files',
                                 style: TextStyle(fontWeight: FontWeight.w600),
                               ),
                             ],
