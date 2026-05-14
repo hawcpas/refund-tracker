@@ -555,6 +555,7 @@ class _MyAppState extends State<MyApp> {
             );
 
           case '/send-files':
+          case '/send-files/new':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
@@ -582,7 +583,7 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return const AppShell(initialRoute: '/send-files');
+                        return AppShell(initialRoute: route);
                       },
                     ),
               ),

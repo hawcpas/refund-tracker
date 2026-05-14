@@ -10,7 +10,9 @@ import '../utils/file_kind.dart';
 import '../widgets/page_scaffold.dart';
 
 class SendFilesScreen extends StatefulWidget {
-  const SendFilesScreen({super.key});
+  const SendFilesScreen({super.key, this.onCreateSecureShare});
+
+  final VoidCallback? onCreateSecureShare;
 
   @override
   State<SendFilesScreen> createState() => _SendFilesScreenState();
@@ -38,6 +40,14 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
 
   void _refresh() {
     setState(() => _future = _loadShares());
+  }
+
+  void _openCreateSecureShare() {
+    if (widget.onCreateSecureShare != null) {
+      widget.onCreateSecureShare!();
+      return;
+    }
+    Navigator.pushNamed(context, '/send-files/new');
   }
 
   String _fmt(DateTime? dt) {
@@ -1921,7 +1931,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           FluentCommandAction(
             icon: Icons.add_link_outlined,
             label: 'Create secure share',
-            onPressed: _busy ? null : _showCreateSecureShareDialog,
+            onPressed: _busy ? null : _openCreateSecureShare,
             accent: true,
           ),
           FluentCommandAction(
@@ -1963,7 +1973,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               subtitle:
                   'Create a secure share from File Box files or files uploaded from your device.',
               actionLabel: 'Create secure share',
-              onAction: _showCreateSecureShareDialog,
+              onAction: _openCreateSecureShare,
             );
           }
 
