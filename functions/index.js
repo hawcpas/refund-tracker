@@ -4047,6 +4047,7 @@ exports.listSecureFileShares = onCall(
     for (const doc of snap.docs) {
       const share = doc.data() || {};
       if (!isAdmin && share.createdByUid !== auth.uid) continue;
+      if (share.hiddenAt || share.hidden === true) continue;
 
       const expiresAtMillis = share.expiresAt?.toMillis?.() ?? null;
       const rawStatus = String(share.status || "active").toLowerCase().trim();
@@ -4346,6 +4347,56 @@ exports.listShareableFiles = onCall(
     }
 
     return { ok: true, files };
+  }
+);
+
+exports.hideSecureFileShare = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const shareId = String(data?.shareId || "").trim();
+    if (!shareId) {
+      throw new HttpsError("invalid-argument", "shareId is required.");
+    }
+
+    const ref = db.collection("secure_file_shares").doc(shareId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Secure share not found.");
+    }
+
+    const share = snap.data() || {};
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+    const isOwner = share.createdByUid === auth.uid;
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpsError("permission-denied", "Not allowed to remove this share.");
+    }
+
+    await ref.set(
+      {
+        hidden: true,
+        hiddenAt: admin.firestore.FieldValue.serverTimestamp(),
+        hiddenByUid: auth.uid,
+      },
+      { merge: true }
+    );
+
+    await db.collection("auditLogs").add({
+      type: "secure_file_share_hidden",
+      shareId,
+      actorUid: auth.uid,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, shareId };
   }
 );
 
