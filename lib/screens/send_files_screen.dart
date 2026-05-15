@@ -304,6 +304,49 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     }
   }
 
+  Future<void> _removeFromList(_SecureShareRow share) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove from Send Files'),
+        content: Text(
+          'Remove ${share.clientLabel} from this list? This keeps the audit record and does not revoke the client link.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _busy = true);
+    try {
+      await _functions.httpsCallable('hideSecureFileShare').call({
+        'shareId': share.shareId,
+      });
+      _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Secure share removed from list.')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message ?? 'Remove failed.')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _showDetails(_SecureShareRow share) {
     showDialog<void>(
       context: context,
@@ -2002,7 +2045,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                           SizedBox(width: 180, child: _HeaderText('Activity')),
                           SizedBox(width: 150, child: _HeaderText('Expires')),
                           SizedBox(
-                            width: 152,
+                            width: 204,
                             child: _HeaderText('Actions', alignEnd: true),
                           ),
                         ],
@@ -2112,7 +2155,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                   ),
                                 ),
                                 SizedBox(
-                                  width: 152,
+                                  width: 204,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
@@ -2144,6 +2187,16 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                             (_busy || row.status != 'active')
                                             ? null
                                             : () => _revoke(row),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Remove from list',
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          size: 17,
+                                        ),
+                                        onPressed: _busy
+                                            ? null
+                                            : () => _removeFromList(row),
                                       ),
                                     ],
                                   ),

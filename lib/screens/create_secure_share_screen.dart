@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
@@ -30,6 +32,8 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   final _confirmPasswordCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
+  final _customDateCtrl = TextEditingController();
+  final _customTimeCtrl = TextEditingController();
   final _emailFocusNode = FocusNode();
 
   String _source = '';
@@ -46,12 +50,16 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   bool _showValidationHints = false;
   bool _passwordRequired = true;
   bool _draggingFiles = false;
+  bool _showCustomExpiration = false;
+  String _customPeriod = 'PM';
   String? _selectedTemplateId;
   String _search = '';
   String? _expirationError;
   String? _createdUrl;
+  int _currentStep = 0;
 
   final Set<int> _expandedSteps = {0};
+  final Set<int> _attentionSteps = {};
   List<_ShareableFile> _availableFiles = const [];
   final Set<String> _selectedFileKeys = {};
   final List<_DeviceShareFile> _deviceFiles = [];
@@ -94,6 +102,8 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     _confirmPasswordCtrl.dispose();
     _messageCtrl.dispose();
     _searchCtrl.dispose();
+    _customDateCtrl.dispose();
+    _customTimeCtrl.dispose();
     _emailFocusNode.dispose();
     super.dispose();
   }
@@ -199,24 +209,61 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         .toList();
   }
 
+  Future<Uint8List?> _readPlatformFileBytes(PlatformFile file) async {
+    final bytes = file.bytes;
+    if (bytes != null && bytes.isNotEmpty) return bytes;
+
+    final stream = file.readStream;
+    if (stream == null) return null;
+
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      builder.add(chunk);
+    }
+
+    final collected = builder.takeBytes();
+    return collected.isEmpty ? null : collected;
+  }
+
   Future<List<_DeviceShareFile>> _pickDeviceFiles() async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
+      withReadStream: true,
     );
     if (result == null) return const [];
 
-    return result.files
-        .where((f) => f.bytes != null && f.bytes!.isNotEmpty)
-        .map(
-          (f) => _DeviceShareFile(
-            name: f.name,
-            sizeBytes: f.size,
-            bytes: f.bytes!,
-            contentType: _guessContentType(f.name),
+    final files = <_DeviceShareFile>[];
+    var unreadableCount = 0;
+
+    for (final f in result.files) {
+      final bytes = await _readPlatformFileBytes(f);
+      if (bytes == null || bytes.isEmpty) {
+        unreadableCount++;
+        continue;
+      }
+
+      files.add(
+        _DeviceShareFile(
+          name: f.name,
+          sizeBytes: f.size > 0 ? f.size : bytes.length,
+          bytes: bytes,
+          contentType: _guessContentType(f.name),
+        ),
+      );
+    }
+
+    if (files.isEmpty && unreadableCount > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The selected file could not be read. Try saving it to Files first, then upload again.',
           ),
-        )
-        .toList();
+        ),
+      );
+    }
+
+    return files;
   }
 
   Future<void> _addDeviceFiles(List<_DeviceShareFile> files) async {
@@ -318,9 +365,20 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   }
 
   Future<void> _finish() async {
-    setState(() => _showValidationHints = true);
+    setState(() {
+      _showValidationHints = true;
+      _attentionSteps
+        ..clear()
+        ..addAll({
+          if (!_filesComplete) 0,
+          if (!_clientComplete) 1,
+          if (!_securityComplete) 2,
+          if (!_deliveryComplete) 3,
+        });
+    });
 
     if (_selectedFileCount == 0) {
+      _markStepAttention(0);
       _openStep(0);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select at least one file.')),
@@ -329,6 +387,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     }
 
     if (!_clientComplete) {
+      _markStepAttention(1);
       _openStep(1);
       ScaffoldMessenger.of(
         context,
@@ -337,6 +396,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     }
 
     if (!_securityComplete) {
+      _markStepAttention(2);
       _openStep(2);
       _formKey.currentState?.validate();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -346,6 +406,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     }
 
     if (!_deliveryComplete) {
+      _markStepAttention(3);
       _openStep(3);
       ScaffoldMessenger.of(
         context,
@@ -434,9 +495,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           ),
           if (_createdUrl == null)
             FluentCommandAction(
-              icon: Icons.lock_outline,
-              label: 'Create secure link',
-              onPressed: _submitting ? null : _finish,
+              icon: Icons.fact_check_outlined,
+              label: 'Review',
+              onPressed: _submitting ? null : () => _openStep(4),
               accent: true,
             ),
         ],
@@ -446,21 +507,8 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           ? Form(
               key: _formKey,
               child: isNarrow
-                  ? Column(
-                      children: [
-                        _buildMainWorkflow(theme),
-                        const SizedBox(height: 14),
-                        _buildSummary(theme),
-                      ],
-                    )
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _buildMainWorkflow(theme)),
-                        const SizedBox(width: 16),
-                        SizedBox(width: 380, child: _buildSummary(theme)),
-                      ],
-                    ),
+                  ? _buildMainWorkflow(theme)
+                  : _buildMainWorkflow(theme),
             )
           : _SuccessPanel(
               url: _createdUrl!,
@@ -492,9 +540,15 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
                   _expirationDays = 7;
                   _customExpiresAt = null;
                   _expirationError = null;
+                  _customDateCtrl.clear();
+                  _customTimeCtrl.clear();
+                  _customPeriod = 'PM';
+                  _showCustomExpiration = false;
                   _filesConfirmed = false;
                   _showValidationHints = false;
                   _passwordRequired = true;
+                  _currentStep = 0;
+                  _attentionSteps.clear();
                   _expandedSteps
                     ..clear()
                     ..add(0);
@@ -505,93 +559,136 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   }
 
   Widget _buildMainWorkflow(ThemeData theme) {
+    final activeStep = _activeStepShell(theme);
     return Column(
       children: [
         _SetupProgressStrip(
           steps: [
             _ProgressStepState(
               label: 'Files',
+              active: _currentStep == 0,
               complete: _filesComplete,
-              attention: _showValidationHints && !_filesComplete,
+              attention: _stepHasAttention(0),
               onTap: () => _openStep(0),
             ),
             _ProgressStepState(
               label: 'Client',
+              active: _currentStep == 1,
               complete: _clientComplete,
-              attention: _showValidationHints && !_clientComplete,
+              attention: _stepHasAttention(1),
               onTap: () => _openStep(1),
             ),
             _ProgressStepState(
               label: 'Security',
+              active: _currentStep == 2,
               complete: _securityComplete,
-              attention: _showValidationHints && !_securityComplete,
+              attention: _stepHasAttention(2),
               onTap: () => _openStep(2),
             ),
             _ProgressStepState(
               label: 'Delivery',
+              active: _currentStep == 3,
               complete: _deliveryComplete,
-              attention: _showValidationHints && !_deliveryComplete,
-              optional: !_deliveryChoiceMade,
+              attention: _stepHasAttention(3),
               onTap: () => _openStep(3),
             ),
             _ProgressStepState(
               label: 'Review',
+              active: _currentStep == 4,
               complete: _readyToCreate,
-              attention: _showValidationHints && !_readyToCreate,
-              onTap: () => _openAllSteps(),
+              attention: _stepHasAttention(4),
+              onTap: () => _openStep(4),
             ),
           ],
         ),
         const SizedBox(height: 14),
-        _SectionShell(
-          title: 'Files',
-          icon: Icons.folder_outlined,
-          step: 1,
-          expanded: _expandedSteps.contains(0),
-          completed: _filesComplete,
-          attention: _showValidationHints && !_filesComplete,
-          trailing: _filesComplete ? _fileCountLabel : 'Required',
-          onTap: () => _toggleStep(0),
-          child: _buildFilesSection(theme),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: KeyedSubtree(
+            key: ValueKey<int>(_currentStep),
+            child: activeStep,
+          ),
         ),
-        const SizedBox(height: 14),
-        _SectionShell(
-          title: 'Client',
-          icon: Icons.badge_outlined,
-          step: 2,
-          expanded: _expandedSteps.contains(1),
-          completed: _clientComplete,
-          attention: _showValidationHints && !_clientComplete,
-          trailing: _clientSectionStatus,
-          onTap: () => _toggleStep(1),
-          child: _buildClientSection(),
-        ),
-        const SizedBox(height: 14),
-        _SectionShell(
-          title: 'Security',
-          icon: Icons.shield_outlined,
-          step: 3,
-          expanded: _expandedSteps.contains(2),
-          completed: _securityComplete,
-          attention: _showValidationHints && !_securityComplete,
-          trailing: _securitySectionStatus,
-          onTap: () => _toggleStep(2),
-          child: _buildSecuritySection(),
-        ),
-        const SizedBox(height: 14),
-        _SectionShell(
-          title: 'Delivery',
-          icon: Icons.send_outlined,
-          step: 4,
-          expanded: _expandedSteps.contains(3),
-          completed: _deliveryComplete,
-          attention: _showValidationHints && !_deliveryComplete,
-          trailing: _deliverySectionStatus,
-          onTap: () => _toggleStep(3),
-          child: _buildDeliverySection(),
-        ),
+        if (_currentStep != 4) ...[
+          const SizedBox(height: 14),
+          _WizardNavigationBar(
+            backEnabled: _currentStep > 0 && !_submitting,
+            primaryLabel: _wizardPrimaryLabel,
+            primaryIcon: _wizardPrimaryIcon,
+            submitting: _submitting,
+            onBack: _currentStep > 0 ? _goBackOneStep : null,
+            onPrimary: _continueFromCurrentStep,
+          ),
+        ],
       ],
     );
+  }
+
+  Widget _activeStepShell(ThemeData theme) {
+    switch (_currentStep) {
+      case 0:
+        return _SectionShell(
+          title: 'Files',
+          subtitle: 'Select the files that will be available to the client.',
+          icon: Icons.folder_outlined,
+          step: 1,
+          expanded: true,
+          completed: _filesComplete,
+          attention: _stepHasAttention(0),
+          trailing: _filesComplete
+              ? 'Files confirmed'
+              : (_selectedFileCount > 0 ? _fileCountLabel : 'Required'),
+          onTap: () {},
+          showToggle: false,
+          child: _buildFilesSection(theme),
+        );
+      case 1:
+        return _SectionShell(
+          title: 'Client',
+          subtitle: 'Identify who this secure link is for.',
+          icon: Icons.badge_outlined,
+          step: 2,
+          expanded: true,
+          completed: _clientComplete,
+          attention: _stepHasAttention(1),
+          trailing: _clientSectionStatus,
+          onTap: () {},
+          showToggle: false,
+          child: _buildClientSection(),
+        );
+      case 2:
+        return _SectionShell(
+          title: 'Security',
+          subtitle: 'Set password and expiration protection.',
+          icon: Icons.shield_outlined,
+          step: 3,
+          expanded: true,
+          completed: _securityComplete,
+          attention: _stepHasAttention(2),
+          trailing: _securitySectionStatus,
+          onTap: () {},
+          showToggle: false,
+          child: _buildSecuritySection(),
+        );
+      case 3:
+        return _SectionShell(
+          title: 'Delivery',
+          subtitle: 'Choose whether to email the link or create it only.',
+          icon: Icons.send_outlined,
+          step: 4,
+          expanded: true,
+          completed: _deliveryComplete,
+          attention: _stepHasAttention(3),
+          trailing: _deliverySectionStatus,
+          onTap: () {},
+          showToggle: false,
+          child: _buildDeliverySection(),
+        );
+      default:
+        return _buildSummary(theme);
+    }
   }
 
   int get _selectedFileCount => _selectedFileKeys.length + _deviceFiles.length;
@@ -628,6 +725,34 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       _securityComplete &&
       _deliveryComplete;
 
+  bool _stepHasAttention(int step) {
+    if (_attentionSteps.contains(step)) return true;
+    if (!_showValidationHints) return false;
+    switch (step) {
+      case 0:
+        return !_filesComplete;
+      case 1:
+        return !_clientComplete;
+      case 2:
+        return !_securityComplete;
+      case 3:
+        return !_deliveryComplete;
+      case 4:
+        return !_readyToCreate;
+      default:
+        return false;
+    }
+  }
+
+  void _markStepAttention(int step) {
+    setState(() => _attentionSteps.add(step));
+  }
+
+  void _clearStepAttention(int step) {
+    if (!_attentionSteps.contains(step)) return;
+    setState(() => _attentionSteps.remove(step));
+  }
+
   String get _fileCountLabel {
     return '$_selectedFileCount selected';
   }
@@ -649,6 +774,25 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     if (!_deliveryChoiceMade) return 'Choose delivery';
     if (_sendEmail && !_clientEmailValid) return 'Needs email';
     return _sendEmail ? 'Email enabled' : 'Link only';
+  }
+
+  String get _wizardPrimaryLabel {
+    switch (_currentStep) {
+      case 0:
+        return 'Continue to client';
+      case 1:
+        return 'Continue to security';
+      case 2:
+        return 'Continue to delivery';
+      case 3:
+        return 'Review secure link';
+      default:
+        return 'Create secure link';
+    }
+  }
+
+  IconData get _wizardPrimaryIcon {
+    return _currentStep == 3 ? Icons.fact_check_outlined : Icons.arrow_forward;
   }
 
   String get _clientValidationMessage {
@@ -720,9 +864,17 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     final custom = _customExpiresAt;
     if (custom != null) {
       final loc = MaterialLocalizations.of(context);
-      return '${loc.formatShortDate(custom)} ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(custom))}';
+      return '${loc.formatMediumDate(custom)} at ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(custom))}';
     }
     return '$_expirationDays day${_expirationDays == 1 ? '' : 's'}';
+  }
+
+  String? get _customExpirationPreview {
+    final custom = _customExpiresAt;
+    if (custom == null) return null;
+    final loc = MaterialLocalizations.of(context);
+    final weekday = loc.formatFullDate(custom).split(',').first;
+    return 'Expires $weekday, ${loc.formatMediumDate(custom)} at ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(custom))}';
   }
 
   List<_SelectedShareFile> get _readyFiles {
@@ -777,20 +929,24 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
 
   void _toggleStep(int step) {
     setState(() {
-      if (_expandedSteps.contains(step)) {
-        _expandedSteps.remove(step);
-      } else {
-        _expandedSteps.add(step);
-      }
+      _currentStep = step.clamp(0, 4).toInt();
+      _expandedSteps
+        ..clear()
+        ..add(_currentStep.clamp(0, 3).toInt());
     });
   }
 
   void _openStep(int step) {
-    setState(() => _expandedSteps.add(step));
+    setState(() {
+      _currentStep = step.clamp(0, 4).toInt();
+      _expandedSteps
+        ..clear()
+        ..add(_currentStep.clamp(0, 3).toInt());
+    });
   }
 
   void _openAllSteps() {
-    setState(() => _expandedSteps.addAll({0, 1, 2, 3}));
+    _openStep(4);
   }
 
   void _focusClientEmail() {
@@ -800,42 +956,171 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     });
   }
 
-  Future<void> _pickCustomExpiration() async {
-    final now = DateTime.now();
-    final initial =
-        _customExpiresAt ?? now.add(Duration(days: _expirationDays));
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initial.isBefore(now) ? now : initial,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
-    );
-    if (date == null || !mounted) return;
+  void _goBackOneStep() {
+    if (_currentStep <= 0) return;
+    _openStep(_currentStep - 1);
+  }
 
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-    if (time == null || !mounted) return;
+  void _continueFromCurrentStep() {
+    switch (_currentStep) {
+      case 0:
+        if (_selectedFileCount == 0) {
+          _markStepAttention(0);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Select at least one file.')),
+          );
+          return;
+        }
+        setState(() {
+          _filesConfirmed = true;
+          _attentionSteps.remove(0);
+        });
+        _openStep(1);
+        return;
+      case 1:
+        if (!_clientHasIdentity) {
+          _markStepAttention(1);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Enter a client name or email.')),
+          );
+          return;
+        }
+        if (_sendEmail && !_clientEmailValid) {
+          _markStepAttention(1);
+          _focusClientEmail();
+          return;
+        }
+        _clearStepAttention(1);
+        _openStep(2);
+        return;
+      case 2:
+        if (!(_formKey.currentState?.validate() ?? false) ||
+            !_securityComplete) {
+          _markStepAttention(2);
+          return;
+        }
+        _clearStepAttention(2);
+        _openStep(3);
+        return;
+      case 3:
+        if (!_deliveryComplete) {
+          _markStepAttention(3);
+          if (_sendEmail && !_clientEmailValid) {
+            _markStepAttention(1);
+            _focusClientEmail();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Choose email delivery or link-only delivery.'),
+              ),
+            );
+          }
+          return;
+        }
+        _clearStepAttention(3);
+        _openStep(4);
+        return;
+      default:
+        _finish();
+    }
+  }
 
-    final selected = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-    if (!selected.isAfter(DateTime.now())) {
+  void _syncCustomExpirationFromFields() {
+    if (!_showCustomExpiration) {
+      setState(() => _showCustomExpiration = true);
+    }
+
+    final dateText = _customDateCtrl.text.trim();
+    final timeText = _customTimeCtrl.text.trim();
+
+    if (dateText.isEmpty && timeText.isEmpty) {
       setState(() {
-        _expirationError = 'Expiration must be set to a future date and time.';
-        _expandedSteps.add(2);
+        _customExpiresAt = null;
+        _expirationError = null;
       });
       return;
     }
+
+    final parsed = _parseCustomExpiration(dateText, timeText, _customPeriod);
+    if (parsed == null) {
+      setState(() {
+        _customExpiresAt = null;
+        _expirationError = 'Enter a valid date and time.';
+      });
+      return;
+    }
+
+    if (!parsed.isAfter(DateTime.now())) {
+      setState(() {
+        _customExpiresAt = null;
+        _expirationError = 'Expiration must be set to a future date and time.';
+      });
+      return;
+    }
+
     setState(() {
-      _customExpiresAt = selected;
+      _customExpiresAt = parsed;
       _expirationError = null;
     });
+  }
+
+  DateTime? _parseCustomExpiration(String date, String time, String period) {
+    final dateMatch = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(date);
+    final timeMatch = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(time);
+    if (dateMatch == null || timeMatch == null) return null;
+
+    final month = int.tryParse(dateMatch.group(1)!);
+    final day = int.tryParse(dateMatch.group(2)!);
+    final year = int.tryParse(dateMatch.group(3)!);
+    var hour = int.tryParse(timeMatch.group(1)!);
+    final minute = int.tryParse(timeMatch.group(2)!);
+    if (month == null ||
+        day == null ||
+        year == null ||
+        hour == null ||
+        minute == null) {
+      return null;
+    }
+    if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+
+    final value = DateTime(year, month, day, hour, minute);
+    if (value.year != year || value.month != month || value.day != day) {
+      return null;
+    }
+    return value;
+  }
+
+  void _showCustomExpirationFields() {
+    final base =
+        _customExpiresAt ?? DateTime.now().add(Duration(days: _expirationDays));
+    final hour12 = base.hour % 12 == 0 ? 12 : base.hour % 12;
+    final period = base.hour >= 12 ? 'PM' : 'AM';
+
+    setState(() {
+      _showCustomExpiration = true;
+      _customDateCtrl.text =
+          '${base.month.toString().padLeft(2, '0')}/${base.day.toString().padLeft(2, '0')}/${base.year}';
+      _customTimeCtrl.text =
+          '$hour12:${base.minute.toString().padLeft(2, '0')}';
+      _customPeriod = period;
+      _expirationError = null;
+    });
+    _syncCustomExpirationFromFields();
+  }
+
+  void _setCustomExpirationTime(int hour, int minute, String period) {
+    if (!_showCustomExpiration) {
+      _showCustomExpirationFields();
+    }
+
+    setState(() {
+      _customTimeCtrl.text = '$hour:${minute.toString().padLeft(2, '0')}';
+      _customPeriod = period;
+    });
+    _syncCustomExpirationFromFields();
   }
 
   void _confirmFiles() {
@@ -847,7 +1132,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     }
     setState(() {
       _filesConfirmed = true;
-      _expandedSteps.add(1);
+      _expandedSteps
+        ..clear()
+        ..add(0);
     });
   }
 
@@ -860,90 +1147,72 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           .contains(q);
     }).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _ReadyFilesPanel(
-          files: _readyFiles,
-          formatSize: _formatSize,
-          onConfirm: _selectedFileCount == 0 || _submitting
-              ? null
-              : _confirmFiles,
-          onClearAll: _selectedFileCount == 0 || _submitting
-              ? null
-              : () => setState(() {
-                  _selectedFileKeys.clear();
-                  _deviceFiles.clear();
-                  _filesConfirmed = false;
-                }),
-          confirmed: _filesComplete,
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
+    final selectedPane = _ReadyFilesPanel(
+      files: _readyFiles,
+      formatSize: _formatSize,
+      maxListHeight: 420,
+      onConfirm: _selectedFileCount == 0 || _submitting ? null : _confirmFiles,
+      onClearAll: _selectedFileCount == 0 || _submitting
+          ? null
+          : () => setState(() {
+              _selectedFileKeys.clear();
+              _deviceFiles.clear();
+              _filesConfirmed = false;
+            }),
+      confirmed: _filesComplete,
+    );
+
+    final addFilesPane = _AddFilesPane(
+      source: _source,
+      loadingFiles: _loadingFiles,
+      filteredFiles: filteredFiles,
+      selectedFileKeys: _selectedFileKeys,
+      submitting: _submitting,
+      searchController: _searchCtrl,
+      search: _search,
+      formatSize: _formatSize,
+      dragging: _draggingFiles,
+      onChooseDevice: _chooseDevice,
+      onChooseFileBox: _chooseFileBox,
+      onHideFileBox: _changeSource,
+      onDragEntered: () => setState(() => _draggingFiles = true),
+      onDragExited: () => setState(() => _draggingFiles = false),
+      onDropped: (details) async {
+        setState(() => _draggingFiles = false);
+        await _handleDroppedFiles(details);
+      },
+      onSearchChanged: (v) => setState(() => _search = v),
+      onToggle: (file, selected) {
+        setState(() {
+          _filesConfirmed = false;
+          if (selected) {
+            _selectedFileKeys.add(file.key);
+          } else {
+            _selectedFileKeys.remove(file.key);
+          }
+        });
+      },
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final twoPane = constraints.maxWidth >= 900;
+        if (!twoPane) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [selectedPane, const SizedBox(height: 12), addFilesPane],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            OutlinedButton.icon(
-              onPressed: _submitting ? null : _chooseFileBox,
-              icon: const Icon(Icons.inventory_2_outlined, size: 16),
-              label: Text(
-                _source == 'fileBox'
-                    ? 'Refresh File Box'
-                    : 'Choose from File Box',
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: _submitting ? null : _chooseDevice,
-              icon: const Icon(Icons.upload_file_outlined, size: 16),
-              label: const Text('Upload from device'),
-            ),
-            if (_source == 'fileBox')
-              TextButton.icon(
-                onPressed: _submitting ? null : _changeSource,
-                icon: const Icon(Icons.keyboard_arrow_up_outlined, size: 17),
-                label: const Text('Hide File Box'),
-              ),
+            Expanded(flex: 5, child: selectedPane),
+            const SizedBox(width: 14),
+            Expanded(flex: 7, child: addFilesPane),
           ],
-        ),
-        if (_source != 'fileBox') ...[
-          const SizedBox(height: 12),
-          _FileDropZone(
-            dragging: _draggingFiles,
-            enabled: !_submitting,
-            onChooseFiles: _chooseDevice,
-            onDragEntered: () => setState(() => _draggingFiles = true),
-            onDragExited: () => setState(() => _draggingFiles = false),
-            onDropped: (details) async {
-              setState(() => _draggingFiles = false);
-              await _handleDroppedFiles(details);
-            },
-          ),
-        ],
-        if (_source == 'fileBox') ...[
-          const SizedBox(height: 12),
-          _FileBoxPickerPanel(
-            searchController: _searchCtrl,
-            search: _search,
-            loading: _loadingFiles,
-            files: filteredFiles,
-            selectedKeys: _selectedFileKeys,
-            submitting: _submitting,
-            formatSize: _formatSize,
-            onBack: _submitting ? null : _changeSource,
-            onSearchChanged: (v) => setState(() => _search = v),
-            onToggle: (file, selected) {
-              setState(() {
-                _filesConfirmed = false;
-                if (selected) {
-                  _selectedFileKeys.add(file.key);
-                } else {
-                  _selectedFileKeys.remove(file.key);
-                }
-              });
-            },
-          ),
-        ],
-      ],
+        );
+      },
     );
   }
 
@@ -990,7 +1259,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             helperText: _sendEmail
                 ? 'Required for email delivery.'
                 : 'Optional unless emailing the secure files.',
-            errorText: _showValidationHints && _sendEmail && !_clientEmailValid
+            errorText: _stepHasAttention(1) && _sendEmail && !_clientEmailValid
                 ? 'Enter a valid email address to send directly.'
                 : null,
             prefixIcon: const Icon(Icons.mail_outline),
@@ -1013,92 +1282,94 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CheckboxListTile(
-          value: _passwordRequired,
-          contentPadding: EdgeInsets.zero,
-          controlAffinity: ListTileControlAffinity.leading,
-          title: const Text(
-            'Require password to open link',
-            style: TextStyle(fontWeight: FontWeight.w800),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F9FF),
+            border: Border.all(color: const Color(0xFFD6E8FF)),
+            borderRadius: BorderRadius.circular(8),
           ),
-          subtitle: const Text('Recommended for client files.'),
-          onChanged: _submitting
-              ? null
-              : (v) => setState(() {
-                  _passwordRequired = v == true;
-                  if (!_passwordRequired) {
-                    _passwordCtrl.clear();
-                    _confirmPasswordCtrl.clear();
-                  }
-                }),
+          child: const Row(
+            children: [
+              Icon(Icons.lock_outline, size: 17, color: AppColors.brandBlue),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Password required before files can be opened.',
+                  style: TextStyle(
+                    color: Color(0xFF253858),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        if (_passwordRequired) ...[
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _passwordCtrl,
-            obscureText: _obscurePassword,
-            onChanged: (_) {
-              setState(() {});
-              if (_confirmPasswordCtrl.text.isNotEmpty) {
-                _formKey.currentState?.validate();
-              }
-            },
-            decoration: InputDecoration(
-              labelText: 'Password',
-              helperText: 'Share this password with the client separately.',
-              prefixIcon: const Icon(Icons.key_outlined),
-              suffixIcon: IconButton(
-                tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                ),
-                onPressed: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _passwordCtrl,
+          obscureText: _obscurePassword,
+          onChanged: (_) {
+            setState(() {});
+            if (_confirmPasswordCtrl.text.isNotEmpty) {
+              _formKey.currentState?.validate();
+            }
+          },
+          decoration: InputDecoration(
+            labelText: 'Password',
+            helperText: 'Share this password with the client separately.',
+            prefixIcon: const Icon(Icons.key_outlined),
+            suffixIcon: IconButton(
+              tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+          ),
+          validator: (v) {
+            if ((v ?? '').trim().length < 6) {
+              return 'Use at least 6 characters.';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 10),
+        TextFormField(
+          controller: _confirmPasswordCtrl,
+          obscureText: _obscureConfirmPassword,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: 'Confirm password',
+            prefixIcon: const Icon(Icons.verified_user_outlined),
+            suffixIcon: IconButton(
+              tooltip: _obscureConfirmPassword
+                  ? 'Show confirmation'
+                  : 'Hide confirmation',
+              icon: Icon(
+                _obscureConfirmPassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+              onPressed: () => setState(
+                () => _obscureConfirmPassword = !_obscureConfirmPassword,
               ),
             ),
-            validator: (v) {
-              if (!_passwordRequired) return null;
-              if ((v ?? '').trim().length < 6) {
-                return 'Use at least 6 characters.';
-              }
-              return null;
-            },
           ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _confirmPasswordCtrl,
-            obscureText: _obscureConfirmPassword,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: 'Confirm password',
-              prefixIcon: const Icon(Icons.verified_user_outlined),
-              suffixIcon: IconButton(
-                tooltip: _obscureConfirmPassword
-                    ? 'Show confirmation'
-                    : 'Hide confirmation',
-                icon: Icon(
-                  _obscureConfirmPassword
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                ),
-                onPressed: () => setState(
-                  () => _obscureConfirmPassword = !_obscureConfirmPassword,
-                ),
-              ),
-            ),
-            validator: (v) {
-              if (!_passwordRequired) return null;
-              final password = _passwordCtrl.text.trim();
-              final confirm = (v ?? '').trim();
-              if (confirm.isEmpty) return 'Re-enter the password.';
-              if (confirm != password) return 'Passwords do not match.';
-              return null;
-            },
-          ),
-        ],
+          validator: (v) {
+            final password = _passwordCtrl.text.trim();
+            final confirm = (v ?? '').trim();
+            if (confirm.isEmpty) return 'Re-enter the password.';
+            if (confirm != password) return 'Passwords do not match.';
+            return null;
+          },
+        ),
         const SizedBox(height: 14),
         const Text(
           'Expiration',
@@ -1114,39 +1385,36 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           children: [1, 7, 14, 30].map(_dayChip).toList(),
         ),
         const SizedBox(height: 10),
-        OutlinedButton.icon(
-          onPressed: _submitting ? null : _pickCustomExpiration,
-          icon: const Icon(Icons.calendar_month_outlined, size: 16),
-          label: Text(
-            _customExpiresAt == null
-                ? 'Custom date and time'
-                : 'Custom: $_expirationLabel',
+        if (!_showCustomExpiration)
+          OutlinedButton.icon(
+            onPressed: _submitting ? null : _showCustomExpirationFields,
+            icon: const Icon(Icons.edit_calendar_outlined, size: 16),
+            label: const Text('Custom expiration'),
+          )
+        else
+          _CustomExpirationFields(
+            dateController: _customDateCtrl,
+            timeController: _customTimeCtrl,
+            period: _customPeriod,
+            enabled: !_submitting,
+            errorText: _expirationError,
+            previewText: _customExpirationPreview,
+            onChanged: _syncCustomExpirationFromFields,
+            onPeriodChanged: (value) {
+              setState(() => _customPeriod = value);
+              _syncCustomExpirationFromFields();
+            },
+            onQuickTime: _setCustomExpirationTime,
+            onClear: _submitting
+                ? null
+                : () => setState(() {
+                    _showCustomExpiration = false;
+                    _customExpiresAt = null;
+                    _expirationError = null;
+                    _customDateCtrl.clear();
+                    _customTimeCtrl.clear();
+                  }),
           ),
-        ),
-        if (_expirationError != null) ...[
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 16,
-                color: Color(0xFFB42318),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  _expirationError!,
-                  style: const TextStyle(
-                    color: Color(0xFFB42318),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }
@@ -1159,27 +1427,32 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           selected: _sendEmail,
           icon: Icons.outgoing_mail,
           title: 'Email secure files to client',
-          subtitle:
-              'Send the secure link to the client. The password is never included.',
+          subtitle: 'Password is never included in email.',
           onTap: _submitting
               ? null
-              : () => setState(() {
-                  _sendEmail = true;
-                  _createLinkOnly = false;
-                }),
+              : () {
+                  setState(() {
+                    _sendEmail = true;
+                    _createLinkOnly = false;
+                    _attentionSteps.remove(3);
+                  });
+                },
         ),
         const SizedBox(height: 8),
         _DeliveryChoiceTile(
           selected: _createLinkOnly,
           icon: Icons.link_outlined,
-          title: 'Create secure link only',
-          subtitle: 'Create the link now and copy it after creation.',
+          title: 'Copy link manually',
+          subtitle: 'Copy the link after it is created.',
           onTap: _submitting
               ? null
-              : () => setState(() {
-                  _createLinkOnly = true;
-                  _sendEmail = false;
-                }),
+              : () {
+                  setState(() {
+                    _createLinkOnly = true;
+                    _sendEmail = false;
+                    _attentionSteps.remove(3);
+                  });
+                },
         ),
         const SizedBox(height: 8),
         _DeliveryNote(passwordRequired: _passwordRequired),
@@ -1229,56 +1502,79 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _shareMessageTemplates.map((template) {
-            final selected = _selectedTemplateId == template.id;
-            return ChoiceChip(
-              label: Text(template.title),
-              selected: selected,
-              showCheckmark: false,
-              selectedColor: const Color(0xFFEAF2FF),
-              backgroundColor: const Color(0xFFF9FAFB),
-              side: BorderSide(
-                color: selected ? AppColors.brandBlue : const Color(0xFFE4E7EC),
-              ),
-              labelStyle: TextStyle(
-                color: selected ? AppColors.brandBlue : const Color(0xFF667085),
-                fontWeight: FontWeight.w800,
-              ),
-              onSelected: _submitting
-                  ? null
-                  : (_) => setState(() {
-                      _selectedTemplateId = template.id;
-                      _messageCtrl.text = _applyShareTemplateTokens(
-                        template.body,
-                        _nameCtrl.text,
-                      );
-                    }),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final narrow = constraints.maxWidth < 620;
+            final cards = _shareMessageTemplates.map((template) {
+              return _MessageTemplateOption(
+                title: template.title,
+                selected: _selectedTemplateId == template.id,
+                onTap: _submitting
+                    ? null
+                    : () => setState(() {
+                        _selectedTemplateId = template.id;
+                        _messageCtrl.text = _applyShareTemplateTokens(
+                          template.body,
+                          _nameCtrl.text,
+                        );
+                      }),
+              );
+            }).toList();
+            if (narrow) {
+              return Column(
+                children: [
+                  for (int i = 0; i < cards.length; i++) ...[
+                    cards[i],
+                    if (i != cards.length - 1) const SizedBox(height: 8),
+                  ],
+                ],
+              );
+            }
+            return Row(
+              children: [
+                for (int i = 0; i < cards.length; i++) ...[
+                  Expanded(child: cards[i]),
+                  if (i != cards.length - 1) const SizedBox(width: 8),
+                ],
+              ],
             );
-          }).toList(),
+          },
         ),
         const SizedBox(height: 10),
-        TextFormField(
-          controller: _messageCtrl,
-          minLines: 4,
-          maxLines: 7,
-          decoration: InputDecoration(
-            labelText: 'Message',
-            prefixIcon: const Icon(Icons.notes_outlined),
-            suffixIcon: _messageCtrl.text.trim().isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Clear message',
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => setState(() {
-                      _selectedTemplateId = null;
-                      _messageCtrl.clear();
-                    }),
-                  ),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            border: Border.all(color: const Color(0xFFE4E7EC)),
+            borderRadius: BorderRadius.circular(8),
           ),
-          onChanged: (_) => setState(() {}),
+          child: TextFormField(
+            controller: _messageCtrl,
+            minLines: 5,
+            maxLines: 8,
+            decoration: InputDecoration(
+              labelText: 'Client message',
+              alignLabelWithHint: true,
+              prefixIcon: const Padding(
+                padding: EdgeInsets.only(bottom: 72),
+                child: Icon(Icons.notes_outlined),
+              ),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: const EdgeInsets.fromLTRB(0, 18, 12, 14),
+              suffixIcon: _messageCtrl.text.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear message',
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => setState(() {
+                        _selectedTemplateId = null;
+                        _messageCtrl.clear();
+                      }),
+                    ),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
         ),
         const SizedBox(height: 6),
         Text(
@@ -1316,6 +1612,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
               _expirationDays = days;
               _customExpiresAt = null;
               _expirationError = null;
+              _showCustomExpiration = false;
+              _customDateCtrl.clear();
+              _customTimeCtrl.clear();
             }),
     );
   }
@@ -1326,7 +1625,6 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         ? _nameCtrl.text.trim()
         : (_emailCtrl.text.trim().isNotEmpty ? _emailCtrl.text.trim() : '-');
     final issues = _reviewIssues;
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1369,25 +1667,53 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             expirationLabel: _expirationLabel,
           ),
           const SizedBox(height: 10),
-          _ClientFacingPreview(
-            client: client,
-            fileCount: files.length,
-            expirationLabel: _expirationLabel,
-            deliveryLabel: _sendEmail
-                ? 'Email will be sent'
-                : 'Copy link after creation',
+          Text(
+            'Setup receipt',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: const Color(0xFF344054),
+              fontWeight: FontWeight.w900,
+            ),
           ),
-          const SizedBox(height: 12),
-          _SummaryRow(label: 'Files', value: '${files.length} selected'),
-          _SummaryRow(label: 'Client', value: client),
-          if (_emailCtrl.text.trim().isNotEmpty)
-            _SummaryRow(label: 'Email', value: _emailCtrl.text.trim()),
-          _SummaryRow(
-            label: 'Access',
-            value: _passwordRequired ? 'Password' : 'No password',
+          const SizedBox(height: 8),
+          _ReviewDetailGrid(
+            details: [
+              _ReviewDetail(
+                icon: Icons.folder_outlined,
+                label: 'Files',
+                value: '${files.length} selected',
+              ),
+              _ReviewDetail(
+                icon: Icons.person_outline,
+                label: 'Recipient',
+                value: client,
+              ),
+              _ReviewDetail(
+                icon: Icons.lock_outline,
+                label: 'Security',
+                value: 'Password required',
+              ),
+              _ReviewDetail(
+                icon: Icons.schedule_outlined,
+                label: 'Expires',
+                value: _expirationLabel,
+              ),
+              _ReviewDetail(
+                icon: _sendEmail ? Icons.outgoing_mail : Icons.link_outlined,
+                label: 'Delivery',
+                value: _sendEmail
+                    ? 'Email will be sent'
+                    : (_createLinkOnly
+                          ? 'Copy link after creation'
+                          : 'Choose delivery'),
+              ),
+              if (_emailCtrl.text.trim().isNotEmpty)
+                _ReviewDetail(
+                  icon: Icons.mail_outline,
+                  label: 'Email',
+                  value: _emailCtrl.text.trim(),
+                ),
+            ],
           ),
-          _SummaryRow(label: 'Expires', value: _expirationLabel),
-          _SummaryRow(label: 'Delivery', value: _deliverySectionStatus),
           if (files.isNotEmpty) ...[
             const SizedBox(height: 12),
             const Divider(height: 1, color: Color(0xFFE4E7EC)),
@@ -1476,27 +1802,27 @@ class _ProgressStepChip extends StatelessWidget {
         ? const Color(0xFFB42318)
         : step.complete
         ? const Color(0xFF067647)
-        : step.optional
-        ? const Color(0xFF667085)
+        : step.active
+        ? AppColors.brandBlue
         : AppColors.brandBlue;
     final bg = step.attention
         ? const Color(0xFFFFF6F5)
         : step.complete
         ? const Color(0xFFF6FEF9)
-        : step.optional
-        ? const Color(0xFFF9FAFB)
+        : step.active
+        ? const Color(0xFFEAF2FF)
         : const Color(0xFFEAF2FF);
     final border = step.attention
         ? const Color(0xFFFDA29B)
         : step.complete
         ? const Color(0xFFABEFC6)
-        : const Color(0xFFE4E7EC);
+        : step.active
+        ? AppColors.brandBlue
+        : const Color(0xFFD6E8FF);
     final icon = step.attention
         ? Icons.error_outline
         : step.complete
         ? Icons.check_circle_outline
-        : step.optional
-        ? Icons.radio_button_unchecked
         : Icons.circle_outlined;
 
     return InkWell(
@@ -1515,7 +1841,7 @@ class _ProgressStepChip extends StatelessWidget {
             Icon(icon, size: 15, color: color),
             const SizedBox(width: 6),
             Text(
-              step.optional ? '${step.label} optional' : step.label,
+              step.label,
               style: TextStyle(
                 color: color,
                 fontSize: 12,
@@ -1532,6 +1858,7 @@ class _ProgressStepChip extends StatelessWidget {
 class _ProgressStepState {
   const _ProgressStepState({
     required this.label,
+    required this.active,
     required this.complete,
     required this.attention,
     required this.onTap,
@@ -1539,10 +1866,77 @@ class _ProgressStepState {
   });
 
   final String label;
+  final bool active;
   final bool complete;
   final bool attention;
   final bool optional;
   final VoidCallback onTap;
+}
+
+class _WizardNavigationBar extends StatelessWidget {
+  const _WizardNavigationBar({
+    required this.backEnabled,
+    required this.primaryLabel,
+    required this.primaryIcon,
+    required this.submitting,
+    required this.onBack,
+    required this.onPrimary,
+  });
+
+  final bool backEnabled;
+  final String primaryLabel;
+  final IconData primaryIcon;
+  final bool submitting;
+  final VoidCallback? onBack;
+  final VoidCallback onPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 560;
+    final backButton = TextButton.icon(
+      onPressed: backEnabled ? onBack : null,
+      icon: const Icon(Icons.arrow_back, size: 16),
+      label: const Text('Back'),
+    );
+    final primaryButton = FilledButton.icon(
+      onPressed: submitting ? null : onPrimary,
+      icon: Icon(primaryIcon, size: 16),
+      label: Text(primaryLabel),
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 8,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: isNarrow
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: 40, child: primaryButton),
+                const SizedBox(height: 8),
+                SizedBox(height: 38, child: backButton),
+              ],
+            )
+          : Row(
+              children: [
+                backButton,
+                const Spacer(),
+                SizedBox(height: 40, child: primaryButton),
+              ],
+            ),
+    );
+  }
 }
 
 class _SectionShell extends StatelessWidget {
@@ -1557,6 +1951,7 @@ class _SectionShell extends StatelessWidget {
     required this.onTap,
     this.trailing,
     this.subtitle,
+    this.showToggle = true,
   });
 
   final String title;
@@ -1569,6 +1964,7 @@ class _SectionShell extends StatelessWidget {
   final VoidCallback onTap;
   final String? trailing;
   final String? subtitle;
+  final bool showToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -1693,14 +2089,15 @@ class _SectionShell extends StatelessWidget {
                         ),
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: Icon(
-                      expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 18,
-                      color: const Color(0xFF667085),
+                  if (showToggle)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: Icon(
+                        expanded ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                        color: const Color(0xFF667085),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1792,6 +2189,7 @@ class _ReadyFilesPanel extends StatelessWidget {
   const _ReadyFilesPanel({
     required this.files,
     required this.formatSize,
+    required this.maxListHeight,
     required this.onConfirm,
     required this.onClearAll,
     required this.confirmed,
@@ -1799,6 +2197,7 @@ class _ReadyFilesPanel extends StatelessWidget {
 
   final List<_SelectedShareFile> files;
   final String Function(int bytes) formatSize;
+  final double maxListHeight;
   final VoidCallback? onConfirm;
   final VoidCallback? onClearAll;
   final bool confirmed;
@@ -1811,9 +2210,9 @@ class _ReadyFilesPanel extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: confirmed ? const Color(0xFFF6FEF9) : const Color(0xFFF9FAFB),
+        color: Colors.white,
         border: Border.all(
-          color: confirmed ? const Color(0xFFABEFC6) : const Color(0xFFE4E7EC),
+          color: confirmed ? const Color(0xFFD6E8FF) : const Color(0xFFE4E7EC),
         ),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -1824,13 +2223,9 @@ class _ReadyFilesPanel extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  confirmed
-                      ? Icons.check_circle_outline
-                      : Icons.outbox_outlined,
+                  Icons.outbox_outlined,
                   size: 18,
-                  color: confirmed
-                      ? const Color(0xFF067647)
-                      : AppColors.brandBlue,
+                  color: AppColors.brandBlue,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -1856,7 +2251,7 @@ class _ReadyFilesPanel extends StatelessWidget {
           if (hasFiles) ...[
             const Divider(height: 1, color: Color(0xFFE4E7EC)),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 180),
+              constraints: BoxConstraints(maxHeight: maxListHeight),
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: files.length,
@@ -1881,8 +2276,6 @@ class _ReadyFilesPanel extends StatelessWidget {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _SourcePill(label: file.sourceLabel),
-                        const SizedBox(width: 4),
                         if (file.onPreview != null)
                           IconButton(
                             tooltip: 'Preview',
@@ -1912,7 +2305,7 @@ class _ReadyFilesPanel extends StatelessWidget {
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: onConfirm,
-                    icon: const Icon(Icons.check_outlined, size: 16),
+                    icon: const Icon(Icons.task_alt_outlined, size: 16),
                     label: Text(confirmed ? 'Files confirmed' : 'Use files'),
                   ),
                 ],
@@ -1938,29 +2331,560 @@ class _ReadyFilesPanel extends StatelessWidget {
   }
 }
 
-class _SourcePill extends StatelessWidget {
-  const _SourcePill({required this.label});
+class _FileSourceAction extends StatelessWidget {
+  const _FileSourceAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.emphasized,
+    required this.onTap,
+  });
 
-  final String label;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool emphasized;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isUpload = label.toLowerCase().contains('upload');
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: isUpload ? const Color(0xFFFFFAEB) : const Color(0xFFEAF2FF),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: isUpload ? const Color(0xFFFEDF89) : const Color(0xFFD6E8FF),
+    final borderColor = emphasized
+        ? AppColors.brandBlue
+        : const Color(0xFFD0D5DD);
+    final bg = emphasized ? const Color(0xFFEAF2FF) : Colors.white;
+    final iconBg = emphasized ? AppColors.brandBlue : const Color(0xFFF2F4F7);
+    final iconColor = emphasized ? Colors.white : AppColors.brandBlue;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 72),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border.all(color: borderColor, width: emphasized ? 1.4 : 1),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: emphasized
+                ? const [
+                    BoxShadow(
+                      color: Color(0x120B4EA2),
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFF253858),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF667085),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      child: Text(
-        isUpload ? 'Uploaded from device' : 'File Box',
-        style: TextStyle(
-          color: isUpload ? const Color(0xFFB54708) : AppColors.brandBlue,
-          fontSize: 10.5,
-          fontWeight: FontWeight.w900,
+    );
+  }
+}
+
+class _AddFilesPane extends StatelessWidget {
+  const _AddFilesPane({
+    required this.source,
+    required this.loadingFiles,
+    required this.filteredFiles,
+    required this.selectedFileKeys,
+    required this.submitting,
+    required this.searchController,
+    required this.search,
+    required this.formatSize,
+    required this.dragging,
+    required this.onChooseDevice,
+    required this.onChooseFileBox,
+    required this.onHideFileBox,
+    required this.onDragEntered,
+    required this.onDragExited,
+    required this.onDropped,
+    required this.onSearchChanged,
+    required this.onToggle,
+  });
+
+  final String source;
+  final bool loadingFiles;
+  final List<_ShareableFile> filteredFiles;
+  final Set<String> selectedFileKeys;
+  final bool submitting;
+  final TextEditingController searchController;
+  final String search;
+  final String Function(int bytes) formatSize;
+  final bool dragging;
+  final VoidCallback onChooseDevice;
+  final VoidCallback onChooseFileBox;
+  final VoidCallback onHideFileBox;
+  final VoidCallback onDragEntered;
+  final VoidCallback onDragExited;
+  final Future<void> Function(DropDoneDetails details) onDropped;
+  final ValueChanged<String> onSearchChanged;
+  final void Function(_ShareableFile file, bool selected) onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.add_to_drive_outlined,
+                size: 18,
+                color: AppColors.brandBlue,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Add files',
+                  style: TextStyle(
+                    color: Color(0xFF253858),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh File Box',
+                icon: const Icon(Icons.refresh, size: 18),
+                onPressed: submitting ? null : onChooseFileBox,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _FileDropZone(
+            dragging: dragging,
+            enabled: !submitting,
+            onChooseFiles: onChooseDevice,
+            onDragEntered: onDragEntered,
+            onDragExited: onDragExited,
+            onDropped: onDropped,
+          ),
+          const SizedBox(height: 12),
+          _FileBoxPickerPanel(
+            searchController: searchController,
+            search: search,
+            loading: loadingFiles,
+            files: source == 'fileBox' ? filteredFiles : const [],
+            selectedKeys: selectedFileKeys,
+            submitting: submitting,
+            formatSize: formatSize,
+            onBack: source == 'fileBox' && !submitting ? onHideFileBox : null,
+            onRefresh: submitting ? null : onChooseFileBox,
+            onSearchChanged: onSearchChanged,
+            onToggle: onToggle,
+            loaded: source == 'fileBox',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomExpirationFields extends StatelessWidget {
+  const _CustomExpirationFields({
+    required this.dateController,
+    required this.timeController,
+    required this.period,
+    required this.enabled,
+    required this.errorText,
+    required this.previewText,
+    required this.onChanged,
+    required this.onPeriodChanged,
+    required this.onQuickTime,
+    required this.onClear,
+  });
+
+  final TextEditingController dateController;
+  final TextEditingController timeController;
+  final String period;
+  final bool enabled;
+  final String? errorText;
+  final String? previewText;
+  final VoidCallback onChanged;
+  final ValueChanged<String> onPeriodChanged;
+  final void Function(int hour, int minute, String period) onQuickTime;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = errorText != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: hasError ? const Color(0xFFFFF6F5) : Colors.white,
+        border: Border.all(
+          color: hasError ? const Color(0xFFFDA29B) : const Color(0xFFE4E7EC),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Custom expiration',
+            style: TextStyle(
+              color: Color(0xFF344054),
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (onClear != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onClear,
+                icon: const Icon(Icons.close, size: 16),
+                label: const Text('Use quick expiration'),
+              ),
+            ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 520;
+              final dateField = TextFormField(
+                controller: dateController,
+                enabled: enabled,
+                keyboardType: TextInputType.datetime,
+                inputFormatters: const [_DateSlashInputFormatter()],
+                decoration: const InputDecoration(
+                  labelText: 'Date',
+                  hintText: 'MMDDYYYY',
+                  helperText: 'Type numbers only.',
+                  prefixIcon: Icon(Icons.calendar_month_outlined),
+                ),
+                onChanged: (_) => onChanged(),
+              );
+              final timeField = TextFormField(
+                controller: timeController,
+                enabled: enabled,
+                keyboardType: TextInputType.datetime,
+                inputFormatters: const [_TimeColonInputFormatter()],
+                decoration: const InputDecoration(
+                  labelText: 'Time',
+                  hintText: 'HMM',
+                  helperText: 'Example: 930',
+                  prefixIcon: Icon(Icons.schedule_outlined),
+                ),
+                onChanged: (_) => onChanged(),
+              );
+              final periodField = _AmPmSelector(
+                value: period,
+                enabled: enabled,
+                onChanged: onPeriodChanged,
+              );
+
+              if (narrow) {
+                return Column(
+                  children: [
+                    dateField,
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: timeField),
+                        const SizedBox(width: 8),
+                        periodField,
+                      ],
+                    ),
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(flex: 6, child: dateField),
+                  const SizedBox(width: 10),
+                  Expanded(flex: 4, child: timeField),
+                  const SizedBox(width: 8),
+                  periodField,
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _QuickTimeChip(
+                label: '9:00 AM',
+                onTap: enabled ? () => onQuickTime(9, 0, 'AM') : null,
+              ),
+              _QuickTimeChip(
+                label: '5:00 PM',
+                onTap: enabled ? () => onQuickTime(5, 0, 'PM') : null,
+              ),
+              _QuickTimeChip(
+                label: 'End of day',
+                onTap: enabled ? () => onQuickTime(11, 59, 'PM') : null,
+              ),
+            ],
+          ),
+          if (hasError) ...[
+            const SizedBox(height: 8),
+            Text(
+              errorText!,
+              style: const TextStyle(
+                color: Color(0xFFB42318),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            _ExpirationPreviewText(
+              text:
+                  previewText ??
+                  'Enter a date and time, or use a quick expiration above.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DateSlashInputFormatter extends TextInputFormatter {
+  const _DateSlashInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final limited = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final buffer = StringBuffer();
+
+    for (var i = 0; i < limited.length; i++) {
+      if (i == 2 || i == 4) buffer.write('/');
+      buffer.write(limited[i]);
+    }
+
+    final text = buffer.toString();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+}
+
+class _ExpirationPreviewText extends StatelessWidget {
+  const _ExpirationPreviewText({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = text.startsWith('Expires ');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          ready ? Icons.check_circle_outline : Icons.info_outline,
+          size: 16,
+          color: ready ? const Color(0xFF067647) : const Color(0xFF667085),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: ready ? const Color(0xFF067647) : const Color(0xFF667085),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickTimeChip extends StatelessWidget {
+  const _QuickTimeChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      visualDensity: VisualDensity.compact,
+      label: Text(label),
+      avatar: const Icon(Icons.schedule_outlined, size: 15),
+      onPressed: onTap,
+      labelStyle: const TextStyle(
+        color: Color(0xFF344054),
+        fontWeight: FontWeight.w800,
+      ),
+      backgroundColor: Colors.white,
+      side: const BorderSide(color: Color(0xFFE4E7EC)),
+    );
+  }
+}
+
+class _TimeColonInputFormatter extends TextInputFormatter {
+  const _TimeColonInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final limited = digits.length > 4 ? digits.substring(0, 4) : digits;
+
+    String text;
+    if (limited.length <= 2) {
+      text = limited;
+    } else if (limited.length == 3) {
+      text = '${limited.substring(0, 1)}:${limited.substring(1)}';
+    } else {
+      text = '${limited.substring(0, 2)}:${limited.substring(2)}';
+    }
+
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+}
+
+class _MessageTemplateOption extends StatelessWidget {
+  const _MessageTemplateOption({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 54),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFEAF2FF) : Colors.white,
+            border: Border.all(
+              color: selected ? AppColors.brandBlue : const Color(0xFFE4E7EC),
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.check_circle_outline
+                    : Icons.description_outlined,
+                size: 18,
+                color: selected ? AppColors.brandBlue : const Color(0xFF667085),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? AppColors.brandBlue
+                        : const Color(0xFF344054),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AmPmSelector extends StatelessWidget {
+  const _AmPmSelector({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<String>(
+      segments: const [
+        ButtonSegment(value: 'AM', label: Text('AM')),
+        ButtonSegment(value: 'PM', label: Text('PM')),
+      ],
+      selected: {value},
+      onSelectionChanged: enabled
+          ? (selected) => onChanged(selected.first)
+          : null,
+      showSelectedIcon: false,
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        textStyle: WidgetStateProperty.all(
+          const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
         ),
       ),
     );
@@ -1986,7 +2910,7 @@ class _FileDropZone extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = dragging ? AppColors.brandBlue : const Color(0xFFD0D5DD);
+    final color = dragging ? AppColors.brandBlue : const Color(0xFF8BB8F8);
     return DropTarget(
       onDragEntered: (_) {
         if (enabled) onDragEntered();
@@ -2001,52 +2925,55 @@ class _FileDropZone extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+          constraints: const BoxConstraints(minHeight: 170),
+          padding: const EdgeInsets.fromLTRB(18, 24, 18, 24),
           decoration: BoxDecoration(
-            color: dragging ? const Color(0xFFEAF2FF) : const Color(0xFFF9FAFB),
+            color: dragging ? const Color(0xFFEAF2FF) : const Color(0xFFF5F9FF),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color, width: dragging ? 1.4 : 1),
+            border: Border.all(color: color, width: dragging ? 1.8 : 1.3),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0F0B4EA2),
+                blurRadius: 12,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-          child: Row(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 54,
+                height: 54,
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE4E7EC)),
+                  color: dragging ? AppColors.brandBlue : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD6E8FF)),
                 ),
                 child: Icon(
                   Icons.cloud_upload_outlined,
-                  color: dragging
-                      ? AppColors.brandBlue
-                      : const Color(0xFF475467),
-                  size: 20,
+                  color: dragging ? Colors.white : AppColors.brandBlue,
+                  size: 28,
                 ),
               ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Drop files here',
-                      style: TextStyle(
-                        color: Color(0xFF253858),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Or click to upload from your device.',
-                      style: TextStyle(
-                        color: Color(0xFF667085),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 12),
+              const Text(
+                'Drop files here or click to upload',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF253858),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Files selected here are added to the secure share staging list.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF667085),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -2128,11 +3055,15 @@ class _FileBoxPickerPanel extends StatelessWidget {
     required this.onBack,
     required this.onSearchChanged,
     required this.onToggle,
+    this.onRefresh,
+    required this.loaded,
   });
 
   final TextEditingController searchController;
   final String search;
   final bool loading;
+  final VoidCallback? onRefresh;
+  final bool loaded;
   final List<_ShareableFile> files;
   final Set<String> selectedKeys;
   final bool submitting;
@@ -2692,90 +3623,90 @@ class _SecuritySummaryLine extends StatelessWidget {
   }
 }
 
-class _ClientFacingPreview extends StatelessWidget {
-  const _ClientFacingPreview({
-    required this.client,
-    required this.fileCount,
-    required this.expirationLabel,
-    required this.deliveryLabel,
+class _ReviewDetail {
+  const _ReviewDetail({
+    required this.icon,
+    required this.label,
+    required this.value,
   });
 
-  final String client;
-  final int fileCount;
-  final String expirationLabel;
-  final String deliveryLabel;
+  final IconData icon;
+  final String label;
+  final String value;
+}
+
+class _ReviewDetailGrid extends StatelessWidget {
+  const _ReviewDetailGrid({required this.details});
+
+  final List<_ReviewDetail> details;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F9FF),
-        border: Border.all(color: const Color(0xFFD6E8FF)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Client-facing preview',
-            style: TextStyle(
-              color: Color(0xFF253858),
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          _PreviewLine(
-            label: 'Recipient',
-            value: client == '-' ? 'Not set' : client,
-          ),
-          _PreviewLine(
-            label: 'Files',
-            value: '$fileCount file${fileCount == 1 ? '' : 's'}',
-          ),
-          _PreviewLine(label: 'Expires', value: expirationLabel),
-          _PreviewLine(label: 'Delivery', value: deliveryLabel),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 760 ? 3 : 2;
+        final spacing = 8.0;
+        final width =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: details
+              .map(
+                (detail) => SizedBox(
+                  width: width,
+                  child: _ReviewDetailTile(detail: detail),
+                ),
+              )
+              .toList(),
+        );
+      },
     );
   }
 }
 
-class _PreviewLine extends StatelessWidget {
-  const _PreviewLine({required this.label, required this.value});
+class _ReviewDetailTile extends StatelessWidget {
+  const _ReviewDetailTile({required this.detail});
 
-  final String label;
-  final String value;
+  final _ReviewDetail detail;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 3),
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Row(
         children: [
-          SizedBox(
-            width: 68,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF667085),
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+          Icon(detail.icon, size: 17, color: AppColors.brandBlue),
+          const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF253858),
-                fontSize: 11.5,
-                fontWeight: FontWeight.w900,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  detail.label,
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF253858),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -2881,64 +3812,17 @@ class _SummaryFileRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Row(
-                  children: [
-                    _SourcePill(label: file.sourceLabel),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        formatSize(file.sizeBytes),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF667085),
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  formatSize(file.sizeBytes),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 78,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF667085),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF101828),
-                fontWeight: FontWeight.w800,
-              ),
             ),
           ),
         ],
@@ -2976,16 +3860,28 @@ class _SuccessPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.verified_user_outlined, color: AppColors.brandBlue),
-          const SizedBox(height: 12),
-          Text(
-            sendEmail
-                ? 'The secure link was emailed to the client.'
-                : 'Copy this secure link and provide the password separately.',
-            style: const TextStyle(
-              color: Color(0xFF475467),
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.verified_user_outlined,
+                color: AppColors.brandBlue,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  sendEmail
+                      ? 'The secure link was emailed to the client.'
+                      : 'Copy this secure link and provide the password separately.',
+                  style: const TextStyle(
+                    color: Color(0xFF475467),
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           SelectableText(url),
@@ -2993,19 +3889,40 @@ class _SuccessPanel extends StatelessWidget {
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: [
-              FilledButton.icon(
-                onPressed: onCopy,
-                icon: const Icon(Icons.copy, size: 16),
-                label: const Text('Copy link'),
-              ),
-              OutlinedButton.icon(
-                onPressed: onCreateAnother,
-                icon: const Icon(Icons.add_link_outlined, size: 16),
-                label: const Text('Create another'),
-              ),
-              TextButton(onPressed: onDone, child: const Text('Sent files')),
-            ],
+            children: sendEmail
+                ? [
+                    FilledButton.icon(
+                      onPressed: onDone,
+                      icon: const Icon(Icons.send_outlined, size: 16),
+                      label: const Text('Sent files'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Copy link'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: onCreateAnother,
+                      icon: const Icon(Icons.add_link_outlined, size: 16),
+                      label: const Text('Create another'),
+                    ),
+                  ]
+                : [
+                    FilledButton.icon(
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Copy link'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: onCreateAnother,
+                      icon: const Icon(Icons.add_link_outlined, size: 16),
+                      label: const Text('Create another'),
+                    ),
+                    TextButton(
+                      onPressed: onDone,
+                      child: const Text('Sent files'),
+                    ),
+                  ],
           ),
         ],
       ),
