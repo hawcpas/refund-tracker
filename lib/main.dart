@@ -450,11 +450,12 @@ class _MyAppState extends State<MyApp> {
         // ✅ Protected routes — unchanged
         switch (route) {
           case '/dashboard':
+          case '/overview':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
                 requestedRoute: route,
-                builder: (_) => const AppShell(initialRoute: '/dashboard'),
+                builder: (_) => AppShell(initialRoute: route),
               ),
             );
 
@@ -546,7 +547,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
+                          return const AppShell(initialRoute: '/overview');
                         }
                         return const AppShell(initialRoute: '/file-box');
                       },
@@ -581,7 +582,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
+                          return const AppShell(initialRoute: '/overview');
                         }
                         return AppShell(initialRoute: route);
                       },
@@ -615,7 +616,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
+                          return const AppShell(initialRoute: '/overview');
                         }
                         return const AppShell(
                           initialRoute: '/generate-upload-link',

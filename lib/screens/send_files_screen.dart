@@ -21,6 +21,7 @@ class SendFilesScreen extends StatefulWidget {
 class _SendFilesScreenState extends State<SendFilesScreen> {
   final _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   late Future<List<_SecureShareRow>> _future;
+  final Set<String> _selectedShareIds = {};
   bool _busy = false;
 
   @override
@@ -39,7 +40,10 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
   }
 
   void _refresh() {
-    setState(() => _future = _loadShares());
+    setState(() {
+      _selectedShareIds.clear();
+      _future = _loadShares();
+    });
   }
 
   void _openCreateSecureShare() {
@@ -308,9 +312,9 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove from Send Files'),
+        title: const Text('Remove and revoke secure share'),
         content: Text(
-          'Remove ${share.clientLabel} from this list? This keeps the audit record and does not revoke the client link.',
+          'Remove ${share.clientLabel} from this list? The secure link will be revoked immediately and the audit record will be preserved.',
         ),
         actions: [
           TextButton(
@@ -335,7 +339,56 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       _refresh();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Secure share removed from list.')),
+        const SnackBar(content: Text('Secure share revoked and removed.')),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message ?? 'Remove failed.')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _removeSelectedFromList(List<_SecureShareRow> selected) async {
+    if (selected.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove selected secure shares'),
+        content: Text(
+          'Remove ${selected.length} secure share(s) from this list? Each link will be revoked immediately and audit records will be preserved.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove selected'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _busy = true);
+    try {
+      await _functions.httpsCallable('hideSecureFileSharesBatch').call({
+        'shareIds': selected.map((s) => s.shareId).toList(),
+      });
+      _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${selected.length} secure share(s) revoked and removed.',
+          ),
+        ),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -2009,6 +2062,13 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           }
 
           final rows = snap.data ?? const <_SecureShareRow>[];
+          final visibleIds = rows.map((r) => r.shareId).toSet();
+          final selectedRows = rows
+              .where((row) => _selectedShareIds.contains(row.shareId))
+              .toList();
+          final allSelected =
+              rows.isNotEmpty && _selectedShareIds.containsAll(visibleIds);
+
           if (rows.isEmpty) {
             return _EmptyState(
               icon: Icons.lock_outline,
@@ -2023,7 +2083,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: 1120,
+              width: 1180,
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -2034,17 +2094,92 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                 child: Column(
                   children: [
                     Container(
+                      constraints: const BoxConstraints(minHeight: 44),
+                      color: const Color(0xFFF8FAFC),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          Text(
+                            '${_selectedShareIds.length} selected',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF344054),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: _busy
+                                ? null
+                                : () {
+                                    setState(() {
+                                      if (allSelected) {
+                                        _selectedShareIds.clear();
+                                      } else {
+                                        _selectedShareIds
+                                          ..clear()
+                                          ..addAll(visibleIds);
+                                      }
+                                    });
+                                  },
+                            child: Text(
+                              allSelected ? 'Clear selection' : 'Select all',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: (_busy || selectedRows.isEmpty)
+                                ? null
+                                : () => _removeSelectedFromList(selectedRows),
+                            icon: const Icon(Icons.delete_outline, size: 16),
+                            label: const Text('Remove selected'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                    Container(
                       height: 42,
                       color: const Color(0xFFF9FAFB),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       child: Row(
-                        children: const [
-                          Expanded(flex: 3, child: _HeaderText('Client')),
-                          SizedBox(width: 80, child: _HeaderText('Files')),
-                          SizedBox(width: 116, child: _HeaderText('Status')),
-                          SizedBox(width: 180, child: _HeaderText('Activity')),
-                          SizedBox(width: 150, child: _HeaderText('Expires')),
+                        children: [
                           SizedBox(
+                            width: 38,
+                            child: Checkbox(
+                              value: allSelected,
+                              onChanged: _busy
+                                  ? null
+                                  : (checked) {
+                                      setState(() {
+                                        if (checked == true) {
+                                          _selectedShareIds
+                                            ..clear()
+                                            ..addAll(visibleIds);
+                                        } else {
+                                          _selectedShareIds.clear();
+                                        }
+                                      });
+                                    },
+                            ),
+                          ),
+                          const Expanded(flex: 3, child: _HeaderText('Client')),
+                          const SizedBox(
+                            width: 80,
+                            child: _HeaderText('Files'),
+                          ),
+                          const SizedBox(
+                            width: 116,
+                            child: _HeaderText('Status'),
+                          ),
+                          const SizedBox(
+                            width: 180,
+                            child: _HeaderText('Activity'),
+                          ),
+                          const SizedBox(
+                            width: 150,
+                            child: _HeaderText('Expires'),
+                          ),
+                          const SizedBox(
                             width: 204,
                             child: _HeaderText('Actions', alignEnd: true),
                           ),
@@ -2061,6 +2196,9 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                       itemBuilder: (context, index) {
                         final row = rows[index];
                         final color = _statusColor(row.status);
+                        final selected = _selectedShareIds.contains(
+                          row.shareId,
+                        );
                         return InkWell(
                           onTap: () => _showDetails(row),
                           child: Padding(
@@ -2070,6 +2208,27 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                             ),
                             child: Row(
                               children: [
+                                SizedBox(
+                                  width: 38,
+                                  child: Checkbox(
+                                    value: selected,
+                                    onChanged: _busy
+                                        ? null
+                                        : (checked) {
+                                            setState(() {
+                                              if (checked == true) {
+                                                _selectedShareIds.add(
+                                                  row.shareId,
+                                                );
+                                              } else {
+                                                _selectedShareIds.remove(
+                                                  row.shareId,
+                                                );
+                                              }
+                                            });
+                                          },
+                                  ),
+                                ),
                                 Expanded(
                                   flex: 3,
                                   child: Column(
