@@ -318,7 +318,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Request link ${status == "open" ? "enabled" : "disabled"}',
+            'File request ${status == "open" ? "enabled" : "disabled"}',
           ),
         ),
       );
@@ -441,7 +441,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Request link deleted.')));
+      ).showSnackBar(const SnackBar(content: Text('File request deleted.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -468,13 +468,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-          isArchived ? 'Delete selected links' : 'Archive selected links',
+          isArchived ? 'Delete selected requests' : 'Archive selected requests',
         ),
         content: Text(
           isArchived
-              ? 'Permanently delete ${requestIds.length} archived request link(s)? '
+              ? 'Permanently delete ${requestIds.length} archived file request(s)? '
                     'This action cannot be undone.'
-              : 'Archive ${requestIds.length} request link(s)? '
+              : 'Archive ${requestIds.length} file request(s)? '
                     'This will prevent clients from using the link while preserving upload history.',
         ),
         actions: [
@@ -530,7 +530,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     }
   }
 
-  Future<void> _openCreateRequestDialog({_RequestDialogPrefill? prefill}) async {
+  Future<void> _openCreateRequestDialog({
+    _RequestDialogPrefill? prefill,
+  }) async {
     final firstCtrl = TextEditingController(text: prefill?.firstName ?? '');
     final lastCtrl = TextEditingController(text: prefill?.lastName ?? '');
     final emailCtrl = TextEditingController(text: prefill?.email ?? '');
@@ -541,6 +543,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
     final formKey = GlobalKey<FormState>();
     int? expirationMinutes = prefill?.expirationMinutes;
     final isDuplicate = prefill != null;
+    bool sendEmail = prefill?.email.trim().isNotEmpty ?? false;
 
     bool triedSubmit = false; // controls when errors appear
 
@@ -623,6 +626,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               'clientEmail': email,
               'businessName': business,
               'message': message,
+              'sendEmail': sendEmail,
               if (expirationMinutes == null)
                 'noExpiration': true
               else
@@ -631,6 +635,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
             final data = Map<String, dynamic>.from(res.data as Map);
             final url = (data['url'] ?? '').toString().trim();
+            final emailed = data['emailed'] == true;
 
             final expiresAtMillis = data['expiresAtMillis'];
             final expiresAt = expiresAtMillis is num
@@ -642,6 +647,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
               String url, {
               required String clientName,
               required DateTime? expiresAt,
+              required bool emailed,
             }) async {
               final theme = Theme.of(context);
               final appTheme = theme.extension<AppTheme>()!;
@@ -704,7 +710,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Request link created',
+                                        emailed
+                                            ? 'File request sent'
+                                            : 'File request link created',
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               fontWeight: FontWeight.w900,
@@ -713,7 +721,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        clientName.trim().isEmpty
+                                        emailed
+                                            ? 'The client has been emailed a secure upload link.'
+                                            : clientName.trim().isEmpty
                                             ? 'Share this secure upload link with your client.'
                                             : 'Share this secure upload link with $clientName.',
                                         style: theme.textTheme.bodySmall
@@ -873,6 +883,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                 url,
                 clientName: clientName,
                 expiresAt: expiresAt,
+                emailed: emailed,
               );
             }
           } on FirebaseFunctionsException catch (e) {
@@ -1016,8 +1027,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                 children: [
                                   Text(
                                     isDuplicate
-                                        ? 'Duplicate request link'
-                                        : 'Create request link',
+                                        ? 'Duplicate file request'
+                                        : 'New file request',
                                     style: theme.textTheme.titleMedium
                                         ?.copyWith(
                                           fontWeight: FontWeight.w900,
@@ -1029,8 +1040,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   const SizedBox(height: 4),
                                   Text(
                                     isDuplicate
-                                        ? 'Review the copied details, make any changes, then create a fresh secure upload link.'
-                                        : 'Create a secure upload link for a client. Required fields are marked with *.',
+                                        ? 'Review the copied details, make any changes, then create a fresh request.'
+                                        : 'Request documents from a client. Required fields are marked with *.',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: const Color(0xFF667085),
                                       fontWeight: FontWeight.w600,
@@ -1200,10 +1211,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       _FieldHeader(
-                                        'Client email (optional)',
+                                        sendEmail
+                                            ? 'Client email'
+                                            : 'Client email (optional)',
                                         helper: _suggestionsLoaded
                                             ? 'Type 3+ characters to see suggestions'
                                             : null,
+                                        required: sendEmail,
                                       ),
                                       Autocomplete<String>(
                                         optionsBuilder: (value) {
@@ -1244,6 +1258,9 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                             ),
                                             validator: (v) {
                                               final email = (v ?? '').trim();
+                                              if (sendEmail && email.isEmpty) {
+                                                return 'Client email is required to send the request.';
+                                              }
                                               if (email.isEmpty) return null;
                                               final ok = RegExp(
                                                 r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
@@ -1282,6 +1299,33 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                         90 * 24 * 60,
                                       ]),
                                     ],
+                                  ),
+
+                                  const SizedBox(height: 14),
+                                  Divider(color: appTheme.divider),
+                                  const SizedBox(height: 12),
+                                  sectionLabel('Delivery'),
+
+                                  CheckboxListTile(
+                                    value: sendEmail,
+                                    onChanged: submitting
+                                        ? null
+                                        : (v) => setLocalState(
+                                            () => sendEmail = v == true,
+                                          ),
+                                    contentPadding: EdgeInsets.zero,
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    title: const Text(
+                                      'Email request to client',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF101828),
+                                      ),
+                                    ),
+                                    subtitle: const Text(
+                                      'Send the file request directly to the client.',
+                                    ),
                                   ),
 
                                   const SizedBox(height: 14),
@@ -1423,8 +1467,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                               Expanded(
                                 child: Text(
                                   expirationMinutes == null
-                                      ? 'This link will not expire automatically. Only people with the link can access the upload page.'
-                                      : 'This link will expire in ${expirationLabel(expirationMinutes)}. Only people with the link can access the upload page.',
+                                      ? 'This request link will not expire automatically. Only people with the link can access the upload page.'
+                                      : 'This request link will expire in ${expirationLabel(expirationMinutes)}. Only people with the link can access the upload page.',
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: const Color(0xFF475467),
                                     fontWeight: FontWeight.w700,
@@ -1486,6 +1530,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                     : Text(
                                         isDuplicate
                                             ? 'Create duplicate'
+                                            : sendEmail
+                                            ? 'Send request'
                                             : 'Create link',
                                       ),
                               ),
@@ -1550,8 +1596,8 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
 
     // ✅ NORMAL LIST VIEW (your existing UI)
     return PageScaffold(
-      title: 'Link Requests',
-      subtitle: 'View, manage, and share secure upload links with clients.',
+      title: 'Request Files',
+      subtitle: 'Create and manage secure file requests sent to clients.',
       wrapInCard: false,
       scrollable: false,
       maxContentWidth: 1400,
@@ -1889,11 +1935,11 @@ class _RequestsListState extends State<_RequestsList> {
                     );
                   },
             icon: const Icon(Icons.delete_outline, size: 18),
-        label: Text(
-          widget.view == _LinksView.archived
-              ? 'Delete permanently ($count)'
-              : 'Archive ($count)',
-        ),
+            label: Text(
+              widget.view == _LinksView.archived
+                  ? 'Delete permanently ($count)'
+                  : 'Archive ($count)',
+            ),
           ),
         ),
       ],
@@ -2108,9 +2154,9 @@ class _RequestsListState extends State<_RequestsList> {
                     height: 36,
                     child: FilledButton.icon(
                       onPressed: widget.busy ? null : widget.onCreate,
-                      icon: const Icon(Icons.add_link, size: 18),
+                      icon: const Icon(Icons.post_add_outlined, size: 18),
                       label: const Text(
-                        'Create link',
+                        'New request',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       style: FilledButton.styleFrom(
@@ -2271,7 +2317,7 @@ class _RequestsListState extends State<_RequestsList> {
                     emptyText = 'No results found.';
                   } else if (!isArchivedView &&
                       _statusFilter == _RequestStatusFilter.expiringSoon) {
-                    emptyText = 'No links are expiring soon.';
+                    emptyText = 'No file requests are expiring soon.';
                   } else if (!isArchivedView &&
                       _statusFilter == _RequestStatusFilter.expired) {
                     emptyText = 'No expired links.';
@@ -2281,7 +2327,7 @@ class _RequestsListState extends State<_RequestsList> {
                   } else {
                     emptyText = isArchivedView
                         ? 'No archived links.'
-                        : 'No request links yet.';
+                        : 'No file requests yet.';
                   }
 
                   return Column(
@@ -2869,13 +2915,13 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                             builder: (ctx) => AlertDialog(
                               title: Text(
                                 isArchived
-                                    ? 'Permanently delete upload link'
-                                    : 'Archive upload link',
+                                    ? 'Permanently delete file request'
+                                    : 'Archive file request',
                               ),
                               content: Text(
                                 isArchived
-                                    ? 'This will permanently delete this archived upload link and its upload history. This action cannot be undone.'
-                                    : 'This will archive the upload link and prevent clients from using it. Existing upload history will remain available.',
+                                    ? 'This will permanently delete this archived file request and its upload history. This action cannot be undone.'
+                                    : 'This will archive the file request and prevent clients from using it. Existing upload history will remain available.',
                               ),
                               actions: [
                                 TextButton(
@@ -2891,7 +2937,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                                   child: Text(
                                     isArchived
                                         ? 'Delete permanently'
-                                        : 'Archive link',
+                                        : 'Archive request',
                                   ),
                                 ),
                               ],
@@ -2913,7 +2959,7 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                         if (isArchived)
                           const PopupMenuItem(
                             value: 'duplicate',
-                            child: Text('Duplicate as new link'),
+                            child: Text('Duplicate as new request'),
                           ),
                         if (!isArchived)
                           PopupMenuItem(
@@ -2926,10 +2972,8 @@ class _DenseRequestRowState extends State<_DenseRequestRow> {
                           child: Text(
                             isArchived
                                 ? 'Delete permanently'
-                                : 'Archive link',
-                            style: const TextStyle(
-                              color: Color(0xFFB42318),
-                            ),
+                                : 'Archive request',
+                            style: const TextStyle(color: Color(0xFFB42318)),
                           ),
                         ),
                       ],

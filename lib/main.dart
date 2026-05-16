@@ -547,7 +547,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/overview');
+                          return const AppShell(initialRoute: '/dashboard');
                         }
                         return const AppShell(initialRoute: '/file-box');
                       },
@@ -582,7 +582,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/overview');
+                          return const AppShell(initialRoute: '/dashboard');
                         }
                         return AppShell(initialRoute: route);
                       },
@@ -616,7 +616,7 @@ class _MyAppState extends State<MyApp> {
                             role == 'admin' ||
                             (data['capabilities']?['dropoffs'] == true);
                         if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/overview');
+                          return const AppShell(initialRoute: '/dashboard');
                         }
                         return const AppShell(
                           initialRoute: '/generate-upload-link',

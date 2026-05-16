@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -194,6 +195,21 @@ class _RecentUploadsFromActivity extends StatelessWidget {
 
   DateTime? _asDate(dynamic ts) => ts is Timestamp ? ts.toDate() : null;
 
+  int _asInt(dynamic v) => v is num ? v.toInt() : 0;
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '-';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _formatDateTime(BuildContext context, DateTime? dt) {
+    if (dt == null) return '-';
+    final loc = MaterialLocalizations.of(context);
+    return '${loc.formatShortDate(dt)} - ${loc.formatTimeOfDay(TimeOfDay.fromDateTime(dt))}';
+  }
+
   String _relativeTime(DateTime? dt) {
     if (dt == null) return 'Just now';
     final diff = DateTime.now().difference(dt);
@@ -201,6 +217,247 @@ class _RecentUploadsFromActivity extends StatelessWidget {
     if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
     if (diff.inHours < 24) return '${diff.inHours} hr ago';
     return '${diff.inDays} d ago';
+  }
+
+  String _fileTypeLabel(String fileName, String contentType) {
+    final meta = resolveFileMeta(fileName: fileName, contentType: contentType);
+    return meta.tooltip.replaceAll(
+      RegExp(r'\s+file$', caseSensitive: false),
+      '',
+    );
+  }
+
+  String _activityLabel(String action) {
+    switch (action.toLowerCase().trim()) {
+      case 'upload':
+        return 'Uploaded';
+      case 'view':
+        return 'Viewed';
+      case 'download':
+        return 'Downloaded';
+      case 'sent':
+        return 'Sent';
+      case 'delete':
+        return 'Deleted';
+      default:
+        return action.trim().isEmpty ? 'Activity' : action.trim();
+    }
+  }
+
+  String _actorFor(Map<String, dynamic> e) {
+    final type = _s(e['actorType']);
+    final name = _s(e['actorName']);
+    final email = _s(e['actorEmail']);
+    final who = name.isNotEmpty ? name : (email.isNotEmpty ? email : '-');
+    if (type.isEmpty) return who;
+    return '${type[0].toUpperCase()}${type.substring(1)} - $who';
+  }
+
+  Future<void> _logFileDetailsView({
+    required String requestId,
+    required String fileId,
+  }) async {
+    if (requestId.isEmpty || fileId.isEmpty) return;
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('logFileActivity').call({
+        'requestId': requestId,
+        'fileId': fileId,
+        'action': 'view',
+        'surface': 'home_details',
+      });
+    } catch (_) {
+      // Best-effort audit logging should never block the file details view.
+    }
+  }
+
+  Future<void> _showFileDetails(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final m = doc.data();
+
+    final fileName = _s(m['originalName']).isEmpty
+        ? 'Untitled'
+        : _s(m['originalName']);
+    final contentType = _s(m['contentType']);
+    final meta = resolveFileMeta(fileName: fileName, contentType: contentType);
+    final requestId = _s(m['requestId']);
+    final sizeBytes = _asInt(m['sizeBytes']);
+    final createdAt = _asDate(m['createdAt']);
+
+    final uploadedBy = m['uploadedBy'];
+    final uploaderName = uploadedBy is Map && _s(uploadedBy['name']).isNotEmpty
+        ? _s(uploadedBy['name'])
+        : _s(m['requestCreatedByName']);
+    final uploaderEmail =
+        uploadedBy is Map && _s(uploadedBy['email']).isNotEmpty
+        ? _s(uploadedBy['email'])
+        : _s(m['requestCreatedByEmail']).isNotEmpty
+        ? _s(m['requestCreatedByEmail'])
+        : _s(m['requestClientEmail']);
+    final uploaderRole = uploadedBy is Map && _s(uploadedBy['role']).isNotEmpty
+        ? _s(uploadedBy['role'])
+        : uploadedBy is Map && _s(uploadedBy['type']).isNotEmpty
+        ? _s(uploadedBy['type'])
+        : _s(m['requestCreatedByRole']);
+
+    Query<Map<String, dynamic>> auditQuery = FirebaseFirestore.instance
+        .collection('file_activity')
+        .where('fileId', isEqualTo: doc.id)
+        .orderBy('occurredAt', descending: true)
+        .limit(8);
+
+    if (requestId.isNotEmpty) {
+      auditQuery = FirebaseFirestore.instance
+          .collection('file_activity')
+          .where('fileId', isEqualTo: doc.id)
+          .where('requestId', isEqualTo: requestId)
+          .orderBy('occurredAt', descending: true)
+          .limit(8);
+    }
+
+    if (!context.mounted) return;
+
+    Future<void>.microtask(
+      () => _logFileDetailsView(requestId: requestId, fileId: doc.id),
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+          title: Row(
+            children: [
+              _LeadingIconTile(
+                icon: meta.icon,
+                color: meta.color,
+                iconColor: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_fileTypeLabel(fileName, contentType)} - ${_formatSize(sizeBytes)}',
+                      style: const TextStyle(
+                        color: Color(0xFF667085),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _FileDetailsCard(
+                    title: 'Overview',
+                    icon: Icons.info_outline,
+                    children: [
+                      _FileDetailRow(
+                        label: 'Created',
+                        value: _formatDateTime(context, createdAt),
+                      ),
+                      _FileDetailRow(
+                        label: 'Uploaded by',
+                        value: uploaderName.isNotEmpty ? uploaderName : '-',
+                        secondary: [
+                          if (uploaderEmail.isNotEmpty) uploaderEmail,
+                          if (uploaderRole.isNotEmpty) uploaderRole,
+                        ].join(' - '),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _FileDetailsCard(
+                    title: 'Audit activity',
+                    icon: Icons.manage_search_outlined,
+                    children: [
+                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: auditQuery.snapshots(),
+                        builder: (context, snap) {
+                          if (snap.hasError) {
+                            return const _AuditEmptyState(
+                              text: 'Activity is not available yet.',
+                            );
+                          }
+                          if (!snap.hasData) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            );
+                          }
+
+                          final events = snap.data!.docs;
+                          if (events.isEmpty) {
+                            return const _AuditEmptyState(
+                              text: 'No tracked activity for this file yet.',
+                            );
+                          }
+
+                          return Column(
+                            children: events.map((event) {
+                              final e = event.data();
+                              final action = _activityLabel(_s(e['action']));
+                              final at = _asDate(e['occurredAt']);
+                              final surface = _s(e['surface']);
+                              return _AuditEventRow(
+                                action: action,
+                                actor: _actorFor(e),
+                                when: _formatDateTime(context, at),
+                                surface: surface,
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                Navigator.pushNamed(context, '/file-box');
+              },
+              icon: const Icon(Icons.folder_open_outlined, size: 16),
+              label: const Text('Open in File Box'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -302,7 +559,6 @@ class _RecentUploadsFromActivity extends StatelessWidget {
             contentType: contentType,
           );
 
-          final requestId = _s(m['requestId']);
           final business = _s(m['requestBusinessName']);
 
           // uploadedBy: { type: "client", name: requestClientName }
@@ -325,12 +581,7 @@ class _RecentUploadsFromActivity extends StatelessWidget {
               leadingColor: meta.color,
               title: fileName,
               subtitle: subtitleParts.join(' • '),
-              onTap: () {
-                final shell = context.findAncestorStateOfType<AppShellState>();
-                if (shell != null && requestId.isNotEmpty) {
-                  shell.openDropoffDetails(requestId);
-                }
-              },
+              onTap: () => _showFileDetails(context, d),
             ),
           );
         }).toList();
@@ -359,6 +610,230 @@ class _RecentUploadsFromActivity extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _FileDetailsCard extends StatelessWidget {
+  const _FileDetailsCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFD),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF6F9FF),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE4E7EC), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 17, color: AppColors.brandBlue),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF253858),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+            child: Column(children: children),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileDetailRow extends StatelessWidget {
+  const _FileDetailRow({
+    required this.label,
+    required this.value,
+    this.secondary = '',
+  });
+
+  final String label;
+  final String value;
+  final String secondary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF667085),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value.isEmpty ? '-' : value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (secondary.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    secondary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuditEventRow extends StatelessWidget {
+  const _AuditEventRow({
+    required this.action,
+    required this.actor,
+    required this.when,
+    required this.surface,
+  });
+
+  final String action;
+  final String actor;
+  final String when;
+  final String surface;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: const Color(0xFFD6E8FF)),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.timeline_outlined,
+              color: AppColors.brandBlue,
+              size: 15,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  action,
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (actor.isNotEmpty) actor,
+                    if (surface.isNotEmpty) surface,
+                  ].join(' - '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            when,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: Color(0xFF667085),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuditEmptyState extends StatelessWidget {
+  const _AuditEmptyState({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF667085),
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
@@ -914,8 +1389,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final appTheme = Theme.of(context).extension<AppTheme>()!;
-    final theme = Theme.of(context);
     final isAdmin = !_loadingProfile && _role == 'admin';
     final welcomeText = _fullName.isNotEmpty
         ? 'Welcome, $_fullName'
@@ -929,25 +1402,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // ✅ Welcome text ABOVE command bar (new slot)
       preCommandBar: _DashboardIntroHeader(
         title: welcomeText, // "Welcome, Guillermo"
-        // subtitle: 'Here’s what you can do today',
+        subtitle: 'Choose a common workflow or review recent activity.',
       ),
 
       commandBar: FluentCommandBar(
         actions: [
-          // File Box
           FluentCommandAction(
-            icon: Icons.folder_open_outlined,
-            label: 'File Box',
+            icon: Icons.upload_file_outlined,
+            label: 'Upload files',
             onPressed: _hasDropoffAccess
-                ? () => Navigator.pushNamed(context, '/dashboard')
+                ? () => Navigator.pushNamed(context, '/file-box')
+                : null,
+            accent: true,
+          ),
+
+          FluentCommandAction(
+            icon: Icons.send_outlined,
+            label: 'Send files',
+            onPressed: _hasDropoffAccess
+                ? () => Navigator.pushNamed(context, '/send-files/new')
                 : null,
             accent: false,
           ),
 
-          // Upload links
           FluentCommandAction(
-            icon: Icons.link_outlined,
-            label: 'Requests',
+            icon: Icons.request_page_outlined,
+            label: 'Request Files',
             onPressed: _hasDropoffAccess
                 ? () => Navigator.pushNamed(context, '/generate-upload-link')
                 : null,

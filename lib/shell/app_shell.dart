@@ -94,12 +94,12 @@ String _sectionTitle(_NavSection s) {
     case _NavSection.files:
       return 'File Box';
     case _NavSection.requests:
-      return 'Requests';
+      return 'Request Files';
     case _NavSection.send:
       return 'Send Files';
     case _NavSection.home:
     default:
-      return 'Overview';
+      return 'Home';
   }
 }
 
@@ -165,7 +165,11 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
     if (route == '/admin-users') return _NavSection.admin; // ✅ ADD THIS
 
-    if (route == '/dashboard' || route == '/file-box') {
+    if (route == '/dashboard' || route == '/overview') {
+      return _NavSection.home;
+    }
+
+    if (route == '/file-box') {
       return _NavSection.files;
     }
 
@@ -1002,23 +1006,23 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'Websites & Resources';
       case '/account-settings':
         return 'Account Settings';
-      case '/overview':
-        return 'Overview';
-      case '/file-box':
       case '/dashboard':
+      case '/overview':
+        return 'Home';
+      case '/file-box':
         return 'File Box';
       case '/generate-upload-link':
-        return 'Requests';
+        return 'Request Files';
       case '/send-files':
         return 'Send Files';
       case '/send-files/new':
-        return 'Create Secure Link';
+        return 'Send Files';
       case '/admin-users':
         return 'Admin Console';
       case '/dropoff-details':
         return 'Upload Link Details';
       default:
-        return 'File Box';
+        return 'Home';
     }
   }
 
@@ -1166,7 +1170,6 @@ Please describe the issue below:
         return const ResourcesScreen();
       case '/account-settings':
         return const AccountSettingsScreen();
-      case '/dashboard':
       case '/file-box':
         return const FileBoxScreen();
       case '/send-files':
@@ -1181,10 +1184,11 @@ Please describe the issue below:
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
         return const AdminUsersScreen();
+      case '/dashboard':
       case '/overview':
         return const DashboardScreen();
       default:
-        return const FileBoxScreen();
+        return const DashboardScreen();
     }
   }
 
@@ -1416,10 +1420,10 @@ Please describe the issue below:
 
                 switch (s) {
                   case _NavSection.home:
-                    _navigate('/overview');
+                    _navigate('/dashboard');
                     break;
                   case _NavSection.files:
-                    _navigate('/dashboard');
+                    _navigate('/file-box');
                     break;
                   case _NavSection.requests:
                     _navigate('/generate-upload-link');
@@ -1629,7 +1633,7 @@ class _ContentUtilityBar extends StatelessWidget {
                               Icon(Icons.request_page_outlined, size: 18),
                               SizedBox(width: 10),
                               Text(
-                                'Request link',
+                                'Request files',
                                 style: TextStyle(fontWeight: FontWeight.w600),
                               ),
                             ],
@@ -1955,6 +1959,14 @@ class _MiniRail extends StatelessWidget {
             ],
 
             _MiniTile(
+              icon: Icons.home_outlined,
+              label: 'Home',
+              active: active == _NavSection.home,
+              onTap: () => onSelect(_NavSection.home),
+            ),
+            const SizedBox(height: 6),
+
+            _MiniTile(
               icon: Icons.inventory_2_outlined,
               label: 'File Box',
               active: active == _NavSection.files,
@@ -1975,14 +1987,6 @@ class _MiniRail extends StatelessWidget {
               label: 'Requests',
               active: active == _NavSection.requests,
               onTap: () => onSelect(_NavSection.requests),
-            ),
-            const SizedBox(height: 6),
-
-            _MiniTile(
-              icon: Icons.dashboard_outlined,
-              label: 'Overview',
-              active: active == _NavSection.home,
-              onTap: () => onSelect(_NavSection.home),
             ),
 
             const Spacer(),
@@ -2107,14 +2111,14 @@ class _SecondaryPane extends StatelessWidget {
         break;
       case _NavSection.files:
         items = const [
-          _PaneItem('File Box', Icons.folder_open_outlined, '/dashboard'),
+          _PaneItem('File Box', Icons.folder_open_outlined, '/file-box'),
         ];
         break;
 
       case _NavSection.requests:
         items = const [
           _PaneItem(
-            'Link requests',
+            'File requests',
             Icons.link_outlined,
             '/generate-upload-link',
           ),
@@ -2130,7 +2134,7 @@ class _SecondaryPane extends StatelessWidget {
       case _NavSection.home:
       default:
         items = const [
-          _PaneItem('Overview', Icons.dashboard_outlined, '/overview'),
+          _PaneItem('Home', Icons.home_outlined, '/dashboard'),
           _PaneItem(
             'Firm documents',
             Icons.folder_shared_outlined,
@@ -2185,7 +2189,7 @@ class _SecondaryPane extends StatelessWidget {
             ...items.map((it) {
               final active =
                   currentRoute == it.route ||
-                  (it.route == '/dashboard' && currentRoute == '/file-box');
+                  (it.route == '/dashboard' && currentRoute == '/overview');
 
               return _PaneNavRow(
                 label: it.label,
@@ -2444,9 +2448,19 @@ class _SidebarNav extends StatelessWidget {
           // PRIMARY
           // ======================
           _SidebarNavItem(
+            icon: Icons.home_outlined,
+            label: 'Home',
+            route: '/dashboard',
+            currentRoute: currentRoute,
+            onNavigate: onNavigate,
+            collapsed: collapsed,
+          ),
+          const SizedBox(height: 4),
+
+          _SidebarNavItem(
             icon: Icons.folder_open_outlined,
             label: 'File Box',
-            route: '/dashboard',
+            route: '/file-box',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
             collapsed: collapsed,
@@ -2467,16 +2481,6 @@ class _SidebarNav extends StatelessWidget {
             icon: Icons.request_page_outlined, // ✅ Request icon
             label: 'Requests',
             route: '/generate-upload-link',
-            currentRoute: currentRoute,
-            onNavigate: onNavigate,
-            collapsed: collapsed,
-          ),
-          const SizedBox(height: 4),
-
-          _SidebarNavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Overview',
-            route: '/overview',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
             collapsed: collapsed,
@@ -2728,7 +2732,7 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
   Widget build(BuildContext context) {
     final bool isActive =
         widget.currentRoute == widget.route ||
-        (widget.route == '/dashboard' && widget.currentRoute == '/file-box');
+        (widget.route == '/dashboard' && widget.currentRoute == '/overview');
 
     final Color accent =
         widget.accentOverride ??

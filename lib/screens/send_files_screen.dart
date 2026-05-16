@@ -269,7 +269,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Revoke secure share'),
+        title: const Text('Revoke secure link'),
         content: Text(
           'Revoke access for ${share.clientLabel}? The secure link will stop working immediately.',
         ),
@@ -297,7 +297,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Secure share revoked.')));
+      ).showSnackBar(const SnackBar(content: Text('Secure link revoked.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -312,7 +312,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove and revoke secure share'),
+        title: const Text('Remove and revoke secure link'),
         content: Text(
           'Remove ${share.clientLabel} from this list? The secure link will be revoked immediately and the audit record will be preserved.',
         ),
@@ -339,7 +339,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       _refresh();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Secure share revoked and removed.')),
+        const SnackBar(content: Text('Secure link revoked and removed.')),
       );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
@@ -357,9 +357,9 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove selected secure shares'),
+        title: const Text('Remove selected secure links'),
         content: Text(
-          'Remove ${selected.length} secure share(s) from this list? Each link will be revoked immediately and audit records will be preserved.',
+          'Remove ${selected.length} secure link(s) from this list? Each link will be revoked immediately and audit records will be preserved.',
         ),
         actions: [
           TextButton(
@@ -386,7 +386,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${selected.length} secure share(s) revoked and removed.',
+            '${selected.length} secure link(s) revoked and removed.',
           ),
         ),
       );
@@ -406,7 +406,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
       builder: (ctx) {
         final theme = Theme.of(ctx);
         return AlertDialog(
-          title: const Text('Secure share details'),
+          title: const Text('Secure link details'),
           content: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 620, maxHeight: 520),
             child: SingleChildScrollView(
@@ -572,7 +572,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           0) {
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           const SnackBar(
-            content: Text('A secure share must include at least one file.'),
+            content: Text('A secure link must include at least one file.'),
           ),
         );
         return;
@@ -654,8 +654,8 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           SnackBar(
             content: Text(
               addedFileCount > 0 || removedFileCount > 0
-                  ? 'Secure share updated. Added $addedFileCount and removed $removedFileCount file(s).'
-                  : 'Secure share updated.',
+                  ? 'Secure link updated. Added $addedFileCount and removed $removedFileCount file(s).'
+                  : 'Secure link updated.',
             ),
           ),
         );
@@ -682,7 +682,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
-      barrierLabel: 'Manage secure share',
+      barrierLabel: 'Manage secure link',
       barrierColor: Colors.black.withValues(alpha: 0.025),
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (ctx, animation, secondaryAnimation) {
@@ -1215,7 +1215,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Manage secure share'),
+                        Text('Manage secure link'),
                         SizedBox(height: 2),
                         Text(
                           'Update files, access, and client-facing details.',
@@ -1402,7 +1402,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
         await showDialog<void>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Secure share created'),
+            title: const Text('Secure link created'),
             content: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
               child: Column(
@@ -1454,14 +1454,14 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
         if (!dialogContext.mounted) return;
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           SnackBar(
-            content: Text('Secure share failed: ${e.code} ${e.message ?? ''}'),
+            content: Text('Secure link failed: ${e.code} ${e.message ?? ''}'),
           ),
         );
       } catch (e) {
         if (!dialogContext.mounted) return;
         ScaffoldMessenger.of(
           dialogContext,
-        ).showSnackBar(SnackBar(content: Text('Secure share failed: $e')));
+        ).showSnackBar(SnackBar(content: Text('Secure link failed: $e')));
       } finally {
         if (mounted) setState(() => _busy = false);
         if (dialogContext.mounted) {
@@ -1618,7 +1618,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Create secure share'),
+                        Text('Send files'),
                         SizedBox(height: 2),
                         Text(
                           'Choose files and protect access with a client password.',
@@ -1657,7 +1657,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                           sourceTile(
                             icon: Icons.upload_file_outlined,
                             title: 'Upload from device',
-                            subtitle: 'Upload new files for this secure share.',
+                            subtitle: 'Upload new files for this secure link.',
                             onTap: chooseDevice,
                           ),
                         ] else ...[
@@ -1995,7 +1995,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.lock_outline, size: 16),
-                    label: const Text('Create secure share'),
+                    label: const Text('Send files'),
                   ),
               ],
             );
@@ -2018,15 +2018,14 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
 
     return PageScaffold(
       title: 'Send Files',
-      subtitle:
-          'Create and monitor password-protected file shares sent to clients.',
+      subtitle: 'Create and monitor password-protected links sent to clients.',
       wrapInCard: false,
       maxContentWidth: 1400,
       commandBar: FluentCommandBar(
         actions: [
           FluentCommandAction(
             icon: Icons.add_link_outlined,
-            label: 'Create secure share',
+            label: 'Send files',
             onPressed: _busy ? null : _openCreateSecureShare,
             accent: true,
           ),
@@ -2072,10 +2071,10 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
           if (rows.isEmpty) {
             return _EmptyState(
               icon: Icons.lock_outline,
-              title: 'No secure shares yet',
+              title: 'No sent files yet',
               subtitle:
-                  'Create a secure share from File Box files or files uploaded from your device.',
-              actionLabel: 'Create secure share',
+                  'Send files from File Box or upload files from your device.',
+              actionLabel: 'Send files',
               onAction: _openCreateSecureShare,
             );
           }
