@@ -455,19 +455,19 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       setState(() => _createdUrl = url);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Secure share created.')));
+      ).showSnackBar(const SnackBar(content: Text('Secure link created.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Secure share failed: ${e.code} ${e.message ?? ''}'),
+          content: Text('Secure link failed: ${e.code} ${e.message ?? ''}'),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Secure share failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Secure link failed: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -487,7 +487,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     final isNarrow = MediaQuery.of(context).size.width < 760;
 
     return PageScaffold(
-      title: _createdUrl == null ? 'Create secure link' : 'Secure link ready',
+      title: _createdUrl == null ? 'Send files' : 'Secure link ready',
       subtitle: _createdUrl == null
           ? 'Choose files, protect access, and prepare the client-facing message.'
           : 'Copy the secure link or return to sent files.',
@@ -794,9 +794,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       case 2:
         return 'Continue to delivery';
       case 3:
-        return 'Review secure link';
+        return 'Review';
       default:
-        return 'Create secure link';
+        return _sendEmail ? 'Send files' : 'Create link';
     }
   }
 
@@ -1209,16 +1209,16 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         if (!twoPane) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [selectedPane, const SizedBox(height: 12), addFilesPane],
+            children: [addFilesPane, const SizedBox(height: 12), selectedPane],
           );
         }
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 5, child: selectedPane),
-            const SizedBox(width: 14),
             Expanded(flex: 7, child: addFilesPane),
+            const SizedBox(width: 14),
+            Expanded(flex: 5, child: selectedPane),
           ],
         );
       },
@@ -1766,7 +1766,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
                       size: 16,
                     ),
               label: Text(
-                _readyToCreate ? 'Create secure link' : 'Review required items',
+                _readyToCreate
+                    ? (_sendEmail ? 'Send files' : 'Create link')
+                    : 'Review required items',
               ),
             ),
           ),
@@ -2977,7 +2979,7 @@ class _FileDropZone extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               const Text(
-                'Files selected here are added to the secure share staging list.',
+                'Files selected here are added to the send list.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF667085),

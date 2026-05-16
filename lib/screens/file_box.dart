@@ -1506,15 +1506,27 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     final requestedByEmail = (m['requestCreatedByEmail'] ?? '')
         .toString()
         .trim();
+    final uploadedBy = m['uploadedBy'];
+    final uploadedByName =
+        uploadedBy is Map &&
+            (uploadedBy['name'] ?? '').toString().trim().isNotEmpty
+        ? (uploadedBy['name'] ?? '').toString().trim()
+        : requestedBy;
+    final uploadedByEmail =
+        uploadedBy is Map &&
+            (uploadedBy['email'] ?? '').toString().trim().isNotEmpty
+        ? (uploadedBy['email'] ?? '').toString().trim()
+        : requestedByEmail;
+    final uploadedByRole =
+        uploadedBy is Map &&
+            (uploadedBy['role'] ?? '').toString().trim().isNotEmpty
+        ? (uploadedBy['role'] ?? '').toString().trim()
+        : uploadedBy is Map &&
+              (uploadedBy['type'] ?? '').toString().trim().isNotEmpty
+        ? (uploadedBy['type'] ?? '').toString().trim()
+        : (m['requestCreatedByRole'] ?? '').toString().trim();
 
     final requestId = (m['requestId'] ?? '').toString().trim();
-    final lastActivityAt = _tsToDate(m['lastActivityAt']);
-    final lastActivityAction = (m['lastActivityAction'] ?? '')
-        .toString()
-        .trim();
-    final lastActivityActor = (m['lastActivityActorName'] ?? '')
-        .toString()
-        .trim();
 
     String activityLabel(String action) {
       switch (action.toLowerCase().trim()) {
@@ -1533,61 +1545,194 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
     if (!mounted) return;
 
+    final meta = resolveFileMeta(fileName: fileName, contentType: contentType);
+    final storagePath = (m['storagePath'] ?? doc.storagePath).toString().trim();
+    final fileType = meta.tooltip.replaceAll(
+      RegExp(r'\s+file$', caseSensitive: false),
+      '',
+    );
+
+    Query<Map<String, dynamic>> auditQuery = FirebaseFirestore.instance
+        .collection('file_activity')
+        .where('fileId', isEqualTo: doc.id)
+        .orderBy('occurredAt', descending: true)
+        .limit(8);
+
+    if (requestId.isNotEmpty) {
+      auditQuery = FirebaseFirestore.instance
+          .collection('file_activity')
+          .where('fileId', isEqualTo: doc.id)
+          .where('requestId', isEqualTo: requestId)
+          .orderBy('occurredAt', descending: true)
+          .limit(8);
+    }
+
+    String actorFor(Map<String, dynamic> e) {
+      final type = (e['actorType'] ?? '').toString().trim();
+      final name = (e['actorName'] ?? '').toString().trim();
+      final email = (e['actorEmail'] ?? '').toString().trim();
+      final who = name.isNotEmpty ? name : (email.isNotEmpty ? email : '-');
+      if (type.isEmpty) return who;
+      return '${type[0].toUpperCase()}${type.substring(1)} - $who';
+    }
+
+    if (!mounted) return;
+
     await showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Upload details'),
+        backgroundColor: Colors.white,
+        titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+        title: Row(
+          children: [
+            _FileDetailsIconTile(
+              icon: meta.icon,
+              color: meta.color,
+              iconColor: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF111827),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$fileType - ${_formatSizeBytes(sizeBytes)}',
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 620),
           child: SingleChildScrollView(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _DetailRow(label: 'File name', value: fileName),
-                _DetailRow(
-                  label: 'Type',
-                  value: contentType.isEmpty ? '-' : contentType,
+                _FileDetailsCard(
+                  title: 'Overview',
+                  icon: Icons.info_outline,
+                  children: [
+                    _FileDetailRow(
+                      label: 'Created',
+                      value: uploadedAt == null
+                          ? '-'
+                          : _fmt(context, uploadedAt),
+                    ),
+                    _FileDetailRow(
+                      label: 'Creator',
+                      value: requestedBy.isNotEmpty ? requestedBy : '-',
+                      secondary: requestedByEmail,
+                    ),
+                    _FileDetailRow(
+                      label: 'Uploaded by',
+                      value: uploadedByName.isNotEmpty ? uploadedByName : '-',
+                      secondary: [
+                        if (uploadedByEmail.isNotEmpty) uploadedByEmail,
+                        if (uploadedByRole.isNotEmpty) uploadedByRole,
+                      ].join(' - '),
+                    ),
+                    _FileDetailRow(
+                      label: 'Client',
+                      value: clientName.isNotEmpty ? clientName : '-',
+                      secondary: [
+                        if (businessName.isNotEmpty) businessName,
+                        if (clientEmail.isNotEmpty) clientEmail,
+                      ].join(' - '),
+                    ),
+                  ],
                 ),
-                _DetailRow(label: 'Size', value: _formatSizeBytes(sizeBytes)),
-                _DetailRow(
-                  label: 'Uploaded',
-                  value: uploadedAt == null ? '-' : _fmt(context, uploadedAt),
+                const SizedBox(height: 12),
+                _FileDetailsCard(
+                  title: 'Audit activity',
+                  icon: Icons.manage_search_outlined,
+                  children: [
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: auditQuery.snapshots(),
+                      builder: (context, snap) {
+                        if (snap.hasError) {
+                          return const _FileDetailsEmptyState(
+                            text: 'Activity is not available yet.',
+                          );
+                        }
+                        if (!snap.hasData) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            child: LinearProgressIndicator(minHeight: 2),
+                          );
+                        }
+
+                        final events = snap.data!.docs;
+                        if (events.isEmpty) {
+                          return const _FileDetailsEmptyState(
+                            text: 'No tracked activity for this file yet.',
+                          );
+                        }
+
+                        return Column(
+                          children: events.map((event) {
+                            final e = event.data();
+                            final action = activityLabel(
+                              (e['action'] ?? '').toString(),
+                            );
+                            final at = _tsToDate(e['occurredAt']);
+                            final surface = (e['surface'] ?? '').toString();
+                            return _FileAuditEventRow(
+                              action: action,
+                              actor: actorFor(e),
+                              when: at == null ? '-' : _fmt(context, at),
+                              surface: surface,
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-                _DetailRow(
-                  label: 'Request ID',
-                  value: requestId.isEmpty ? '-' : requestId,
-                ),
-                _DetailRow(
-                  label: 'Last activity',
-                  value: activityLabel(lastActivityAction),
-                ),
-                if (lastActivityAt != null)
-                  _DetailRow(
-                    label: 'Activity time',
-                    value: _fmt(context, lastActivityAt),
-                  ),
-                if (lastActivityActor.isNotEmpty)
-                  _DetailRow(label: 'Activity by', value: lastActivityActor),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                _DetailRow(label: 'Client', value: clientName),
-                _DetailRow(label: 'Client email', value: clientEmail),
-                _DetailRow(label: 'Business', value: businessName),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                _DetailRow(label: 'Link creator', value: requestedBy),
-                if (requestedByEmail.isNotEmpty)
-                  _DetailRow(label: 'Creator email', value: requestedByEmail),
               ],
             ),
           ),
         ),
         actions: [
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: storagePath.isEmpty
+                ? null
+                : () {
+                    Navigator.pop(context);
+                    _downloadFile(
+                      isAdmin: _role == 'admin',
+                      storagePath: storagePath,
+                      filename: fileName,
+                      contentType: contentType,
+                      requestId: requestId,
+                      fileId: doc.id,
+                      showReadyDialog: false,
+                    );
+                  },
+            icon: const Icon(Icons.download_outlined, size: 16),
+            label: const Text('Download'),
           ),
         ],
       ),
@@ -1943,115 +2088,6 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                   ),
                                   child: _filterBar(theme, all),
                                 ),
-                                if (_selected.isNotEmpty) ...[
-                                  Container(
-                                    height: 40,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF9FAFB),
-                                      border: Border.all(
-                                        color: const Color(0xFFE4E7EC),
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          '${_selected.length} selected',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                color: const Color(0xFF344054),
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                        ),
-                                        const Spacer(),
-                                        SizedBox(
-                                          height: 32,
-                                          child: FilledButton.icon(
-                                            onPressed:
-                                                (_busy ||
-                                                    _selectedDocsCache.isEmpty)
-                                                ? null
-                                                : () => _showSecureShareDialog(
-                                                    _selectedDocsCache,
-                                                  ),
-                                            icon: const Icon(
-                                              Icons.lock_outline,
-                                              size: 16,
-                                            ),
-                                            label: const Text('Secure share'),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        SizedBox(
-                                          height: 32,
-                                          child: OutlinedButton.icon(
-                                            onPressed:
-                                                (_busy ||
-                                                    _selectedDocsCache.isEmpty)
-                                                ? null
-                                                : () {
-                                                    if (selectedActionIsSingleDownload) {
-                                                      final doc =
-                                                          _selectedDocsCache
-                                                              .single;
-                                                      _downloadFile(
-                                                        isAdmin: isAdmin,
-                                                        storagePath:
-                                                            doc.storagePath,
-                                                        filename:
-                                                            doc.originalName,
-                                                        contentType:
-                                                            doc.contentType,
-                                                        requestId:
-                                                            doc.requestId,
-                                                        fileId: doc.id,
-                                                        showReadyDialog: false,
-                                                      );
-                                                      return;
-                                                    }
-
-                                                    _downloadSelectedZip(
-                                                      _selectedDocsCache,
-                                                    );
-                                                  },
-                                            icon: Icon(
-                                              selectedActionIcon,
-                                              size: 16,
-                                            ),
-                                            label: Text(selectedActionLabel),
-                                          ),
-                                        ),
-                                        if (isAdmin) ...[
-                                          const SizedBox(width: 8),
-                                          SizedBox(
-                                            height: 32,
-                                            child: FilledButton.icon(
-                                              onPressed:
-                                                  (_busy ||
-                                                      _selectedDocsCache
-                                                          .isEmpty)
-                                                  ? null
-                                                  : () => _deleteSelectedAdmin(
-                                                      _selectedDocsCache,
-                                                    ),
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                                size: 16,
-                                              ),
-                                              label: const Text(
-                                                'Delete selected',
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-
                                 // ===== Table header =====
                                 Container(
                                   height: 42,
@@ -2068,210 +2104,255 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                       ),
                                     ),
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Checkbox(
-                                        value: allVisibleSelected,
-                                        onChanged: _busy
-                                            ? null
-                                            : (v) {
-                                                setState(() {
-                                                  if (v == true) {
-                                                    _selected.addAll(
-                                                      visibleIds,
-                                                    );
-                                                  } else {
-                                                    _selected.removeAll(
-                                                      visibleIds,
-                                                    );
-                                                  }
-                                                });
-                                              },
-                                      ),
-                                      const SizedBox(width: 4),
+                                  child: _selected.isNotEmpty
+                                      ? _FileBoxSelectionToolbar(
+                                          selectedCount: _selected.length,
+                                          isAdmin: isAdmin,
+                                          busy: _busy,
+                                          canAct: _selectedDocsCache.isNotEmpty,
+                                          downloadIcon: selectedActionIcon,
+                                          downloadLabel: selectedActionLabel,
+                                          onClear: () =>
+                                              setState(() => _selected.clear()),
+                                          onSecureShare: () =>
+                                              _showSecureShareDialog(
+                                                _selectedDocsCache,
+                                              ),
+                                          onDownload: () {
+                                            if (selectedActionIsSingleDownload) {
+                                              final doc =
+                                                  _selectedDocsCache.single;
+                                              _downloadFile(
+                                                isAdmin: isAdmin,
+                                                storagePath: doc.storagePath,
+                                                filename: doc.originalName,
+                                                contentType: doc.contentType,
+                                                requestId: doc.requestId,
+                                                fileId: doc.id,
+                                                showReadyDialog: false,
+                                              );
+                                              return;
+                                            }
 
-                                      // File column header.
-                                      Expanded(
-                                        child: InkWell(
-                                          onTap: () =>
-                                              _toggleSort(_SortField.name),
-                                          child: Row(
-                                            children: [
-                                              const Text(
-                                                'Name',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w800,
-                                                  color: Color(0xFF475467),
+                                            _downloadSelectedZip(
+                                              _selectedDocsCache,
+                                            );
+                                          },
+                                          onDelete: () => _deleteSelectedAdmin(
+                                            _selectedDocsCache,
+                                          ),
+                                          allVisibleSelected:
+                                              allVisibleSelected,
+                                          onToggleAll: (v) {
+                                            setState(() {
+                                              if (allVisibleSelected) {
+                                                _selected.removeAll(visibleIds);
+                                              } else {
+                                                _selected.addAll(visibleIds);
+                                              }
+                                            });
+                                          },
+                                        )
+                                      : Row(
+                                          children: [
+                                            Checkbox(
+                                              value: allVisibleSelected,
+                                              onChanged: _busy
+                                                  ? null
+                                                  : (v) {
+                                                      setState(() {
+                                                        if (v == true) {
+                                                          _selected.addAll(
+                                                            visibleIds,
+                                                          );
+                                                        } else {
+                                                          _selected.removeAll(
+                                                            visibleIds,
+                                                          );
+                                                        }
+                                                      });
+                                                    },
+                                            ),
+                                            const SizedBox(width: 4),
+
+                                            // File column header.
+                                            Expanded(
+                                              child: InkWell(
+                                                onTap: () => _toggleSort(
+                                                  _SortField.name,
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    const Text(
+                                                      'Name',
+                                                      style: TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        color: Color(
+                                                          0xFF475467,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    _SortIndicator(
+                                                      active:
+                                                          _sortField ==
+                                                          _SortField.name,
+                                                      asc: _sortAsc,
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
-                                              const SizedBox(width: 6),
-                                              _SortIndicator(
-                                                active:
-                                                    _sortField ==
-                                                    _SortField.name,
-                                                asc: _sortAsc,
+                                            ),
+
+                                            if (!isMobile)
+                                              SizedBox(
+                                                width: 90,
+                                                child: InkWell(
+                                                  onTap: () => _toggleSort(
+                                                    _SortField.size,
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.end,
+                                                    children: [
+                                                      const Text(
+                                                        'Size',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF475467,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      _SortIndicator(
+                                                        active:
+                                                            _sortField ==
+                                                            _SortField.size,
+                                                        asc: _sortAsc,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
                                               ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
 
-                                      if (!isMobile)
-                                        SizedBox(
-                                          width: 90,
-                                          child: InkWell(
-                                            onTap: () =>
-                                                _toggleSort(_SortField.size),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                const Text(
-                                                  'Size',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF475467),
+                                            if (!isMobile)
+                                              SizedBox(
+                                                width: 160,
+                                                child: InkWell(
+                                                  onTap: () => _toggleSort(
+                                                    _SortField.date,
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.end,
+                                                    children: [
+                                                      const Text(
+                                                        'Date uploaded',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF475467,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      _SortIndicator(
+                                                        active:
+                                                            _sortField ==
+                                                            _SortField.date,
+                                                        asc: _sortAsc,
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
-                                                _SortIndicator(
-                                                  active:
-                                                      _sortField ==
-                                                      _SortField.size,
-                                                  asc: _sortAsc,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-
-                                      if (!isMobile)
-                                        SizedBox(
-                                          width: 160,
-                                          child: InkWell(
-                                            onTap: () =>
-                                                _toggleSort(_SortField.date),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                const Text(
-                                                  'Date uploaded',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF475467),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _SortIndicator(
-                                                  active:
-                                                      _sortField ==
-                                                      _SortField.date,
-                                                  asc: _sortAsc,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-
-                                      if (!isMobile)
-                                        SizedBox(
-                                          width: 130,
-                                          child: InkWell(
-                                            onTap: () =>
-                                                _toggleSort(_SortField.expires),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                const Text(
-                                                  'Expires',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF475467),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _SortIndicator(
-                                                  active:
-                                                      _sortField ==
-                                                      _SortField.expires,
-                                                  asc: _sortAsc,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-
-                                      if (!isMobile)
-                                        SizedBox(
-                                          width: 190,
-                                          child: InkWell(
-                                            onTap: () =>
-                                                _toggleSort(_SortField.client),
-                                            child: Row(
-                                              children: [
-                                                const Text(
-                                                  'Client',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF475467),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _SortIndicator(
-                                                  active:
-                                                      _sortField ==
-                                                      _SortField.client,
-                                                  asc: _sortAsc,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-
-                                      if (!isMobile)
-                                        SizedBox(
-                                          width: 170,
-                                          child: InkWell(
-                                            onTap: () =>
-                                                _toggleSort(_SortField.creator),
-                                            child: Row(
-                                              children: [
-                                                const Text(
-                                                  'Creator',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF475467),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _SortIndicator(
-                                                  active:
-                                                      _sortField ==
-                                                      _SortField.creator,
-                                                  asc: _sortAsc,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-
-                                      const SizedBox(width: 8),
-                                      SizedBox(
-                                        width: 78,
-                                        child: Text(
-                                          'Actions',
-                                          textAlign: TextAlign.right,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                                color: const Color(0xFF475467),
                                               ),
+
+                                            if (!isMobile)
+                                              SizedBox(
+                                                width: 130,
+                                                child: InkWell(
+                                                  onTap: () => _toggleSort(
+                                                    _SortField.expires,
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.end,
+                                                    children: [
+                                                      const Text(
+                                                        'Expires',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF475467,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      _SortIndicator(
+                                                        active:
+                                                            _sortField ==
+                                                            _SortField.expires,
+                                                        asc: _sortAsc,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+
+                                            if (!isMobile)
+                                              SizedBox(
+                                                width: 170,
+                                                child: InkWell(
+                                                  onTap: () => _toggleSort(
+                                                    _SortField.creator,
+                                                  ),
+                                                  child: Row(
+                                                    children: [
+                                                      const Text(
+                                                        'Creator',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF475467,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      _SortIndicator(
+                                                        active:
+                                                            _sortField ==
+                                                            _SortField.creator,
+                                                        asc: _sortAsc,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+
+                                            const SizedBox(width: 8),
+                                            SizedBox(
+                                              width: 78,
+                                              child: Text(
+                                                'Actions',
+                                                textAlign: TextAlign.right,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: const Color(
+                                                        0xFF475467,
+                                                      ),
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    ],
-                                  ),
                                 ),
 
                                 // ===== Rows =====
@@ -2720,6 +2801,368 @@ class _DuplicateNotice extends StatelessWidget {
   }
 }
 
+class _FileDetailsIconTile extends StatelessWidget {
+  const _FileDetailsIconTile({
+    required this.icon,
+    required this.color,
+    required this.iconColor,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      width: 32,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: Colors.black.withOpacity(0.06)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 18, color: iconColor),
+    );
+  }
+}
+
+class _FileDetailsCard extends StatelessWidget {
+  const _FileDetailsCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFD),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF6F9FF),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE4E7EC), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 17, color: AppColors.brandBlue),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF253858),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+            child: Column(children: children),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileDetailRow extends StatelessWidget {
+  const _FileDetailRow({
+    required this.label,
+    required this.value,
+    this.secondary = '',
+  });
+
+  final String label;
+  final String value;
+  final String secondary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF667085),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value.isEmpty ? '-' : value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (secondary.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    secondary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileAuditEventRow extends StatelessWidget {
+  const _FileAuditEventRow({
+    required this.action,
+    required this.actor,
+    required this.when,
+    required this.surface,
+  });
+
+  final String action;
+  final String actor;
+  final String when;
+  final String surface;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: const Color(0xFFD6E8FF)),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.timeline_outlined,
+              color: AppColors.brandBlue,
+              size: 15,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  action,
+                  style: const TextStyle(
+                    color: Color(0xFF111827),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (actor.isNotEmpty) actor,
+                    if (surface.isNotEmpty) surface,
+                  ].join(' - '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            when,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: Color(0xFF667085),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileDetailsEmptyState extends StatelessWidget {
+  const _FileDetailsEmptyState({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF667085),
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _FileBoxSelectionToolbar extends StatelessWidget {
+  const _FileBoxSelectionToolbar({
+    required this.selectedCount,
+    required this.isAdmin,
+    required this.busy,
+    required this.canAct,
+    required this.downloadIcon,
+    required this.downloadLabel,
+    required this.allVisibleSelected,
+    required this.onToggleAll,
+    required this.onClear,
+    required this.onSecureShare,
+    required this.onDownload,
+    required this.onDelete,
+  });
+
+  final int selectedCount;
+  final bool isAdmin;
+  final bool busy;
+  final bool canAct;
+  final IconData downloadIcon;
+  final String downloadLabel;
+  final bool allVisibleSelected;
+  final ValueChanged<bool?> onToggleAll;
+  final VoidCallback onClear;
+  final VoidCallback onSecureShare;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = busy || !canAct;
+    final deleteLabel = selectedCount > 1 ? 'Delete all' : 'Delete';
+
+    Widget toolbarRow({required bool compact}) {
+      return Row(
+        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+        children: [
+          Checkbox(
+            value: allVisibleSelected ? true : null,
+            tristate: true,
+            onChanged: busy ? null : onToggleAll,
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '$selectedCount selected',
+            style: const TextStyle(
+              color: Color(0xFF344054),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 10),
+          TextButton(
+            onPressed: busy ? null : onClear,
+            child: const Text('Clear'),
+          ),
+          if (!compact) const Spacer() else const SizedBox(width: 8),
+          SizedBox(
+            height: 32,
+            child: FilledButton.icon(
+              onPressed: disabled ? null : onSecureShare,
+              icon: const Icon(Icons.lock_outline, size: 16),
+              label: const Text('Send files'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 32,
+            child: OutlinedButton.icon(
+              onPressed: disabled ? null : onDownload,
+              icon: Icon(downloadIcon, size: 16),
+              label: Text(downloadLabel),
+            ),
+          ),
+          if (isAdmin) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 32,
+              child: TextButton.icon(
+                onPressed: disabled ? null : onDelete,
+                icon: const Icon(Icons.delete_outline, size: 16),
+                label: Text(deleteLabel),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFB42318),
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 760) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: toolbarRow(compact: true),
+          );
+        }
+
+        return toolbarRow(compact: false);
+      },
+    );
+  }
+}
+
 /// Small sort chevron indicator (enterprise)
 class _SortIndicator extends StatelessWidget {
   final bool active;
@@ -2963,7 +3406,7 @@ class _UploadRowEnhanced extends StatelessWidget {
         hoverColor: const Color(0xFF101828).withValues(alpha: 0.06),
         splashColor: const Color(0xFF101828).withValues(alpha: 0.04),
         highlightColor: const Color(0xFF101828).withValues(alpha: 0.04),
-        onTap: busy ? null : () => onSelect(!selected),
+        onTap: busy ? null : onShowDetails,
         child: SizedBox(
           height: isMobile ? 58 : 56,
           child: Padding(
@@ -2985,10 +3428,10 @@ class _UploadRowEnhanced extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
+                      SelectableText(
                         isDeleted ? '$name (Deleted)' : name,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        onTap: busy ? null : onShowDetails,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: isDeleted
@@ -3004,10 +3447,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              clientName.isNotEmpty ? clientName : '-',
+                            SelectableText(
+                              fileTypeLabel,
                               maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
@@ -3027,10 +3469,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                           ],
                         )
                       else
-                        Text(
+                        SelectableText(
                           fileTypeLabel,
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: const Color(0xFF98A2B3),
                             fontWeight: FontWeight.w600,
@@ -3077,7 +3518,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 90,
-                    child: Text(
+                    child: SelectableText(
                       _formatSize(sizeBytes),
                       textAlign: TextAlign.right,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -3096,10 +3537,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
+                        SelectableText(
                           when != null ? formatWhen(when) : '',
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.right,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: const Color(0xFF667085),
@@ -3108,10 +3548,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                         ),
                         if (notableActivity != null) ...[
                           const SizedBox(height: 2),
-                          Text(
+                          SelectableText(
                             notableActivity,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.right,
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: const Color(0xFF98A2B3),
@@ -3129,12 +3568,11 @@ class _UploadRowEnhanced extends StatelessWidget {
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 130,
-                    child: Text(
+                    child: SelectableText(
                       expiresAt == null
                           ? (expirationKnown ? 'No expiration' : '-')
                           : formatWhen(expiresAt!),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.right,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
@@ -3147,43 +3585,10 @@ class _UploadRowEnhanced extends StatelessWidget {
                 if (!isMobile) ...[
                   const SizedBox(width: 10),
                   SizedBox(
-                    width: 190,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          clientName.isNotEmpty ? clientName : '-',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF344054),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          companyName.isNotEmpty ? companyName : clientEmail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                if (!isMobile) ...[
-                  const SizedBox(width: 10),
-                  SizedBox(
                     width: 170,
-                    child: Text(
+                    child: SelectableText(
                       requestedBy.isNotEmpty ? requestedBy : '-',
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
                         fontWeight: FontWeight.w600,
@@ -3226,15 +3631,11 @@ class _UploadRowEnhanced extends StatelessWidget {
                           value: 'copyName',
                           child: Text('Copy file name'),
                         ),
-                        const PopupMenuItem(
-                          value: 'copyClient',
-                          child: Text('Copy client name'),
-                        ),
                         const PopupMenuDivider(),
 
                         const PopupMenuItem(
                           value: 'details',
-                          child: Text('View upload details'),
+                          child: Text('File details'),
                         ),
 
                         if (isAdmin)
@@ -3265,19 +3666,6 @@ class _UploadRowEnhanced extends StatelessWidget {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('File name copied'),
-                                ),
-                              );
-                            }
-                            break;
-
-                          case 'copyClient':
-                            await Clipboard.setData(
-                              ClipboardData(text: clientName),
-                            );
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Client name copied'),
                                 ),
                               );
                             }
