@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +19,8 @@ enum _SortField { name, size, date, expires, client, creator }
 enum _TypeFilter { all, pdf, office, img, other }
 
 enum _DateFilter { all, last30 }
+
+enum _DuplicateUploadAction { replace, skip, cancel }
 
 class FileBoxScreen extends StatefulWidget {
   const FileBoxScreen({super.key});
@@ -44,6 +50,9 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
   int _visibleCount = _pageSize;
 
   bool _busy = false;
+  bool _draggingUploads = false;
+  List<String> _uploadingNames = const [];
+  final List<_FileBoxPendingUpload> _pendingUploads = [];
 
   @override
   void initState() {
@@ -103,6 +112,442 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
   DateTime? _asDate(dynamic createdAt) {
     if (createdAt is Timestamp) return createdAt.toDate();
     return null;
+  }
+
+  String _guessContentType(String fileName) {
+    final name = fileName.toLowerCase().trim();
+    if (name.endsWith('.pdf')) return 'application/pdf';
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    if (name.endsWith('.xlsx')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (name.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (name.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (name.endsWith('.doc')) return 'application/msword';
+    if (name.endsWith('.txt')) return 'text/plain';
+    if (name.endsWith('.zip')) return 'application/zip';
+    return 'application/octet-stream';
+  }
+
+  Future<Uint8List?> _readPlatformFileBytes(PlatformFile file) async {
+    final bytes = file.bytes;
+    if (bytes != null && bytes.isNotEmpty) return bytes;
+
+    final stream = file.readStream;
+    if (stream == null) return null;
+
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      builder.add(chunk);
+    }
+
+    final collected = builder.takeBytes();
+    return collected.isEmpty ? null : collected;
+  }
+
+  Future<List<_FileBoxPendingUpload>> _pickFileBoxUploads() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: true,
+      withReadStream: true,
+    );
+    if (result == null) return const [];
+
+    final files = <_FileBoxPendingUpload>[];
+    var unreadableCount = 0;
+
+    for (final f in result.files) {
+      final bytes = await _readPlatformFileBytes(f);
+      if (bytes == null || bytes.isEmpty) {
+        unreadableCount++;
+        continue;
+      }
+
+      files.add(
+        _FileBoxPendingUpload(
+          name: f.name,
+          sizeBytes: f.size > 0 ? f.size : bytes.length,
+          bytes: bytes,
+          contentType: _guessContentType(f.name),
+        ),
+      );
+    }
+
+    if (files.isEmpty && unreadableCount > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The selected file could not be read. Try saving it to Files first, then upload again.',
+          ),
+        ),
+      );
+    }
+
+    return files;
+  }
+
+  Future<void> _chooseAndUploadToFileBox() async {
+    final files = await _pickFileBoxUploads();
+    _stageFileBoxUploads(files);
+  }
+
+  Future<void> _handleDroppedUploads(DropDoneDetails details) async {
+    final files = <_FileBoxPendingUpload>[];
+    for (final file in details.files) {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) continue;
+      files.add(
+        _FileBoxPendingUpload(
+          name: file.name,
+          sizeBytes: bytes.length,
+          bytes: bytes,
+          contentType: _guessContentType(file.name),
+        ),
+      );
+    }
+    _stageFileBoxUploads(files);
+  }
+
+  void _stageFileBoxUploads(List<_FileBoxPendingUpload> files) {
+    if (files.isEmpty) return;
+    setState(() {
+      final existingKeys = _pendingUploads.map((f) => f.key).toSet();
+      for (final file in files) {
+        if (existingKeys.add(file.key)) {
+          _pendingUploads.add(file);
+        }
+      }
+      _draggingUploads = false;
+    });
+  }
+
+  Future<void> _uploadToFileBox(List<_FileBoxPendingUpload> files) async {
+    if (files.isEmpty) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in is required to upload files.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _uploadingNames = files.map((f) => f.name).toList();
+    });
+
+    final uploaded = <Map<String, dynamic>>[];
+    final uploadedPaths = <String>[];
+
+    try {
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        final safeName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final objectId =
+            '${DateTime.now().microsecondsSinceEpoch}_${i}_${safeName.hashCode}';
+        final storagePath =
+            'secure_share_uploads/$uid/filebox-$objectId-$safeName';
+        final ref = FirebaseStorage.instance.ref(storagePath);
+
+        await ref.putData(
+          file.bytes,
+          SettableMetadata(contentType: file.contentType),
+        );
+
+        uploadedPaths.add(storagePath);
+        uploaded.add({
+          'storagePath': storagePath,
+          'originalName': file.name,
+          'contentType': file.contentType,
+          'sizeBytes': file.sizeBytes,
+        });
+      }
+
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('createFileBoxUploads');
+      var res = await callable.call({
+        'uploadedFiles': uploaded,
+        'duplicateMode': 'check',
+      });
+
+      var data = Map<String, dynamic>.from(res.data as Map);
+      if (data['duplicateActionRequired'] == true) {
+        if (!mounted) return;
+        final action = await _showDuplicateUploadDialog(data);
+        if (action == null || action == _DuplicateUploadAction.cancel) {
+          for (final path in uploadedPaths) {
+            try {
+              await FirebaseStorage.instance.ref(path).delete();
+            } catch (_) {
+              // Best-effort cleanup for staged uploads.
+            }
+          }
+          if (!mounted) return;
+          setState(() => _pendingUploads.clear());
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Upload cancelled. File Box was unchanged.'),
+            ),
+          );
+          return;
+        }
+
+        res = await callable.call({
+          'uploadedFiles': uploaded,
+          'duplicateMode': action == _DuplicateUploadAction.replace
+              ? 'replace'
+              : 'skip',
+        });
+        data = Map<String, dynamic>.from(res.data as Map);
+      }
+
+      final reusedCount = data['reusedCount'] is num
+          ? (data['reusedCount'] as num).toInt()
+          : 0;
+      final replacedCount = data['replacedCount'] is num
+          ? (data['replacedCount'] as num).toInt()
+          : 0;
+      final skippedCount = data['skippedCount'] is num
+          ? (data['skippedCount'] as num).toInt()
+          : 0;
+
+      if (!mounted) return;
+      final message = replacedCount > 0
+          ? '$replacedCount existing file(s) replaced in File Box.'
+          : skippedCount > 0
+          ? '${files.length - skippedCount} file(s) uploaded. $skippedCount conflict(s) skipped.'
+          : reusedCount > 0
+          ? 'Duplicate file already exists. Using the existing File Box item.'
+          : files.length == 1
+          ? 'File uploaded to File Box.'
+          : '${files.length} files uploaded to File Box.';
+      setState(() => _pendingUploads.clear());
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      for (final path in uploadedPaths) {
+        try {
+          await FirebaseStorage.instance.ref(path).delete();
+        } catch (_) {
+          // Best-effort cleanup for staged uploads.
+        }
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _draggingUploads = false;
+          _uploadingNames = const [];
+        });
+      }
+    }
+  }
+
+  Future<_DuplicateUploadAction?> _showDuplicateUploadDialog(
+    Map<String, dynamic> data,
+  ) {
+    final rawConflicts = data['nameConflicts'] is List
+        ? data['nameConflicts'] as List
+        : const [];
+    final rawExact = data['exactDuplicates'] is List
+        ? data['exactDuplicates'] as List
+        : const [];
+
+    final conflicts = rawConflicts
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final exact = rawExact
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    return showDialog<_DuplicateUploadAction>(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 36,
+                        width: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFAEB),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFEDF89)),
+                        ),
+                        child: const Icon(
+                          Icons.file_copy_outlined,
+                          size: 19,
+                          color: Color(0xFFB54708),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'File name already exists',
+                              style: TextStyle(
+                                color: Color(0xFF101828),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                height: 1.15,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Some uploads have the same name as files already in File Box. Review how you want to handle them.',
+                              style: TextStyle(
+                                color: Color(0xFF667085),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (exact.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _DuplicateNotice(
+                      icon: Icons.check_circle_outline,
+                      title: '${exact.length} exact duplicate(s)',
+                      subtitle:
+                          'Already in File Box. These will use the existing file and will not create another copy.',
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  Text(
+                    '${conflicts.length} file name conflict${conflicts.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      color: Color(0xFF344054),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFCFCFD),
+                      border: Border.all(color: const Color(0xFFE4E7EC)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: conflicts.take(5).map((item) {
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(
+                            Icons.insert_drive_file_outlined,
+                            color: AppColors.brandBlue,
+                          ),
+                          title: Text(
+                            (item['uploadedName'] ?? 'File').toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF101828),
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'A file with this name is already in File Box.',
+                            style: TextStyle(
+                              color: Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  if (conflicts.length > 5)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '+${conflicts.length - 5} more file(s)',
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      border: Border.all(color: const Color(0xFFE4E7EC)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Keep existing files will upload only the new files and leave conflicting files unchanged. Replace existing files will update the File Box version for matching names.',
+                      style: TextStyle(
+                        color: Color(0xFF475467),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pop(ctx, _DuplicateUploadAction.cancel),
+                        child: const Text('Cancel upload'),
+                      ),
+                      const Spacer(),
+                      OutlinedButton(
+                        onPressed: () =>
+                            Navigator.pop(ctx, _DuplicateUploadAction.skip),
+                        child: const Text('Keep existing files'),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        onPressed: () =>
+                            Navigator.pop(ctx, _DuplicateUploadAction.replace),
+                        child: const Text('Replace existing files'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   _TypeFilter _inferTypeFilter(String name, String contentType) {
@@ -1170,642 +1615,818 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
       wrapInCard: false,
       scrollable: false,
       maxContentWidth: 1400,
+      commandBar: FluentCommandBar(
+        actions: [
+          FluentCommandAction(
+            icon: Icons.upload_file_outlined,
+            label: 'Upload files',
+            onPressed: _busy ? null : _chooseAndUploadToFileBox,
+            accent: true,
+          ),
+        ],
+        overflowActions: const [],
+      ),
 
       // Give PageScaffold a flex child so it gets height.
       child: Expanded(
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
-                    border: Border.all(color: const Color(0xFFE4E7EC)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: TextField(
-                    controller: _searchCtrl,
-                    textInputAction: TextInputAction.search,
-                    onChanged: _applySearch,
-                    onSubmitted: _applySearch,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF344054),
-                      fontWeight: FontWeight.w700,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: Colors.white,
-                      prefixIcon: const Icon(Icons.search, size: 18),
-                      hintText:
-                          'Search files, clients, businesses, or request IDs',
-                      hintStyle: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFE4E7EC)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFD0D5DD)),
-                      ),
-                      suffixIcon: _q.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Clear search',
-                              icon: const Icon(Icons.close, size: 18),
-                              onPressed: () {
-                                _searchCtrl.clear();
-                                _applySearch('');
-                              },
-                            ),
-                    ),
+        child: DropTarget(
+          onDragEntered: (_) => setState(() => _draggingUploads = true),
+          onDragExited: (_) => setState(() => _draggingUploads = false),
+          onDragDone: _busy ? null : _handleDroppedUploads,
+          child: Stack(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.05),
                   ),
                 ),
-
-                const SizedBox(height: 12),
-
-                // ===== Table =====
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: _uploadsStream,
-                    builder: (context, snap) {
-                      if (snap.hasError) {
-                        return const Center(
-                          child: Text('Failed to load uploads'),
-                        );
-                      }
-                      if (!snap.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      final q = _q.trim().toLowerCase();
-                      final docs = snap.data!.docs;
-
-                      final all = docs.map((d) {
-                        final m = d.data();
-                        final name = _s(m['originalName']);
-                        final contentType = _s(m['contentType']);
-                        final storagePath = _s(m['storagePath']);
-
-                        final uploadedBy = m['uploadedBy'];
-                        final clientName = (uploadedBy is Map)
-                            ? _s(uploadedBy['name'])
-                            : '';
-                        final fallbackClient = _s(m['clientName']).isNotEmpty
-                            ? _s(m['clientName'])
-                            : '';
-
-                        final createdAt = _asDate(m['createdAt']);
-                        final sizeBytes = (m['sizeBytes'] is num)
-                            ? (m['sizeBytes'] as num).toInt()
-                            : 0;
-
-                        final requestedBy = _s(m['requestCreatedByName']);
-                        final companyName = _s(m['requestBusinessName']);
-                        final clientEmail = _s(m['requestClientEmail']);
-                        final requestId = _s(m['requestId']);
-                        final expirationKnown =
-                            m.containsKey('requestExpiresAt') ||
-                            m.containsKey('expiresAt');
-                        final expiresAt = _asDate(
-                          m['requestExpiresAt'] ?? m['expiresAt'],
-                        );
-                        final lastActivityAt = _asDate(m['lastActivityAt']);
-                        final lastActivityAction = _s(m['lastActivityAction']);
-                        final lastActivityActorName = _s(
-                          m['lastActivityActorName'],
-                        );
-
-                        return _UploadDoc(
-                          id: d.id,
-                          docPath: d.reference.path,
-                          originalName: name,
-                          contentType: contentType,
-                          storagePath: storagePath,
-                          clientName: clientName.isNotEmpty
-                              ? clientName
-                              : (fallbackClient.isNotEmpty
-                                    ? fallbackClient
-                                    : '-'),
-                          requestedBy: requestedBy.isNotEmpty
-                              ? requestedBy
-                              : '-',
-                          companyName: companyName.isNotEmpty
-                              ? companyName
-                              : '-',
-                          clientEmail: clientEmail.isNotEmpty
-                              ? clientEmail
-                              : '-',
-                          when: createdAt,
-                          expirationKnown: expirationKnown,
-                          expiresAt: expiresAt,
-                          lastActivityAt: lastActivityAt,
-                          lastActivityAction: lastActivityAction,
-                          lastActivityActorName: lastActivityActorName,
-                          sizeBytes: sizeBytes,
-                          requestId: requestId,
-                          data: m,
-                        );
-                      }).toList();
-
-                      final searchTokens = q
-                          .split(RegExp(r'\s+'))
-                          .where((part) => part.trim().isNotEmpty)
-                          .toList();
-
-                      final filtered = all.where((r) {
-                        if (r.data['deleted'] == true) return false;
-
-                        if (searchTokens.isNotEmpty) {
-                          final meta = resolveFileMeta(
-                            fileName: r.originalName,
-                            contentType: r.contentType,
-                          );
-                          final hay =
-                              ('${r.originalName} ${r.storagePath} ${r.clientName} '
-                                      '${r.requestedBy} ${r.companyName} ${r.clientEmail} '
-                                      '${r.requestId} ${r.contentType} ${meta.badge} ${meta.tooltip}')
-                                  .toLowerCase();
-                          if (!searchTokens.every(hay.contains)) return false;
-                        }
-
-                        if (_typeFilter != _TypeFilter.all) {
-                          final inferred = _inferTypeFilter(
-                            r.originalName,
-                            r.contentType,
-                          );
-                          if (inferred != _typeFilter) return false;
-                        }
-
-                        if (!_passesDateFilter(r.when)) return false;
-                        return true;
-                      }).toList();
-
-                      filtered.sort((a, b) {
-                        int res;
-                        switch (_sortField) {
-                          case _SortField.name:
-                            res = a.originalName.toLowerCase().compareTo(
-                              b.originalName.toLowerCase(),
-                            );
-                            break;
-                          case _SortField.client:
-                            res = a.clientName.toLowerCase().compareTo(
-                              b.clientName.toLowerCase(),
-                            );
-                            break;
-                          case _SortField.size:
-                            res = a.sizeBytes.compareTo(b.sizeBytes);
-                            break;
-                          case _SortField.date:
-                            res = (a.lastActivityAt ?? a.when ?? DateTime(0))
-                                .compareTo(
-                                  b.lastActivityAt ?? b.when ?? DateTime(0),
-                                );
-                            break;
-                          case _SortField.expires:
-                            res = (a.expiresAt ?? DateTime(9999)).compareTo(
-                              b.expiresAt ?? DateTime(9999),
-                            );
-                            break;
-                          case _SortField.creator:
-                            res = a.requestedBy.toLowerCase().compareTo(
-                              b.requestedBy.toLowerCase(),
-                            );
-                            break;
-                        }
-                        return _sortAsc ? res : -res;
-                      });
-
-                      final visible = filtered.take(_visibleCount).toList();
-                      final visibleIds = visible.map((e) => e.id).toSet();
-                      final allVisibleSelected =
-                          visible.isNotEmpty &&
-                          _selected.containsAll(visibleIds);
-
-                      _selectedDocsCache = visible
-                          .where((e) => _selected.contains(e.id))
-                          .toList();
-
-                      final selectedActionIsSingleDownload =
-                          _selectedDocsCache.length == 1;
-                      final selectedActionIcon = selectedActionIsSingleDownload
-                          ? Icons.download_outlined
-                          : Icons.archive_outlined;
-                      final selectedActionLabel = selectedActionIsSingleDownload
-                          ? 'Download'
-                          : 'Download ZIP';
-
-                      return Column(
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              border: Border(
-                                bottom: BorderSide(color: Color(0xFFE4E7EC)),
-                              ),
-                            ),
-                            child: _filterBar(theme, all),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_uploadingNames.isNotEmpty) ...[
+                        _FileBoxUploadStatus(names: _uploadingNames),
+                        const SizedBox(height: 12),
+                      ] else if (_pendingUploads.isNotEmpty) ...[
+                        _FileBoxUploadQueue(
+                          files: _pendingUploads,
+                          formatSize: _formatSizeBytes,
+                          onUpload: _busy
+                              ? null
+                              : () => _uploadToFileBox(
+                                  List<_FileBoxPendingUpload>.from(
+                                    _pendingUploads,
+                                  ),
+                                ),
+                          onClear: _busy
+                              ? null
+                              : () => setState(() => _pendingUploads.clear()),
+                          onRemove: _busy
+                              ? null
+                              : (file) => setState(
+                                  () => _pendingUploads.removeWhere(
+                                    (item) => item.key == file.key,
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          border: Border.all(color: const Color(0xFFE4E7EC)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: TextField(
+                          controller: _searchCtrl,
+                          textInputAction: TextInputAction.search,
+                          onChanged: _applySearch,
+                          onSubmitted: _applySearch,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF344054),
+                            fontWeight: FontWeight.w700,
                           ),
-                          if (_selected.isNotEmpty) ...[
-                            Container(
-                              height: 40,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9FAFB),
-                                border: Border.all(
-                                  color: const Color(0xFFE4E7EC),
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    '${_selected.length} selected',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: const Color(0xFF344054),
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  SizedBox(
-                                    height: 32,
-                                    child: FilledButton.icon(
-                                      onPressed:
-                                          (_busy || _selectedDocsCache.isEmpty)
-                                          ? null
-                                          : () => _showSecureShareDialog(
-                                              _selectedDocsCache,
-                                            ),
-                                      icon: const Icon(
-                                        Icons.lock_outline,
-                                        size: 16,
-                                      ),
-                                      label: const Text('Secure share'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  SizedBox(
-                                    height: 32,
-                                    child: OutlinedButton.icon(
-                                      onPressed:
-                                          (_busy || _selectedDocsCache.isEmpty)
-                                          ? null
-                                          : () {
-                                              if (selectedActionIsSingleDownload) {
-                                                final doc =
-                                                    _selectedDocsCache.single;
-                                                _downloadFile(
-                                                  isAdmin: isAdmin,
-                                                  storagePath: doc.storagePath,
-                                                  filename: doc.originalName,
-                                                  contentType: doc.contentType,
-                                                  requestId: doc.requestId,
-                                                  fileId: doc.id,
-                                                  showReadyDialog: false,
-                                                );
-                                                return;
-                                              }
-
-                                              _downloadSelectedZip(
-                                                _selectedDocsCache,
-                                              );
-                                            },
-                                      icon: Icon(selectedActionIcon, size: 16),
-                                      label: Text(selectedActionLabel),
-                                    ),
-                                  ),
-                                  if (isAdmin) ...[
-                                    const SizedBox(width: 8),
-                                    SizedBox(
-                                      height: 32,
-                                      child: FilledButton.icon(
-                                        onPressed:
-                                            (_busy ||
-                                                _selectedDocsCache.isEmpty)
-                                            ? null
-                                            : () => _deleteSelectedAdmin(
-                                                _selectedDocsCache,
-                                              ),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          size: 16,
-                                        ),
-                                        label: const Text('Delete selected'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                          decoration: InputDecoration(
+                            isDense: true,
+                            filled: true,
+                            fillColor: Colors.white,
+                            prefixIcon: const Icon(Icons.search, size: 18),
+                            hintText:
+                                'Search files, clients, businesses, or request IDs',
+                            hintStyle: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE4E7EC),
                               ),
                             ),
-                          ],
-
-                          // ===== Table header =====
-                          Container(
-                            height: 42,
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF9FAFB),
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: Colors.black.withValues(alpha: 0.06),
-                                ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE4E7EC),
                               ),
                             ),
-                            child: Row(
-                              children: [
-                                Checkbox(
-                                  value: allVisibleSelected,
-                                  onChanged: _busy
-                                      ? null
-                                      : (v) {
-                                          setState(() {
-                                            if (v == true) {
-                                              _selected.addAll(visibleIds);
-                                            } else {
-                                              _selected.removeAll(visibleIds);
-                                            }
-                                          });
-                                        },
-                                ),
-                                const SizedBox(width: 4),
-
-                                // File column header.
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => _toggleSort(_SortField.name),
-                                    child: Row(
-                                      children: [
-                                        const Text(
-                                          'Name',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            color: Color(0xFF475467),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        _SortIndicator(
-                                          active: _sortField == _SortField.name,
-                                          asc: _sortAsc,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-
-                                if (!isMobile)
-                                  SizedBox(
-                                    width: 90,
-                                    child: InkWell(
-                                      onTap: () => _toggleSort(_SortField.size),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          const Text(
-                                            'Size',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF475467),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField == _SortField.size,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                if (!isMobile)
-                                  SizedBox(
-                                    width: 160,
-                                    child: InkWell(
-                                      onTap: () => _toggleSort(_SortField.date),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          const Text(
-                                            'Date uploaded',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF475467),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField == _SortField.date,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                if (!isMobile)
-                                  SizedBox(
-                                    width: 130,
-                                    child: InkWell(
-                                      onTap: () =>
-                                          _toggleSort(_SortField.expires),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          const Text(
-                                            'Expires',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF475467),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField ==
-                                                _SortField.expires,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                if (!isMobile)
-                                  SizedBox(
-                                    width: 190,
-                                    child: InkWell(
-                                      onTap: () =>
-                                          _toggleSort(_SortField.client),
-                                      child: Row(
-                                        children: [
-                                          const Text(
-                                            'Client',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF475467),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField == _SortField.client,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                if (!isMobile)
-                                  SizedBox(
-                                    width: 170,
-                                    child: InkWell(
-                                      onTap: () =>
-                                          _toggleSort(_SortField.creator),
-                                      child: Row(
-                                        children: [
-                                          const Text(
-                                            'Creator',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF475467),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          _SortIndicator(
-                                            active:
-                                                _sortField ==
-                                                _SortField.creator,
-                                            asc: _sortAsc,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 78,
-                                  child: Text(
-                                    'Actions',
-                                    textAlign: TextAlign.right,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: const Color(0xFF475467),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFD0D5DD),
+                              ),
                             ),
-                          ),
-
-                          // ===== Rows =====
-                          Expanded(
-                            child: visible.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      q.isEmpty
-                                          ? 'No uploads found.'
-                                          : 'No files match your search.',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: const Color(0xFF667085),
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    itemCount: visible.length,
-                                    separatorBuilder: (_, __) =>
-                                        const Divider(height: 1),
-                                    itemBuilder: (c, i) {
-                                      final row = visible[i];
-                                      return _UploadRowEnhanced(
-                                        id: row.id,
-                                        docPath: row.docPath,
-                                        data: row.data,
-                                        selected: _selected.contains(row.id),
-                                        isMobile: isMobile,
-                                        isAdmin: isAdmin,
-                                        clientName: row.clientName,
-                                        requestedBy: row.requestedBy,
-                                        companyName: row.companyName,
-                                        clientEmail: row.clientEmail,
-                                        expirationKnown: row.expirationKnown,
-                                        expiresAt: row.expiresAt,
-                                        lastActivityAt: row.lastActivityAt,
-                                        lastActivityAction:
-                                            row.lastActivityAction,
-                                        lastActivityActorName:
-                                            row.lastActivityActorName,
-                                        onShowDetails: () =>
-                                            _showUploadDetailsDialog(doc: row),
-                                        onShowHistory: () =>
-                                            _showActivityHistoryDialog(
-                                              doc: row,
-                                            ),
-                                        formatWhen: (dt) => _fmt(context, dt),
-                                        onSelect: (v) {
-                                          setState(() {
-                                            if (v) {
-                                              _selected.add(row.id);
-                                            } else {
-                                              _selected.remove(row.id);
-                                            }
-                                          });
-                                        },
-                                        busy: _busy,
-                                        onDownload: (path, name, type) =>
-                                            _downloadFile(
-                                              isAdmin: isAdmin,
-                                              storagePath: path,
-                                              filename: name,
-                                              contentType: type,
-                                              requestId:
-                                                  (row.data['requestId'] ?? '')
-                                                      .toString(),
-                                              fileId: row.id,
-                                            ),
-                                      );
+                            suffixIcon: _q.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: 'Clear search',
+                                    icon: const Icon(Icons.close, size: 18),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      _applySearch('');
                                     },
                                   ),
                           ),
-                        ],
-                      );
-                    },
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // ===== Table =====
+                      Expanded(
+                        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          stream: _uploadsStream,
+                          builder: (context, snap) {
+                            if (snap.hasError) {
+                              return const Center(
+                                child: Text('Failed to load uploads'),
+                              );
+                            }
+                            if (!snap.hasData) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+
+                            final q = _q.trim().toLowerCase();
+                            final docs = snap.data!.docs;
+
+                            final all = docs.map((d) {
+                              final m = d.data();
+                              final name = _s(m['originalName']);
+                              final contentType = _s(m['contentType']);
+                              final storagePath = _s(m['storagePath']);
+
+                              final uploadedBy = m['uploadedBy'];
+                              final clientName = (uploadedBy is Map)
+                                  ? _s(uploadedBy['name'])
+                                  : '';
+                              final fallbackClient =
+                                  _s(m['clientName']).isNotEmpty
+                                  ? _s(m['clientName'])
+                                  : '';
+
+                              final createdAt = _asDate(m['createdAt']);
+                              final sizeBytes = (m['sizeBytes'] is num)
+                                  ? (m['sizeBytes'] as num).toInt()
+                                  : 0;
+
+                              final requestedBy = _s(m['requestCreatedByName']);
+                              final companyName = _s(m['requestBusinessName']);
+                              final clientEmail = _s(m['requestClientEmail']);
+                              final requestId = _s(m['requestId']);
+                              final expirationKnown =
+                                  m.containsKey('requestExpiresAt') ||
+                                  m.containsKey('expiresAt');
+                              final expiresAt = _asDate(
+                                m['requestExpiresAt'] ?? m['expiresAt'],
+                              );
+                              final lastActivityAt = _asDate(
+                                m['lastActivityAt'],
+                              );
+                              final lastActivityAction = _s(
+                                m['lastActivityAction'],
+                              );
+                              final lastActivityActorName = _s(
+                                m['lastActivityActorName'],
+                              );
+
+                              return _UploadDoc(
+                                id: d.id,
+                                docPath: d.reference.path,
+                                originalName: name,
+                                contentType: contentType,
+                                storagePath: storagePath,
+                                clientName: clientName.isNotEmpty
+                                    ? clientName
+                                    : (fallbackClient.isNotEmpty
+                                          ? fallbackClient
+                                          : '-'),
+                                requestedBy: requestedBy.isNotEmpty
+                                    ? requestedBy
+                                    : '-',
+                                companyName: companyName.isNotEmpty
+                                    ? companyName
+                                    : '-',
+                                clientEmail: clientEmail.isNotEmpty
+                                    ? clientEmail
+                                    : '-',
+                                when: createdAt,
+                                expirationKnown: expirationKnown,
+                                expiresAt: expiresAt,
+                                lastActivityAt: lastActivityAt,
+                                lastActivityAction: lastActivityAction,
+                                lastActivityActorName: lastActivityActorName,
+                                sizeBytes: sizeBytes,
+                                requestId: requestId,
+                                data: m,
+                              );
+                            }).toList();
+
+                            final searchTokens = q
+                                .split(RegExp(r'\s+'))
+                                .where((part) => part.trim().isNotEmpty)
+                                .toList();
+
+                            final filtered = all.where((r) {
+                              if (r.data['deleted'] == true) return false;
+
+                              if (searchTokens.isNotEmpty) {
+                                final meta = resolveFileMeta(
+                                  fileName: r.originalName,
+                                  contentType: r.contentType,
+                                );
+                                final hay =
+                                    ('${r.originalName} ${r.storagePath} ${r.clientName} '
+                                            '${r.requestedBy} ${r.companyName} ${r.clientEmail} '
+                                            '${r.requestId} ${r.contentType} ${meta.badge} ${meta.tooltip}')
+                                        .toLowerCase();
+                                if (!searchTokens.every(hay.contains))
+                                  return false;
+                              }
+
+                              if (_typeFilter != _TypeFilter.all) {
+                                final inferred = _inferTypeFilter(
+                                  r.originalName,
+                                  r.contentType,
+                                );
+                                if (inferred != _typeFilter) return false;
+                              }
+
+                              if (!_passesDateFilter(r.when)) return false;
+                              return true;
+                            }).toList();
+
+                            filtered.sort((a, b) {
+                              int res;
+                              switch (_sortField) {
+                                case _SortField.name:
+                                  res = a.originalName.toLowerCase().compareTo(
+                                    b.originalName.toLowerCase(),
+                                  );
+                                  break;
+                                case _SortField.client:
+                                  res = a.clientName.toLowerCase().compareTo(
+                                    b.clientName.toLowerCase(),
+                                  );
+                                  break;
+                                case _SortField.size:
+                                  res = a.sizeBytes.compareTo(b.sizeBytes);
+                                  break;
+                                case _SortField.date:
+                                  res =
+                                      (a.lastActivityAt ??
+                                              a.when ??
+                                              DateTime(0))
+                                          .compareTo(
+                                            b.lastActivityAt ??
+                                                b.when ??
+                                                DateTime(0),
+                                          );
+                                  break;
+                                case _SortField.expires:
+                                  res = (a.expiresAt ?? DateTime(9999))
+                                      .compareTo(b.expiresAt ?? DateTime(9999));
+                                  break;
+                                case _SortField.creator:
+                                  res = a.requestedBy.toLowerCase().compareTo(
+                                    b.requestedBy.toLowerCase(),
+                                  );
+                                  break;
+                              }
+                              return _sortAsc ? res : -res;
+                            });
+
+                            final visible = filtered
+                                .take(_visibleCount)
+                                .toList();
+                            final visibleIds = visible.map((e) => e.id).toSet();
+                            final allVisibleSelected =
+                                visible.isNotEmpty &&
+                                _selected.containsAll(visibleIds);
+
+                            _selectedDocsCache = visible
+                                .where((e) => _selected.contains(e.id))
+                                .toList();
+
+                            final selectedActionIsSingleDownload =
+                                _selectedDocsCache.length == 1;
+                            final selectedActionIcon =
+                                selectedActionIsSingleDownload
+                                ? Icons.download_outlined
+                                : Icons.archive_outlined;
+                            final selectedActionLabel =
+                                selectedActionIsSingleDownload
+                                ? 'Download'
+                                : 'Download ZIP';
+
+                            return Column(
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: Color(0xFFE4E7EC),
+                                      ),
+                                    ),
+                                  ),
+                                  child: _filterBar(theme, all),
+                                ),
+                                if (_selected.isNotEmpty) ...[
+                                  Container(
+                                    height: 40,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      border: Border.all(
+                                        color: const Color(0xFFE4E7EC),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          '${_selected.length} selected',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: const Color(0xFF344054),
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                        ),
+                                        const Spacer(),
+                                        SizedBox(
+                                          height: 32,
+                                          child: FilledButton.icon(
+                                            onPressed:
+                                                (_busy ||
+                                                    _selectedDocsCache.isEmpty)
+                                                ? null
+                                                : () => _showSecureShareDialog(
+                                                    _selectedDocsCache,
+                                                  ),
+                                            icon: const Icon(
+                                              Icons.lock_outline,
+                                              size: 16,
+                                            ),
+                                            label: const Text('Secure share'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        SizedBox(
+                                          height: 32,
+                                          child: OutlinedButton.icon(
+                                            onPressed:
+                                                (_busy ||
+                                                    _selectedDocsCache.isEmpty)
+                                                ? null
+                                                : () {
+                                                    if (selectedActionIsSingleDownload) {
+                                                      final doc =
+                                                          _selectedDocsCache
+                                                              .single;
+                                                      _downloadFile(
+                                                        isAdmin: isAdmin,
+                                                        storagePath:
+                                                            doc.storagePath,
+                                                        filename:
+                                                            doc.originalName,
+                                                        contentType:
+                                                            doc.contentType,
+                                                        requestId:
+                                                            doc.requestId,
+                                                        fileId: doc.id,
+                                                        showReadyDialog: false,
+                                                      );
+                                                      return;
+                                                    }
+
+                                                    _downloadSelectedZip(
+                                                      _selectedDocsCache,
+                                                    );
+                                                  },
+                                            icon: Icon(
+                                              selectedActionIcon,
+                                              size: 16,
+                                            ),
+                                            label: Text(selectedActionLabel),
+                                          ),
+                                        ),
+                                        if (isAdmin) ...[
+                                          const SizedBox(width: 8),
+                                          SizedBox(
+                                            height: 32,
+                                            child: FilledButton.icon(
+                                              onPressed:
+                                                  (_busy ||
+                                                      _selectedDocsCache
+                                                          .isEmpty)
+                                                  ? null
+                                                  : () => _deleteSelectedAdmin(
+                                                      _selectedDocsCache,
+                                                    ),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                size: 16,
+                                              ),
+                                              label: const Text(
+                                                'Delete selected',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+
+                                // ===== Table header =====
+                                Container(
+                                  height: 42,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF9FAFB),
+                                    border: Border(
+                                      bottom: BorderSide(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.06,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: allVisibleSelected,
+                                        onChanged: _busy
+                                            ? null
+                                            : (v) {
+                                                setState(() {
+                                                  if (v == true) {
+                                                    _selected.addAll(
+                                                      visibleIds,
+                                                    );
+                                                  } else {
+                                                    _selected.removeAll(
+                                                      visibleIds,
+                                                    );
+                                                  }
+                                                });
+                                              },
+                                      ),
+                                      const SizedBox(width: 4),
+
+                                      // File column header.
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: () =>
+                                              _toggleSort(_SortField.name),
+                                          child: Row(
+                                            children: [
+                                              const Text(
+                                                'Name',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF475467),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              _SortIndicator(
+                                                active:
+                                                    _sortField ==
+                                                    _SortField.name,
+                                                asc: _sortAsc,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+
+                                      if (!isMobile)
+                                        SizedBox(
+                                          width: 90,
+                                          child: InkWell(
+                                            onTap: () =>
+                                                _toggleSort(_SortField.size),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.end,
+                                              children: [
+                                                const Text(
+                                                  'Size',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF475467),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _SortIndicator(
+                                                  active:
+                                                      _sortField ==
+                                                      _SortField.size,
+                                                  asc: _sortAsc,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                      if (!isMobile)
+                                        SizedBox(
+                                          width: 160,
+                                          child: InkWell(
+                                            onTap: () =>
+                                                _toggleSort(_SortField.date),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.end,
+                                              children: [
+                                                const Text(
+                                                  'Date uploaded',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF475467),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _SortIndicator(
+                                                  active:
+                                                      _sortField ==
+                                                      _SortField.date,
+                                                  asc: _sortAsc,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                      if (!isMobile)
+                                        SizedBox(
+                                          width: 130,
+                                          child: InkWell(
+                                            onTap: () =>
+                                                _toggleSort(_SortField.expires),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.end,
+                                              children: [
+                                                const Text(
+                                                  'Expires',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF475467),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _SortIndicator(
+                                                  active:
+                                                      _sortField ==
+                                                      _SortField.expires,
+                                                  asc: _sortAsc,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                      if (!isMobile)
+                                        SizedBox(
+                                          width: 190,
+                                          child: InkWell(
+                                            onTap: () =>
+                                                _toggleSort(_SortField.client),
+                                            child: Row(
+                                              children: [
+                                                const Text(
+                                                  'Client',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF475467),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _SortIndicator(
+                                                  active:
+                                                      _sortField ==
+                                                      _SortField.client,
+                                                  asc: _sortAsc,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                      if (!isMobile)
+                                        SizedBox(
+                                          width: 170,
+                                          child: InkWell(
+                                            onTap: () =>
+                                                _toggleSort(_SortField.creator),
+                                            child: Row(
+                                              children: [
+                                                const Text(
+                                                  'Creator',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF475467),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _SortIndicator(
+                                                  active:
+                                                      _sortField ==
+                                                      _SortField.creator,
+                                                  asc: _sortAsc,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+
+                                      const SizedBox(width: 8),
+                                      SizedBox(
+                                        width: 78,
+                                        child: Text(
+                                          'Actions',
+                                          textAlign: TextAlign.right,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                                color: const Color(0xFF475467),
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // ===== Rows =====
+                                Expanded(
+                                  child: visible.isEmpty
+                                      ? Center(
+                                          child: Text(
+                                            q.isEmpty
+                                                ? 'No uploads found.'
+                                                : 'No files match your search.',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: const Color(
+                                                    0xFF667085,
+                                                  ),
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                        )
+                                      : ListView.separated(
+                                          itemCount: visible.length,
+                                          separatorBuilder: (_, __) =>
+                                              const Divider(height: 1),
+                                          itemBuilder: (c, i) {
+                                            final row = visible[i];
+                                            return _UploadRowEnhanced(
+                                              id: row.id,
+                                              docPath: row.docPath,
+                                              data: row.data,
+                                              selected: _selected.contains(
+                                                row.id,
+                                              ),
+                                              isMobile: isMobile,
+                                              isAdmin: isAdmin,
+                                              clientName: row.clientName,
+                                              requestedBy: row.requestedBy,
+                                              companyName: row.companyName,
+                                              clientEmail: row.clientEmail,
+                                              expirationKnown:
+                                                  row.expirationKnown,
+                                              expiresAt: row.expiresAt,
+                                              lastActivityAt:
+                                                  row.lastActivityAt,
+                                              lastActivityAction:
+                                                  row.lastActivityAction,
+                                              lastActivityActorName:
+                                                  row.lastActivityActorName,
+                                              onShowDetails: () =>
+                                                  _showUploadDetailsDialog(
+                                                    doc: row,
+                                                  ),
+                                              onShowHistory: () =>
+                                                  _showActivityHistoryDialog(
+                                                    doc: row,
+                                                  ),
+                                              formatWhen: (dt) =>
+                                                  _fmt(context, dt),
+                                              onSelect: (v) {
+                                                setState(() {
+                                                  if (v) {
+                                                    _selected.add(row.id);
+                                                  } else {
+                                                    _selected.remove(row.id);
+                                                  }
+                                                });
+                                              },
+                                              busy: _busy,
+                                              onDownload: (path, name, type) =>
+                                                  _downloadFile(
+                                                    isAdmin: isAdmin,
+                                                    storagePath: path,
+                                                    filename: name,
+                                                    contentType: type,
+                                                    requestId:
+                                                        (row.data['requestId'] ??
+                                                                '')
+                                                            .toString(),
+                                                    fileId: row.id,
+                                                  ),
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              if (_draggingUploads)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.brandBlue.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.brandBlue,
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 22,
+                            vertical: 18,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFD0D5DD)),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x1A000000),
+                                blurRadius: 18,
+                                offset: Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.cloud_upload_outlined,
+                                color: AppColors.brandBlue,
+                                size: 34,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'Drop files to prepare upload',
+                                style: TextStyle(
+                                  color: Color(0xFF101828),
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Review the queue before adding files to File Box.',
+                                style: TextStyle(
+                                  color: Color(0xFF667085),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -1846,6 +2467,251 @@ class _DetailRow extends StatelessWidget {
                 color: const Color(0xFF101828),
                 fontWeight: FontWeight.w700,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileBoxUploadStatus extends StatelessWidget {
+  const _FileBoxUploadStatus({required this.names});
+
+  final List<String> names;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = names.length == 1
+        ? 'Uploading ${names.first}'
+        : 'Uploading ${names.length} files';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        border: Border.all(color: AppColors.brandBlue.withValues(alpha: 0.28)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF253858),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'File Box',
+            style: TextStyle(
+              color: AppColors.brandBlue,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileBoxUploadQueue extends StatelessWidget {
+  const _FileBoxUploadQueue({
+    required this.files,
+    required this.formatSize,
+    required this.onUpload,
+    required this.onClear,
+    required this.onRemove,
+  });
+
+  final List<_FileBoxPendingUpload> files;
+  final String Function(int bytes) formatSize;
+  final VoidCallback? onUpload;
+  final VoidCallback? onClear;
+  final ValueChanged<_FileBoxPendingUpload>? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = files.take(4).toList();
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        border: Border.all(color: const Color(0xFFD0D5DD)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.upload_file_outlined,
+                  size: 18,
+                  color: AppColors.brandBlue,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${files.length} ready to upload to File Box',
+                    style: const TextStyle(
+                      color: Color(0xFF253858),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                TextButton(onPressed: onClear, child: const Text('Cancel')),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: onUpload,
+                  icon: const Icon(Icons.cloud_upload_outlined, size: 16),
+                  label: Text(
+                    files.length == 1
+                        ? 'Upload file'
+                        : 'Upload ${files.length} files',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFE4E7EC)),
+          ...preview.map((file) {
+            final meta = resolveFileMeta(
+              fileName: file.name,
+              contentType: file.contentType,
+            );
+            return Column(
+              children: [
+                ListTile(
+                  dense: true,
+                  leading: _FileKindIcon(meta: meta),
+                  title: Text(
+                    file.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    '${formatSize(file.sizeBytes)} • Ready to upload',
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Remove from upload queue',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: onRemove == null ? null : () => onRemove!(file),
+                  ),
+                ),
+                if (file != preview.last)
+                  const Divider(height: 1, color: Color(0xFFE4E7EC)),
+              ],
+            );
+          }),
+          if (files.length > preview.length)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '+${files.length - preview.length} more file(s) queued',
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileKindIcon extends StatelessWidget {
+  const _FileKindIcon({required this.meta});
+
+  final FileKindMeta meta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 30,
+      width: 30,
+      decoration: BoxDecoration(
+        color: meta.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: meta.color.withValues(alpha: 0.22)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(meta.icon, size: 17, color: meta.color),
+    );
+  }
+}
+
+class _DuplicateNotice extends StatelessWidget {
+  const _DuplicateNotice({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAEB),
+        border: Border.all(color: const Color(0xFFFEDF89)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFFB54708)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFF7A2E0E),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -2474,4 +3340,20 @@ class _UploadRowEnhanced extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FileBoxPendingUpload {
+  const _FileBoxPendingUpload({
+    required this.name,
+    required this.sizeBytes,
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final String name;
+  final int sizeBytes;
+  final Uint8List bytes;
+  final String contentType;
+
+  String get key => '$name|$sizeBytes|${bytes.length}|$contentType';
 }

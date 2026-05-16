@@ -99,7 +99,7 @@ String _sectionTitle(_NavSection s) {
       return 'Send Files';
     case _NavSection.home:
     default:
-      return 'Home';
+      return 'Overview';
   }
 }
 
@@ -165,7 +165,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
 
     if (route == '/admin-users') return _NavSection.admin; // ✅ ADD THIS
 
-    if (route == '/file-box') return _NavSection.files;
+    if (route == '/dashboard' || route == '/file-box') {
+      return _NavSection.files;
+    }
 
     if (route == '/generate-upload-link' || route == '/dropoff-details') {
       return _NavSection.requests;
@@ -1000,7 +1002,10 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'Websites & Resources';
       case '/account-settings':
         return 'Account Settings';
+      case '/overview':
+        return 'Overview';
       case '/file-box':
+      case '/dashboard':
         return 'File Box';
       case '/generate-upload-link':
         return 'Requests';
@@ -1012,9 +1017,8 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'Admin Console';
       case '/dropoff-details':
         return 'Upload Link Details';
-      case '/dashboard':
       default:
-        return 'Home';
+        return 'File Box';
     }
   }
 
@@ -1162,6 +1166,7 @@ Please describe the issue below:
         return const ResourcesScreen();
       case '/account-settings':
         return const AccountSettingsScreen();
+      case '/dashboard':
       case '/file-box':
         return const FileBoxScreen();
       case '/send-files':
@@ -1176,9 +1181,10 @@ Please describe the issue below:
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/admin-users':
         return const AdminUsersScreen();
-      case '/dashboard':
-      default:
+      case '/overview':
         return const DashboardScreen();
+      default:
+        return const FileBoxScreen();
     }
   }
 
@@ -1410,10 +1416,10 @@ Please describe the issue below:
 
                 switch (s) {
                   case _NavSection.home:
-                    _navigate('/dashboard');
+                    _navigate('/overview');
                     break;
                   case _NavSection.files:
-                    _navigate('/file-box');
+                    _navigate('/dashboard');
                     break;
                   case _NavSection.requests:
                     _navigate('/generate-upload-link');
@@ -1949,18 +1955,18 @@ class _MiniRail extends StatelessWidget {
             ],
 
             _MiniTile(
-              icon: Icons.home_outlined,
-              label: 'Home',
-              active: active == _NavSection.home,
-              onTap: () => onSelect(_NavSection.home),
-            ),
-            const SizedBox(height: 6),
-
-            _MiniTile(
               icon: Icons.inventory_2_outlined,
               label: 'File Box',
               active: active == _NavSection.files,
               onTap: () => onSelect(_NavSection.files),
+            ),
+            const SizedBox(height: 6),
+
+            _MiniTile(
+              icon: Icons.send_outlined,
+              label: 'Send Files',
+              active: active == _NavSection.send,
+              onTap: () => onSelect(_NavSection.send),
             ),
             const SizedBox(height: 6),
 
@@ -1973,10 +1979,10 @@ class _MiniRail extends StatelessWidget {
             const SizedBox(height: 6),
 
             _MiniTile(
-              icon: Icons.send_outlined,
-              label: 'Send Files',
-              active: active == _NavSection.send,
-              onTap: () => onSelect(_NavSection.send),
+              icon: Icons.dashboard_outlined,
+              label: 'Overview',
+              active: active == _NavSection.home,
+              onTap: () => onSelect(_NavSection.home),
             ),
 
             const Spacer(),
@@ -2101,12 +2107,7 @@ class _SecondaryPane extends StatelessWidget {
         break;
       case _NavSection.files:
         items = const [
-          _PaneItem('File Box', Icons.folder_open_outlined, '/file-box'),
-          _PaneItem(
-            'Upload Requests',
-            Icons.request_page_outlined,
-            '/generate-upload-link',
-          ),
+          _PaneItem('File Box', Icons.folder_open_outlined, '/dashboard'),
         ];
         break;
 
@@ -2129,7 +2130,7 @@ class _SecondaryPane extends StatelessWidget {
       case _NavSection.home:
       default:
         items = const [
-          _PaneItem('Dashboard', Icons.home_outlined, '/dashboard'),
+          _PaneItem('Overview', Icons.dashboard_outlined, '/overview'),
           _PaneItem(
             'Firm documents',
             Icons.folder_shared_outlined,
@@ -2182,7 +2183,9 @@ class _SecondaryPane extends StatelessWidget {
 
             // Section items
             ...items.map((it) {
-              final active = currentRoute == it.route;
+              final active =
+                  currentRoute == it.route ||
+                  (it.route == '/dashboard' && currentRoute == '/file-box');
 
               return _PaneNavRow(
                 label: it.label,
@@ -2441,8 +2444,8 @@ class _SidebarNav extends StatelessWidget {
           // PRIMARY
           // ======================
           _SidebarNavItem(
-            icon: Icons.home_outlined, // ✅ better semantic fit
-            label: 'Home',
+            icon: Icons.folder_open_outlined,
+            label: 'File Box',
             route: '/dashboard',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
@@ -2451,9 +2454,9 @@ class _SidebarNav extends StatelessWidget {
           const SizedBox(height: 4),
 
           _SidebarNavItem(
-            icon: Icons.folder_open_outlined, // ✅ Files icon
-            label: 'File Box',
-            route: '/file-box',
+            icon: Icons.send_outlined,
+            label: 'Send Files',
+            route: '/send-files',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
             collapsed: collapsed,
@@ -2471,9 +2474,9 @@ class _SidebarNav extends StatelessWidget {
           const SizedBox(height: 4),
 
           _SidebarNavItem(
-            icon: Icons.send_outlined,
-            label: 'Send Files',
-            route: '/send-files',
+            icon: Icons.dashboard_outlined,
+            label: 'Overview',
+            route: '/overview',
             currentRoute: currentRoute,
             onNavigate: onNavigate,
             collapsed: collapsed,
@@ -2723,7 +2726,9 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isActive = widget.currentRoute == widget.route;
+    final bool isActive =
+        widget.currentRoute == widget.route ||
+        (widget.route == '/dashboard' && widget.currentRoute == '/file-box');
 
     final Color accent =
         widget.accentOverride ??

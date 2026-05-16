@@ -939,7 +939,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icons.folder_open_outlined,
             label: 'File Box',
             onPressed: _hasDropoffAccess
-                ? () => Navigator.pushNamed(context, '/file-box')
+                ? () => Navigator.pushNamed(context, '/dashboard')
                 : null,
             accent: false,
           ),

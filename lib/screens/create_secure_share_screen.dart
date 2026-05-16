@@ -95,6 +95,14 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _chooseFileBox();
+    });
+  }
+
+  @override
   void dispose() {
     _emailCtrl.dispose();
     _nameCtrl.dispose();
@@ -553,6 +561,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
                     ..clear()
                     ..add(0);
                 });
+                _chooseFileBox();
               },
             ),
     );

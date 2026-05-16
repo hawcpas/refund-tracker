@@ -3311,12 +3311,26 @@ async function loadFirmFileBoxMetaForShare({
   };
 }
 
+async function sha256StorageObject(storagePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    admin.storage().bucket().file(storagePath)
+      .createReadStream()
+      .on("data", (chunk) => hash.update(chunk))
+      .on("error", reject)
+      .on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
 async function createFirmFileBoxMetasFromUploads({
   auth,
   uploadedFiles,
   caller,
   recipientName,
   recipientEmail,
+  businessName = "Firm upload",
+  lastActivityAction = "sent",
+  duplicateMode = "allow",
 }) {
   const callerRole = String(caller.role || "").toLowerCase().trim();
   const first = normalizeName(caller.firstName);
@@ -3329,17 +3343,22 @@ async function createFirmFileBoxMetasFromUploads({
   const requestId = firmFileBoxRequestId(auth.uid);
   const filesCol = db.collection("firm_file_box").doc(auth.uid).collection("files");
   const metas = [];
-  const existingBySignature = new Map();
+  const existingByHashSize = new Map();
+  const existingByName = new Map();
   const existingSnap = await filesCol.where("deleted", "==", false).limit(300).get();
   for (const doc of existingSnap.docs) {
     const data = doc.data() || {};
-    const signature = [
-      String(data.originalName || "").trim().toLowerCase(),
-      Number(data.sizeBytes || 0),
-      String(data.contentType || "").trim().toLowerCase(),
-    ].join("|");
-    if (!existingBySignature.has(signature)) {
-      existingBySignature.set(signature, { ref: doc.ref, data });
+    const hash = String(data.fileHash || "").trim();
+    const size = Number(data.sizeBytes || 0);
+    const nameKey = String(data.originalName || "").trim().toLowerCase();
+    if (hash) {
+      const hashKey = `${hash}|${size}`;
+      if (!existingByHashSize.has(hashKey)) {
+        existingByHashSize.set(hashKey, { ref: doc.ref, data });
+      }
+    }
+    if (nameKey && !existingByName.has(nameKey)) {
+      existingByName.set(nameKey, { ref: doc.ref, data });
     }
   }
 
@@ -3352,24 +3371,82 @@ async function createFirmFileBoxMetasFromUploads({
       );
     }
 
-    const signature = [
-      String(file.originalName || "").trim().toLowerCase(),
-      Number(file.sizeBytes || 0),
-      String(file.contentType || "").trim().toLowerCase(),
-    ].join("|");
-    const existing = existingBySignature.get(signature);
+    const fileHash = String(file.fileHash || "").trim() ||
+      await sha256StorageObject(file.storagePath);
+    const sizeBytes = Number(file.sizeBytes || 0);
+    const nameKey = String(file.originalName || "").trim().toLowerCase();
+    const existing = existingByHashSize.get(`${fileHash}|${sizeBytes}`);
     if (existing) {
       await admin.storage().bucket().file(file.storagePath).delete().catch(() => { });
       const existingData = existing.data || {};
+      const reusedName = String(existingData.originalName || file.originalName).trim();
       metas.push({
         requestId,
         fileId: existing.ref.id,
         fileDocPath: existing.ref.path,
         storagePath: String(existingData.storagePath || "").trim(),
-        originalName: String(existingData.originalName || file.originalName).trim(),
+        originalName: reusedName,
         contentType: String(existingData.contentType || file.contentType).trim(),
         sizeBytes: Number(existingData.sizeBytes || file.sizeBytes || 0),
+        fileHash: String(existingData.fileHash || fileHash).trim(),
         source: String(existingData.source || "firm_upload").trim(),
+        duplicateHandling: "reused_existing",
+        uploadedAsName: file.originalName === reusedName ? "" : file.originalName,
+      });
+      continue;
+    }
+
+    const nameConflict = existingByName.get(nameKey);
+    if (nameConflict && duplicateMode === "skip") {
+      await admin.storage().bucket().file(file.storagePath).delete().catch(() => { });
+      continue;
+    }
+
+    if (nameConflict && duplicateMode === "replace") {
+      const existingData = nameConflict.data || {};
+      const previousStoragePath = String(existingData.storagePath || "").trim();
+      await nameConflict.ref.set(
+        {
+          storagePath: file.storagePath,
+          originalName: file.originalName,
+          contentType: file.contentType,
+          sizeBytes,
+          fileHash,
+          previousStoragePath,
+          replacedAt: admin.firestore.FieldValue.serverTimestamp(),
+          replacedByUid: auth.uid,
+          lastActivityAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastActivityAction: "replaced",
+          lastActivityActorName: createdByName,
+        },
+        { merge: true }
+      );
+      // Keep the previous object because older secure shares may still
+      // reference that exact storagePath as a point-in-time file version.
+      const updatedData = {
+        ...existingData,
+        storagePath: file.storagePath,
+        originalName: file.originalName,
+        contentType: file.contentType,
+        sizeBytes,
+        fileHash,
+      };
+      existingByHashSize.set(`${fileHash}|${sizeBytes}`, {
+        ref: nameConflict.ref,
+        data: updatedData,
+      });
+      existingByName.set(nameKey, { ref: nameConflict.ref, data: updatedData });
+      metas.push({
+        requestId,
+        fileId: nameConflict.ref.id,
+        fileDocPath: nameConflict.ref.path,
+        storagePath: file.storagePath,
+        originalName: file.originalName,
+        contentType: file.contentType,
+        sizeBytes,
+        fileHash,
+        source: String(existingData.source || "firm_upload").trim(),
+        duplicateHandling: "replaced_existing",
       });
       continue;
     }
@@ -3384,10 +3461,11 @@ async function createFirmFileBoxMetasFromUploads({
       storagePath: file.storagePath,
       originalName: file.originalName,
       contentType: file.contentType,
-      sizeBytes: Number(file.sizeBytes || 0),
+      sizeBytes,
+      fileHash,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       lastActivityAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastActivityAction: "sent",
+      lastActivityAction,
       lastActivityActorName: createdByName,
       requestCreatedByUid: auth.uid,
       requestCreatedByRole: callerRole || "associate",
@@ -3395,7 +3473,7 @@ async function createFirmFileBoxMetasFromUploads({
       requestCreatedByEmail: createdByEmail,
       requestClientName: recipientName || "",
       requestClientEmail: recipientEmail || "",
-      requestBusinessName: "Firm upload",
+      requestBusinessName: businessName || "Firm upload",
       uploadedBy: {
         type: "staff",
         uid: auth.uid,
@@ -3406,7 +3484,8 @@ async function createFirmFileBoxMetasFromUploads({
     };
 
     await fileRef.set(doc);
-    existingBySignature.set(signature, { ref: fileRef, data: doc });
+    existingByHashSize.set(`${fileHash}|${sizeBytes}`, { ref: fileRef, data: doc });
+    if (nameKey) existingByName.set(nameKey, { ref: fileRef, data: doc });
     metas.push({
       requestId,
       fileId,
@@ -3414,7 +3493,8 @@ async function createFirmFileBoxMetasFromUploads({
       storagePath: file.storagePath,
       originalName: file.originalName,
       contentType: file.contentType,
-      sizeBytes: Number(file.sizeBytes || 0),
+      sizeBytes,
+      fileHash,
       source: "firm_upload",
     });
   }
@@ -4350,6 +4430,133 @@ exports.listShareableFiles = onCall(
   }
 );
 
+exports.createFileBoxUploads = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const uploadedFiles = Array.isArray(data?.uploadedFiles)
+      ? data.uploadedFiles
+        .map((item) => ({
+          storagePath: String(item?.storagePath || "").trim(),
+          originalName: String(item?.originalName || "").trim(),
+          contentType: String(item?.contentType || "").trim(),
+          sizeBytes: Number(item?.sizeBytes || 0),
+        }))
+        .filter((item) => item.storagePath && item.originalName)
+      : [];
+
+    if (!uploadedFiles.length) {
+      throw new HttpsError("invalid-argument", "Select at least one file.");
+    }
+    if (uploadedFiles.length > 75) {
+      throw new HttpsError("failed-precondition", "Too many files selected. Max is 75.");
+    }
+
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const duplicateMode = String(data?.duplicateMode || "check").toLowerCase().trim();
+
+    const preparedUploads = [];
+    for (const file of uploadedFiles) {
+      const expectedPrefix = `secure_share_uploads/${auth.uid}/`;
+      if (!file.storagePath.startsWith(expectedPrefix)) {
+        throw new HttpsError("permission-denied", "Uploaded file path is not allowed.");
+      }
+      preparedUploads.push({
+        ...file,
+        fileHash: await sha256StorageObject(file.storagePath),
+      });
+    }
+
+    if (duplicateMode === "check") {
+      const filesCol = db.collection("firm_file_box").doc(auth.uid).collection("files");
+      const existingSnap = await filesCol.where("deleted", "==", false).limit(300).get();
+      const existingByHashSize = new Map();
+      const existingByName = new Map();
+
+      for (const doc of existingSnap.docs) {
+        const file = doc.data() || {};
+        const hash = String(file.fileHash || "").trim();
+        const size = Number(file.sizeBytes || 0);
+        const nameKey = String(file.originalName || "").trim().toLowerCase();
+        if (hash) {
+          existingByHashSize.set(`${hash}|${size}`, { id: doc.id, data: file });
+        }
+        if (nameKey && !existingByName.has(nameKey)) {
+          existingByName.set(nameKey, { id: doc.id, data: file });
+        }
+      }
+
+      const exactDuplicates = [];
+      const nameConflicts = [];
+      for (const file of preparedUploads) {
+        const exact = existingByHashSize.get(`${file.fileHash}|${Number(file.sizeBytes || 0)}`);
+        if (exact) {
+          exactDuplicates.push({
+            uploadedName: file.originalName,
+            existingName: String(exact.data.originalName || file.originalName),
+            sizeBytes: Number(exact.data.sizeBytes || file.sizeBytes || 0),
+            fileId: exact.id,
+          });
+          continue;
+        }
+
+        const byName = existingByName.get(String(file.originalName || "").trim().toLowerCase());
+        if (byName) {
+          nameConflicts.push({
+            uploadedName: file.originalName,
+            existingName: String(byName.data.originalName || file.originalName),
+            sizeBytes: Number(byName.data.sizeBytes || 0),
+            uploadedSizeBytes: Number(file.sizeBytes || 0),
+            fileId: byName.id,
+          });
+        }
+      }
+
+      if (nameConflicts.length > 0) {
+        return {
+          ok: false,
+          duplicateActionRequired: true,
+          exactDuplicates,
+          nameConflicts,
+        };
+      }
+    }
+
+    const metas = await createFirmFileBoxMetasFromUploads({
+      auth,
+      uploadedFiles: preparedUploads,
+      caller,
+      recipientName: "",
+      recipientEmail: "",
+      businessName: "File Box upload",
+      lastActivityAction: "upload",
+      duplicateMode,
+    });
+    const skippedCount = Math.max(0, preparedUploads.length - metas.length);
+
+    await db.collection("auditLogs").add({
+      type: "file_box_uploads_created",
+      fileCount: metas.length,
+      actorUid: auth.uid,
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      ok: true,
+      fileCount: metas.length,
+      files: metas,
+      reusedCount: metas.filter((m) => m.duplicateHandling === "reused_existing").length,
+      replacedCount: metas.filter((m) => m.duplicateHandling === "replaced_existing").length,
+      skippedCount,
+    };
+  }
+);
+
 exports.hideSecureFileShare = onCall(
   { region: "us-central1" },
   async (request) => {
@@ -4380,8 +4587,16 @@ exports.hideSecureFileShare = onCall(
       throw new HttpsError("permission-denied", "Not allowed to remove this share.");
     }
 
+    const alreadyRevoked =
+      String(share.status || "active").toLowerCase().trim() === "revoked";
+
     await ref.set(
       {
+        status: "revoked",
+        revokedAt: alreadyRevoked
+          ? share.revokedAt || admin.firestore.FieldValue.serverTimestamp()
+          : admin.firestore.FieldValue.serverTimestamp(),
+        revokedByUid: alreadyRevoked ? share.revokedByUid || auth.uid : auth.uid,
         hidden: true,
         hiddenAt: admin.firestore.FieldValue.serverTimestamp(),
         hiddenByUid: auth.uid,
@@ -4390,13 +4605,90 @@ exports.hideSecureFileShare = onCall(
     );
 
     await db.collection("auditLogs").add({
-      type: "secure_file_share_hidden",
+      type: "secure_file_share_removed",
       shareId,
       actorUid: auth.uid,
       at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return { ok: true, shareId };
+    return { ok: true, shareId, status: "revoked" };
+  }
+);
+
+exports.hideSecureFileSharesBatch = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { auth, data } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+
+    await assertDropoffAccess(auth.uid);
+
+    const shareIds = Array.from(
+      new Set(
+        (Array.isArray(data?.shareIds) ? data.shareIds : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (!shareIds.length) {
+      throw new HttpsError("invalid-argument", "At least one shareId is required.");
+    }
+    if (shareIds.length > 100) {
+      throw new HttpsError("invalid-argument", "Remove up to 100 shares at a time.");
+    }
+
+    const callerSnap = await db.collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || "").toLowerCase().trim();
+    const isAdmin = role === "admin";
+
+    const refs = shareIds.map((shareId) =>
+      db.collection("secure_file_shares").doc(shareId)
+    );
+    const snaps = await db.getAll(...refs);
+
+    const batch = db.batch();
+    let removed = 0;
+
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const share = snap.data() || {};
+      const isOwner = share.createdByUid === auth.uid;
+      if (!isAdmin && !isOwner) {
+        throw new HttpsError("permission-denied", "Not allowed to remove one or more shares.");
+      }
+
+      const alreadyRevoked =
+        String(share.status || "active").toLowerCase().trim() === "revoked";
+
+      batch.set(
+        snap.ref,
+        {
+          status: "revoked",
+          revokedAt: alreadyRevoked
+            ? share.revokedAt || admin.firestore.FieldValue.serverTimestamp()
+            : admin.firestore.FieldValue.serverTimestamp(),
+          revokedByUid: alreadyRevoked ? share.revokedByUid || auth.uid : auth.uid,
+          hidden: true,
+          hiddenAt: admin.firestore.FieldValue.serverTimestamp(),
+          hiddenByUid: auth.uid,
+        },
+        { merge: true }
+      );
+
+      batch.set(db.collection("auditLogs").doc(), {
+        type: "secure_file_share_removed",
+        shareId: snap.id,
+        actorUid: auth.uid,
+        at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      removed++;
+    }
+
+    await batch.commit();
+    return { ok: true, removed };
   }
 );
 
