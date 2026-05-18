@@ -30,8 +30,10 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   final _nameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmPasswordCtrl = TextEditingController();
+  final _accessNoteCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
+  final _clientSearchCtrl = TextEditingController();
   final _customDateCtrl = TextEditingController();
   final _customTimeCtrl = TextEditingController();
   final _emailFocusNode = FocusNode();
@@ -39,9 +41,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   String _source = '';
   int _expirationDays = 7;
   DateTime? _customExpiresAt;
-  bool _sendEmail = false;
+  bool _sendEmail = true;
   bool _createLinkOnly = false;
-  bool _includeMessage = false;
+  bool _includeMessage = true;
   bool _submitting = false;
   bool _loadingFiles = false;
   bool _obscurePassword = true;
@@ -49,14 +51,19 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   bool _filesConfirmed = false;
   bool _showValidationHints = false;
   bool _passwordRequired = true;
+  bool _detailsProtected = true;
   bool _draggingFiles = false;
   bool _showCustomExpiration = false;
   String _customPeriod = 'PM';
-  String? _selectedTemplateId;
+  String? _selectedTemplateId = 'secure_delivery';
   String _search = '';
+  String _clientSearch = '';
   String? _expirationError;
   String? _createdUrl;
   int _currentStep = 0;
+
+  static const String _defaultAccessNote =
+      'Use the password provided separately by our office.';
 
   final Set<int> _expandedSteps = {0};
   final Set<int> _attentionSteps = {};
@@ -67,10 +74,10 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   List<_ShareMessageTemplate> get _shareMessageTemplates => const [
     _ShareMessageTemplate(
       id: 'secure_delivery',
-      title: 'Secure file delivery',
+      title: 'Files sent to you',
       body:
           'Dear {{clientFirstName}},\n\n'
-          'Please use the secure link provided to access the files we have shared with you. For your protection, the password will be provided separately.\n\n'
+          'Your files are available below. Please review and download a copy for your records.\n\n'
           'Best regards,\n'
           'Axume & Associates CPAs',
     ),
@@ -79,7 +86,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       title: 'Tax documents',
       body:
           'Dear {{clientFirstName}},\n\n'
-          'We have securely shared documents related to your tax file. Please use the secure link to view or download the files at your convenience.\n\n'
+          'Documents related to your tax file are available below. Please review and download a copy for your records.\n\n'
           'Best regards,\n'
           'Axume & Associates CPAs',
     ),
@@ -88,7 +95,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       title: 'Review and download',
       body:
           'Dear {{clientFirstName}},\n\n'
-          'The requested files are ready for your review. Please access them through the secure link and download a copy for your records.\n\n'
+          'The requested files are ready for your review. Please download a copy for your records.\n\n'
           'Best regards,\n'
           'Axume & Associates CPAs',
     ),
@@ -97,6 +104,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   @override
   void initState() {
     super.initState();
+    _restoreCreateDefaults(clearClient: false, clearFiles: false);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _chooseFileBox();
     });
@@ -108,8 +116,10 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     _nameCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
+    _accessNoteCtrl.dispose();
     _messageCtrl.dispose();
     _searchCtrl.dispose();
+    _clientSearchCtrl.dispose();
     _customDateCtrl.dispose();
     _customTimeCtrl.dispose();
     _emailFocusNode.dispose();
@@ -206,6 +216,61 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     return text
         .replaceAll('{{clientName}}', name.isEmpty ? 'Client' : name)
         .replaceAll('{{clientFirstName}}', firstName);
+  }
+
+  void _syncMessageTemplateForClient() {
+    if (!_includeMessage || _selectedTemplateId == null) return;
+    final template = _shareMessageTemplates.where(
+      (template) => template.id == _selectedTemplateId,
+    );
+    if (template.isEmpty) return;
+    _messageCtrl.text = _applyShareTemplateTokens(
+      template.first.body,
+      _nameCtrl.text,
+    );
+  }
+
+  void _restoreCreateDefaults({
+    required bool clearClient,
+    required bool clearFiles,
+  }) {
+    _source = '';
+    if (clearFiles) {
+      _selectedFileKeys.clear();
+      _deviceFiles.clear();
+      _availableFiles = const [];
+      _filesConfirmed = false;
+    }
+    if (clearClient) {
+      _emailCtrl.clear();
+      _nameCtrl.clear();
+      _clientSearchCtrl.clear();
+      _clientSearch = '';
+    }
+    _messageCtrl.clear();
+    _passwordCtrl.clear();
+    _confirmPasswordCtrl.clear();
+    _accessNoteCtrl.text = _defaultAccessNote;
+    _selectedTemplateId = 'secure_delivery';
+    _sendEmail = true;
+    _createLinkOnly = false;
+    _includeMessage = true;
+    _expirationDays = 7;
+    _customExpiresAt = null;
+    _expirationError = null;
+    _customDateCtrl.clear();
+    _customTimeCtrl.clear();
+    _customPeriod = 'PM';
+    _showCustomExpiration = false;
+    _showValidationHints = false;
+    _passwordRequired = true;
+    _detailsProtected = true;
+    _currentStep = 0;
+    _attentionSteps.clear();
+    _expandedSteps
+      ..clear()
+      ..add(0);
+    _syncMessageTemplateForClient();
   }
 
   Future<List<_ShareableFile>> _loadShareableFiles() async {
@@ -441,7 +506,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         'recipientEmail': _emailCtrl.text.trim().toLowerCase(),
         'recipientName': _nameCtrl.text.trim(),
         'passwordRequired': _passwordRequired,
+        'detailsProtected': _detailsProtected,
         'password': _passwordCtrl.text.trim(),
+        'accessNote': _accessNoteCtrl.text.trim(),
         'message': _includeMessage ? _messageCtrl.text.trim() : '',
         'expirationDays': _expirationDays,
         if (_customExpiresAt != null)
@@ -455,19 +522,19 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       setState(() => _createdUrl = url);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Secure link created.')));
+      ).showSnackBar(const SnackBar(content: Text('File link created.')));
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Secure link failed: ${e.code} ${e.message ?? ''}'),
+          content: Text('File link failed: ${e.code} ${e.message ?? ''}'),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Secure link failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('File link failed: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -487,10 +554,10 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     final isNarrow = MediaQuery.of(context).size.width < 760;
 
     return PageScaffold(
-      title: _createdUrl == null ? 'Send files' : 'Secure link ready',
+      title: _createdUrl == null ? 'Send files' : 'File link ready',
       subtitle: _createdUrl == null
           ? 'Choose files, protect access, and prepare the client-facing message.'
-          : 'Copy the secure link or return to sent files.',
+          : 'Copy the file link or return to sent files.',
       wrapInCard: false,
       maxContentWidth: 1280,
       commandBar: FluentCommandBar(
@@ -525,41 +592,14 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
                 await Clipboard.setData(ClipboardData(text: _createdUrl!));
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Secure link copied.')),
+                  const SnackBar(content: Text('File link copied.')),
                 );
               },
               onDone: _backToSentFiles,
               onCreateAnother: () {
                 setState(() {
                   _createdUrl = null;
-                  _source = '';
-                  _selectedFileKeys.clear();
-                  _deviceFiles.clear();
-                  _availableFiles = const [];
-                  _emailCtrl.clear();
-                  _nameCtrl.clear();
-                  _messageCtrl.clear();
-                  _passwordCtrl.clear();
-                  _confirmPasswordCtrl.clear();
-                  _selectedTemplateId = null;
-                  _sendEmail = false;
-                  _createLinkOnly = false;
-                  _includeMessage = false;
-                  _expirationDays = 7;
-                  _customExpiresAt = null;
-                  _expirationError = null;
-                  _customDateCtrl.clear();
-                  _customTimeCtrl.clear();
-                  _customPeriod = 'PM';
-                  _showCustomExpiration = false;
-                  _filesConfirmed = false;
-                  _showValidationHints = false;
-                  _passwordRequired = true;
-                  _currentStep = 0;
-                  _attentionSteps.clear();
-                  _expandedSteps
-                    ..clear()
-                    ..add(0);
+                  _restoreCreateDefaults(clearClient: true, clearFiles: true);
                 });
                 _chooseFileBox();
               },
@@ -656,7 +696,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
       case 1:
         return _SectionShell(
           title: 'Client',
-          subtitle: 'Identify who this secure link is for.',
+          subtitle: 'Identify who this file link is for.',
           icon: Icons.badge_outlined,
           step: 2,
           expanded: true,
@@ -925,15 +965,34 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   List<_ClientSuggestion> get _clientSuggestions {
     final seen = <String>{};
     final out = <_ClientSuggestion>[];
+    final query = _clientSearch.trim().toLowerCase();
     for (final file in _availableFiles) {
       final name = file.clientName.trim();
       final email = file.clientEmail.trim();
+      final businessName = file.businessName.trim();
       if (name.isEmpty && email.isEmpty) continue;
+      final haystack = '$name $email $businessName'.toLowerCase();
+      if (query.isNotEmpty && !haystack.contains(query)) continue;
       final key = '${name.toLowerCase()}|${email.toLowerCase()}';
       if (!seen.add(key)) continue;
-      out.add(_ClientSuggestion(name: name, email: email));
+      out.add(
+        _ClientSuggestion(name: name, email: email, businessName: businessName),
+      );
     }
     return out.take(8).toList();
+  }
+
+  void _selectClientSuggestion(_ClientSuggestion client) {
+    setState(() {
+      _nameCtrl.text = client.name.isNotEmpty
+          ? client.name
+          : client.businessName;
+      _emailCtrl.text = client.email;
+      _clientSearchCtrl.text = client.displayName;
+      _clientSearch = client.displayName;
+      _attentionSteps.remove(1);
+      _syncMessageTemplateForClient();
+    });
   }
 
   void _toggleStep(int step) {
@@ -1230,25 +1289,23 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (suggestions.isNotEmpty) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: suggestions.map((client) {
-              final label = client.name.isNotEmpty ? client.name : client.email;
-              return ActionChip(
-                avatar: const Icon(Icons.person_outline, size: 16),
-                label: Text(label),
-                onPressed: _submitting
-                    ? null
-                    : () => setState(() {
-                        _nameCtrl.text = client.name;
-                        _emailCtrl.text = client.email;
-                      }),
-              );
-            }).toList(),
+        TextFormField(
+          controller: _clientSearchCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Search recent clients',
+            helperText: 'Select a client to autofill name and email.',
+            prefixIcon: Icon(Icons.manage_search_outlined),
           ),
+          onChanged: (value) => setState(() => _clientSearch = value),
+        ),
+        if (_clientSearch.trim().isNotEmpty || suggestions.isNotEmpty) ...[
           const SizedBox(height: 12),
+          _ClientSuggestionPicker(
+            suggestions: suggestions,
+            enabled: !_submitting,
+            onSelected: _selectClientSuggestion,
+          ),
+          const SizedBox(height: 14),
         ],
         TextFormField(
           controller: _nameCtrl,
@@ -1256,7 +1313,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             labelText: 'Client or company name',
             prefixIcon: Icon(Icons.business_outlined),
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(_syncMessageTemplateForClient),
         ),
         const SizedBox(height: 10),
         TextFormField(
@@ -1267,7 +1324,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             labelText: 'Client email',
             helperText: _sendEmail
                 ? 'Required for email delivery.'
-                : 'Optional unless emailing the secure files.',
+                : 'Optional unless emailing the file link.',
             errorText: _stepHasAttention(1) && _sendEmail && !_clientEmailValid
                 ? 'Enter a valid email address to send directly.'
                 : null,
@@ -1432,10 +1489,12 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildAccessNoteSection(),
+        const SizedBox(height: 14),
         _DeliveryChoiceTile(
           selected: _sendEmail,
           icon: Icons.outgoing_mail,
-          title: 'Email secure files to client',
+          title: 'Email file link to client',
           subtitle: 'Password is never included in email.',
           onTap: _submitting
               ? null
@@ -1467,15 +1526,31 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         _DeliveryNote(passwordRequired: _passwordRequired),
         const SizedBox(height: 14),
         CheckboxListTile(
+          value: _detailsProtected,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text(
+            'Protect file details until password is entered',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: const Text(
+            'Recommended. The email and file page will not reveal names, notes, or the file list until the client opens it with the password.',
+          ),
+          onChanged: _submitting
+              ? null
+              : (v) => setState(() => _detailsProtected = v != false),
+        ),
+        const SizedBox(height: 8),
+        CheckboxListTile(
           value: _includeMessage,
           contentPadding: EdgeInsets.zero,
           controlAffinity: ListTileControlAffinity.leading,
           title: const Text(
-            'Include message template',
+            'Show a File Page Message',
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           subtitle: const Text(
-            'Optional. Choose a template or write a custom note.',
+            'Optional message shown with the files after access is verified.',
           ),
           onChanged: _submitting
               ? null
@@ -1487,7 +1562,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         ] else ...[
           const SizedBox(height: 4),
           const Text(
-            'No client message included.',
+            'No file page message will be shown.',
             style: TextStyle(
               color: Color(0xFF667085),
               fontSize: 12,
@@ -1499,12 +1574,108 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
     );
   }
 
+  Widget _buildAccessNoteSection() {
+    const noteOptions = [
+      _defaultAccessNote,
+      'Use the password sent by text message.',
+      'Use the password discussed by phone.',
+      'Contact our office if you do not have the password.',
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFD),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.lock_person_outlined,
+                size: 17,
+                color: AppColors.brandBlue,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Password Page Message',
+                  style: TextStyle(
+                    color: Color(0xFF344054),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Optional message shown above the password field. Keep it generic and avoid file or client details.',
+            style: TextStyle(
+              color: Color(0xFF667085),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: noteOptions.map((text) {
+              final selected = _accessNoteCtrl.text.trim() == text;
+              return ChoiceChip(
+                label: Text(text),
+                selected: selected,
+                showCheckmark: false,
+                selectedColor: const Color(0xFFEAF2FF),
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFFE4E7EC),
+                ),
+                labelStyle: TextStyle(
+                  color: selected
+                      ? AppColors.brandBlue
+                      : const Color(0xFF344054),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+                onSelected: _submitting
+                    ? null
+                    : (_) => setState(() => _accessNoteCtrl.text = text),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _accessNoteCtrl,
+            minLines: 2,
+            maxLines: 3,
+            maxLength: 220,
+            decoration: const InputDecoration(
+              labelText: 'Message shown above the password field',
+              prefixIcon: Icon(Icons.info_outline),
+              counterText: '',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Message template',
+          'File Page Message',
           style: TextStyle(
             color: Color(0xFF344054),
             fontWeight: FontWeight.w800,
@@ -1561,7 +1732,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             minLines: 5,
             maxLines: 8,
             decoration: InputDecoration(
-              labelText: 'Client message',
+              labelText: 'Message shown on the file page',
               alignLabelWithHint: true,
               prefixIcon: const Padding(
                 padding: EdgeInsets.only(bottom: 72),
@@ -1588,8 +1759,8 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         const SizedBox(height: 6),
         Text(
           _messageCtrl.text.trim().isEmpty
-              ? 'Message optional - no client message included.'
-              : 'Message will be included with the secure link.',
+              ? 'No file page message will be shown.'
+              : 'This message will appear with the files after access is verified.',
           style: const TextStyle(
             color: Color(0xFF667085),
             fontSize: 12,
@@ -1634,6 +1805,9 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         ? _nameCtrl.text.trim()
         : (_emailCtrl.text.trim().isNotEmpty ? _emailCtrl.text.trim() : '-');
     final issues = _reviewIssues;
+    final primaryLabel = _readyToCreate
+        ? (_sendEmail ? 'Send files' : 'Create file link')
+        : 'Review missing items';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1677,7 +1851,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'Setup receipt',
+            'Send summary',
             style: theme.textTheme.labelMedium?.copyWith(
               color: const Color(0xFF344054),
               fontWeight: FontWeight.w900,
@@ -1699,8 +1873,16 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
               _ReviewDetail(
                 icon: Icons.lock_outline,
                 label: 'Security',
-                value: 'Password required',
+                value: _detailsProtected
+                    ? 'File names and notes are shown only after the password is verified.'
+                    : 'Password required for downloads',
               ),
+              if (_accessNoteCtrl.text.trim().isNotEmpty)
+                _ReviewDetail(
+                  icon: Icons.info_outline,
+                  label: 'Password Page Message',
+                  value: _accessNoteCtrl.text.trim(),
+                ),
               _ReviewDetail(
                 icon: Icons.schedule_outlined,
                 label: 'Expires',
@@ -1750,27 +1932,52 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 40,
-            child: FilledButton.icon(
-              onPressed: _submitting ? null : _finish,
-              icon: _submitting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      _readyToCreate ? Icons.lock_outline : Icons.error_outline,
-                      size: 16,
-                    ),
-              label: Text(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final note = Text(
                 _readyToCreate
-                    ? (_sendEmail ? 'Send files' : 'Create link')
-                    : 'Review required items',
-              ),
-            ),
+                    ? 'This is the final step before the client receives access.'
+                    : 'Resolve the missing items before sending.',
+                style: const TextStyle(
+                  color: Color(0xFF667085),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+              final button = FilledButton.icon(
+                onPressed: _submitting ? null : _finish,
+                icon: _submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _readyToCreate
+                            ? Icons.send_outlined
+                            : Icons.error_outline,
+                        size: 16,
+                      ),
+                label: Text(primaryLabel),
+              );
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    note,
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerRight, child: button),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: note),
+                  const SizedBox(width: 12),
+                  button,
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -3155,44 +3362,58 @@ class _FileBoxPickerPanel extends StatelessWidget {
               ),
             ),
           ),
-          Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            color: const Color(0xFFF9FAFB),
-            child: Row(
-              children: const [
-                SizedBox(width: 34),
-                Expanded(child: _PickerHeaderText('Name')),
-                SizedBox(width: 112, child: _PickerHeaderText('Client')),
-                SizedBox(width: 72, child: _PickerHeaderText('Size')),
-                SizedBox(width: 44),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: Color(0xFFE4E7EC)),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 360),
-            child: loading
-                ? const _FileBoxPickerLoading()
-                : files.isEmpty
-                ? _FileBoxPickerEmpty(search: search)
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: files.length,
-                    separatorBuilder: (_, __) =>
-                        const Divider(height: 1, color: Color(0xFFE4E7EC)),
-                    itemBuilder: (context, index) {
-                      final file = files[index];
-                      final selected = selectedKeys.contains(file.key);
-                      return _FileBoxPickerRow(
-                        file: file,
-                        selected: selected,
-                        submitting: submitting,
-                        formatSize: formatSize,
-                        onToggle: (value) => onToggle(file, value),
-                      );
-                    },
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 560;
+              return Column(
+                children: [
+                  if (!compact) ...[
+                    Container(
+                      height: 34,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      color: const Color(0xFFF9FAFB),
+                      child: Row(
+                        children: const [
+                          SizedBox(width: 34),
+                          Expanded(child: _PickerHeaderText('Name')),
+                          SizedBox(width: 112, child: _PickerHeaderText('Client')),
+                          SizedBox(width: 72, child: _PickerHeaderText('Size')),
+                          SizedBox(width: 44),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                  ],
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 360),
+                    child: loading
+                        ? const _FileBoxPickerLoading()
+                        : files.isEmpty
+                        ? _FileBoxPickerEmpty(search: search)
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: files.length,
+                            separatorBuilder: (_, __) => const Divider(
+                              height: 1,
+                              color: Color(0xFFE4E7EC),
+                            ),
+                            itemBuilder: (context, index) {
+                              final file = files[index];
+                              final selected = selectedKeys.contains(file.key);
+                              return _FileBoxPickerRow(
+                                file: file,
+                                selected: selected,
+                                submitting: submitting,
+                                formatSize: formatSize,
+                                compact: compact,
+                                onToggle: (value) => onToggle(file, value),
+                              );
+                            },
+                          ),
                   ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -3206,6 +3427,7 @@ class _FileBoxPickerRow extends StatelessWidget {
     required this.selected,
     required this.submitting,
     required this.formatSize,
+    required this.compact,
     required this.onToggle,
   });
 
@@ -3213,6 +3435,7 @@ class _FileBoxPickerRow extends StatelessWidget {
   final bool selected;
   final bool submitting;
   final String Function(int bytes) formatSize;
+  final bool compact;
   final ValueChanged<bool> onToggle;
 
   @override
@@ -3240,7 +3463,7 @@ class _FileBoxPickerRow extends StatelessWidget {
                   children: [
                     Text(
                       file.originalName,
-                      maxLines: 1,
+                      maxLines: compact ? 2 : 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF101828),
@@ -3249,7 +3472,19 @@ class _FileBoxPickerRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      businessOrEmail.isEmpty ? 'File Box' : businessOrEmail,
+                      [
+                        if (businessOrEmail.isNotEmpty) businessOrEmail,
+                        if (compact && file.clientName.isNotEmpty)
+                          file.clientName,
+                        if (compact) formatSize(file.sizeBytes),
+                      ].isEmpty
+                          ? 'File Box'
+                          : [
+                              if (businessOrEmail.isNotEmpty) businessOrEmail,
+                              if (compact && file.clientName.isNotEmpty)
+                                file.clientName,
+                              if (compact) formatSize(file.sizeBytes),
+                            ].join(' - '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -3260,30 +3495,32 @@ class _FileBoxPickerRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 112,
-                child: Text(
-                  file.clientName.isEmpty ? '-' : file.clientName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF475467),
-                    fontWeight: FontWeight.w700,
+              if (!compact) ...[
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 112,
+                  child: Text(
+                    file.clientName.isEmpty ? '-' : file.clientName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF475467),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
-              SizedBox(
-                width: 72,
-                child: Text(
-                  formatSize(file.sizeBytes),
-                  textAlign: TextAlign.right,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
-                    fontWeight: FontWeight.w700,
+                SizedBox(
+                  width: 72,
+                  child: Text(
+                    formatSize(file.sizeBytes),
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
+              ],
               SizedBox(
                 width: 44,
                 child: Checkbox(
@@ -3653,25 +3890,22 @@ class _ReviewDetailGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 760 ? 3 : 2;
-        final spacing = 8.0;
-        final width =
-            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: details
-              .map(
-                (detail) => SizedBox(
-                  width: width,
-                  child: _ReviewDetailTile(detail: detail),
-                ),
-              )
-              .toList(),
-        );
-      },
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < details.length; i++) ...[
+            _ReviewDetailTile(detail: details[i]),
+            if (i != details.length - 1)
+              const Divider(height: 1, color: Color(0xFFE4E7EC)),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -3683,13 +3917,8 @@ class _ReviewDetailTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        border: Border.all(color: const Color(0xFFE4E7EC)),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
           Icon(detail.icon, size: 17, color: AppColors.brandBlue),
@@ -3709,7 +3938,7 @@ class _ReviewDetailTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail.value,
-                  maxLines: 1,
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Color(0xFF253858),
@@ -3745,7 +3974,7 @@ class _ReviewReadyNotice extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Ready to create secure link',
+              'Ready to create file link',
               style: TextStyle(
                 color: Color(0xFF067647),
                 fontWeight: FontWeight.w900,
@@ -3883,8 +4112,8 @@ class _SuccessPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   sendEmail
-                      ? 'The secure link was emailed to the client.'
-                      : 'Copy this secure link and provide the password separately.',
+                      ? 'The file link was emailed to the client.'
+                      : 'Copy this file link and provide the password separately.',
                   style: const TextStyle(
                     color: Color(0xFF475467),
                     fontWeight: FontWeight.w700,
@@ -3953,11 +4182,155 @@ class _ShareMessageTemplate {
   final String body;
 }
 
+class _ClientSuggestionPicker extends StatelessWidget {
+  const _ClientSuggestionPicker({
+    required this.suggestions,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final List<_ClientSuggestion> suggestions;
+  final bool enabled;
+  final ValueChanged<_ClientSuggestion> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (suggestions.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          border: Border.all(color: const Color(0xFFE4E7EC)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Text(
+          'No matching recent clients found.',
+          style: TextStyle(
+            color: Color(0xFF667085),
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < suggestions.length; i++) ...[
+            _ClientSuggestionRow(
+              suggestion: suggestions[i],
+              enabled: enabled,
+              onTap: () => onSelected(suggestions[i]),
+            ),
+            if (i != suggestions.length - 1)
+              const Divider(height: 1, color: Color(0xFFE4E7EC)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientSuggestionRow extends StatelessWidget {
+  const _ClientSuggestionRow({
+    required this.suggestion,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final _ClientSuggestion suggestion;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = [
+      if (suggestion.businessName.trim().isNotEmpty &&
+          suggestion.businessName.trim() != suggestion.displayName)
+        suggestion.businessName.trim(),
+      if (suggestion.email.trim().isNotEmpty) suggestion.email.trim(),
+    ].join(' - ');
+
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.person_search_outlined,
+              size: 18,
+              color: AppColors.brandBlue,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    suggestion.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF253858),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF667085),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.north_west_outlined,
+              size: 16,
+              color: Color(0xFF667085),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ClientSuggestion {
-  const _ClientSuggestion({required this.name, required this.email});
+  const _ClientSuggestion({
+    required this.name,
+    required this.email,
+    required this.businessName,
+  });
 
   final String name;
   final String email;
+  final String businessName;
+
+  String get displayName {
+    if (name.trim().isNotEmpty) return name.trim();
+    if (businessName.trim().isNotEmpty) return businessName.trim();
+    return email.trim();
+  }
 }
 
 class _ReviewIssue {

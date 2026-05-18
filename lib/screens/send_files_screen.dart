@@ -99,10 +99,10 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
     if (row.status == 'expired' || diff.isNegative) {
       return 'Expired ${_shortDate(dt)}';
     }
-    if (diff.inDays == 0) return 'Today';
-    if (diff.inDays == 1) return 'Tomorrow';
-    if (diff.inDays < 14) return 'In ${diff.inDays} days';
-    return _shortDate(dt);
+    if (diff.inDays == 0) return 'Expires today';
+    if (diff.inDays == 1) return 'Expires tomorrow';
+    if (diff.inDays < 14) return 'Expires in ${diff.inDays} days';
+    return 'Expires ${_shortDate(dt)}';
   }
 
   Color _statusColor(String status) {
@@ -1022,7 +1022,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                     if (file.businessName.isNotEmpty)
                                       file.businessName,
                                     _formatSize(file.sizeBytes),
-                                  ].join(' - '),
+                    ].join(' - '),
                                 ),
                               );
                             },
@@ -1757,7 +1757,7 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
                                               if (file.businessName.isNotEmpty)
                                                 file.businessName,
                                               _formatSize(file.sizeBytes),
-                                            ].join(' - '),
+                    ].join(' - '),
                                           ),
                                         );
                                       },
@@ -2079,7 +2079,111 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
             );
           }
 
-          return SingleChildScrollView(
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 760) {
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE4E7EC)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      if (selectedRows.isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          color: const Color(0xFFF8FAFC),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                '${_selectedShareIds.length} selected',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF344054),
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          if (allSelected) {
+                                            _selectedShareIds.clear();
+                                          } else {
+                                            _selectedShareIds
+                                              ..clear()
+                                              ..addAll(visibleIds);
+                                          }
+                                        });
+                                      },
+                                child: Text(allSelected ? 'Clear' : 'Select all'),
+                              ),
+                              FilledButton.icon(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _removeSelectedFromList(selectedRows),
+                                icon: const Icon(Icons.delete_outline, size: 16),
+                                label: const Text('Remove'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE4E7EC)),
+                      ],
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const Divider(
+                          height: 1,
+                          color: Color(0xFFE4E7EC),
+                        ),
+                        itemBuilder: (context, index) {
+                          final row = rows[index];
+                          final selected = _selectedShareIds.contains(
+                            row.shareId,
+                          );
+                          return _SentFilesMobileCard(
+                            row: row,
+                            selected: selected,
+                            statusColor: _statusColor(row.status),
+                            statusLabel: _statusLabel(row.status),
+                            activity: _activitySummary(row),
+                            expires: _expiresSummary(row),
+                            busy: _busy,
+                            onOpen: () => _showDetails(row),
+                            onSelected: (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  _selectedShareIds.add(row.shareId);
+                                } else {
+                                  _selectedShareIds.remove(row.shareId);
+                                }
+                              });
+                            },
+                            onCopy: () => _copyLink(row),
+                            onManage: (_busy || row.status == 'revoked')
+                                ? null
+                                : () => _showEditSecureShareDialog(row),
+                            onRevoke: (_busy || row.status != 'active')
+                                ? null
+                                : () => _revoke(row),
+                            onRemove: _busy ? null : () => _removeFromList(row),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
               width: 1180,
@@ -2370,6 +2474,8 @@ class _SendFilesScreenState extends State<SendFilesScreen> {
               ),
             ),
           );
+            },
+          );
         },
       ),
     );
@@ -2398,6 +2504,220 @@ class _HeaderText extends StatelessWidget {
         color: const Color(0xFF475467),
         fontWeight: FontWeight.w900,
       ),
+    );
+  }
+}
+
+class _SentFilesMobileCard extends StatelessWidget {
+  const _SentFilesMobileCard({
+    required this.row,
+    required this.selected,
+    required this.statusColor,
+    required this.statusLabel,
+    required this.activity,
+    required this.expires,
+    required this.busy,
+    required this.onOpen,
+    required this.onSelected,
+    required this.onCopy,
+    required this.onManage,
+    required this.onRevoke,
+    required this.onRemove,
+  });
+
+  final _SecureShareRow row;
+  final bool selected;
+  final Color statusColor;
+  final String statusLabel;
+  final String activity;
+  final String expires;
+  final bool busy;
+  final VoidCallback onOpen;
+  final ValueChanged<bool?> onSelected;
+  final VoidCallback onCopy;
+  final VoidCallback? onManage;
+  final VoidCallback? onRevoke;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onOpen,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 34,
+              child: Checkbox(
+                value: selected,
+                onChanged: busy ? null : onSelected,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              row.clientLabel,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF101828),
+                                fontWeight: FontWeight.w900,
+                                height: 1.05,
+                              ),
+                            ),
+                            if (row.recipientEmail.isNotEmpty)
+                              Text(
+                                row.recipientEmail,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: const Color(0xFF667085),
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.05,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: statusColor.withValues(alpha: 0.22),
+                              ),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 30,
+                            height: 30,
+                            child: PopupMenuButton<String>(
+                              tooltip: 'Actions',
+                              padding: EdgeInsets.zero,
+                              icon: const Icon(Icons.more_horiz, size: 18),
+                              onSelected: (value) {
+                                switch (value) {
+                                  case 'copy':
+                                    onCopy();
+                                    break;
+                                  case 'manage':
+                                    onManage?.call();
+                                    break;
+                                  case 'revoke':
+                                    onRevoke?.call();
+                                    break;
+                                  case 'remove':
+                                    onRemove?.call();
+                                    break;
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(
+                                  value: 'copy',
+                                  child: Text('Copy link'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'manage',
+                                  enabled: onManage != null,
+                                  child: const Text('Manage'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'revoke',
+                                  enabled: onRevoke != null,
+                                  child: const Text('Revoke'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'remove',
+                                  enabled: onRemove != null,
+                                  child: const Text('Remove from list'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (row.fileCount > 1) '${row.fileCount} files',
+                      activity,
+                      expires,
+                    ].join(' - '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF667085),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileMeta extends StatelessWidget {
+  const _MobileMeta({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: const Color(0xFF667085)),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: const TextStyle(
+            color: Color(0xFF667085),
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            height: 1.0,
+          ),
+        ),
+      ],
     );
   }
 }

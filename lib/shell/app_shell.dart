@@ -15,6 +15,7 @@ import '../screens/generate_upload_link.dart';
 import '../screens/send_files_screen.dart';
 import '../screens/create_secure_share_screen.dart';
 import '../screens/admin_users_screen.dart';
+import '../screens/admin_audit_screen.dart';
 import '../screens/otp_verify_screen.dart';
 import '../screens/dropoff_detail_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -169,11 +170,13 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       return _NavSection.home;
     }
 
-    if (route == '/file-box') {
+    if (route == '/file-box' || route == '/file-box/upload') {
       return _NavSection.files;
     }
 
-    if (route == '/generate-upload-link' || route == '/dropoff-details') {
+    if (route == '/generate-upload-link' ||
+        route == '/generate-upload-link/new' ||
+        route == '/dropoff-details') {
       return _NavSection.requests;
     }
 
@@ -295,7 +298,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       setState(() => _isAdminUser = role == 'admin');
 
       // Safety: if someone is on admin route but not admin, bounce them out
-      if (role != 'admin' && _currentRoute == '/admin-users') {
+      if (role != 'admin' && _currentRoute.startsWith('/admin')) {
         setState(() => _currentRoute = '/dashboard');
       }
     } catch (_) {
@@ -1010,8 +1013,10 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       case '/overview':
         return 'Home';
       case '/file-box':
+      case '/file-box/upload':
         return 'File Box';
       case '/generate-upload-link':
+      case '/generate-upload-link/new':
         return 'Request Files';
       case '/send-files':
         return 'Send Files';
@@ -1019,6 +1024,8 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
         return 'Send Files';
       case '/admin-users':
         return 'Admin Console';
+      case kAdminAuditRoute:
+        return 'Audit Log';
       case '/dropoff-details':
         return 'Upload Link Details';
       default:
@@ -1098,7 +1105,7 @@ Please describe the issue below:
       Navigator.pop(context);
     }
     // ✅ prevent accidental navigation to "coming soon" admin pages
-    if (route == kAdminAuditRoute || route == kAdminLinksRoute) {
+    if (route == kAdminLinksRoute) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Coming soon.')));
@@ -1159,7 +1166,7 @@ Please describe the issue below:
           onBack: _closeDropoffDetails,
         );
       case kAdminAuditRoute:
-        return const Center(child: Text('Admin audit view (coming soon)'));
+        return const AdminAuditScreen();
 
       case kAdminLinksRoute:
         return const Center(child: Text('Admin upload links (coming soon)'));
@@ -1172,6 +1179,8 @@ Please describe the issue below:
         return const AccountSettingsScreen();
       case '/file-box':
         return const FileBoxScreen();
+      case '/file-box/upload':
+        return const FileBoxScreen(autoOpenUpload: true);
       case '/send-files':
         return SendFilesScreen(
           onCreateSecureShare: () => _navigate('/send-files/new'),
@@ -1182,6 +1191,11 @@ Please describe the issue below:
         );
       case '/generate-upload-link':
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
+      case '/generate-upload-link/new':
+        return GenerateUploadLinkScreen(
+          onOpenDetails: _openDropoffDetails,
+          autoOpenCreate: true,
+        );
       case '/admin-users':
         return const AdminUsersScreen();
       case '/dashboard':
@@ -1355,7 +1369,7 @@ Please describe the issue below:
 
     final uid = user.uid; // ✅ now SAFE
     final isMobileShell = MediaQuery.of(context).size.width < 900;
-    final isAdminConsole = _currentRoute == '/admin-users';
+    final isAdminConsole = _currentRoute.startsWith('/admin');
 
     // Enterprise behavior:
     // - On mobile: show back if inner stack can pop, else show menu
@@ -1415,7 +1429,6 @@ Please describe the issue below:
               onSelectSection: (s) {
                 setState(() {
                   _section = s;
-                  _secondaryPaneCollapsed = false;
                 });
 
                 switch (s) {
@@ -1433,7 +1446,6 @@ Please describe the issue below:
                     break;
                   case _NavSection.admin:
                     setState(() {
-                      _secondaryPaneCollapsed = false;
                       _moreExpanded = false;
                     });
                     _navigate(kAdminUsersRoute);
@@ -1518,7 +1530,9 @@ Please describe the issue below:
                                   leading: leading,
                                   onSearch: _onGlobalSearch,
                                   onCreateNew: () =>
-                                      _navigate('/generate-upload-link'),
+                                      _navigate('/generate-upload-link/new'),
+                                  onUploadFiles: () =>
+                                      _navigate('/file-box/upload'),
                                   onCreateSecureShare: () =>
                                       _navigate('/send-files/new'),
                                   onOpenSettings: () =>
@@ -1539,7 +1553,9 @@ Please describe the issue below:
                                 leading: leading,
                                 onSearch: _onGlobalSearch,
                                 onCreateNew: () =>
-                                    _navigate('/generate-upload-link'),
+                                    _navigate('/generate-upload-link/new'),
+                                onUploadFiles: () =>
+                                    _navigate('/file-box/upload'),
                                 onCreateSecureShare: () =>
                                     _navigate('/send-files/new'),
                                 onOpenSettings: () =>
@@ -1573,6 +1589,7 @@ class _ContentUtilityBar extends StatelessWidget {
   const _ContentUtilityBar({
     required this.onSearch,
     required this.onCreateNew,
+    required this.onUploadFiles,
     required this.onCreateSecureShare,
     required this.onOpenSettings,
     required this.onOpenSupport,
@@ -1589,6 +1606,7 @@ class _ContentUtilityBar extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenSupport;
   final VoidCallback onCreateNew;
+  final VoidCallback onUploadFiles;
   final VoidCallback onCreateSecureShare;
   final Widget avatar;
 
@@ -1622,10 +1640,24 @@ class _ContentUtilityBar extends StatelessWidget {
                       tooltip: 'Create new',
                       offset: const Offset(0, 40),
                       onSelected: (v) {
+                        if (v == 'upload') onUploadFiles();
                         if (v == 'request') onCreateNew();
                         if (v == 'secureShare') onCreateSecureShare();
                       },
                       itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'upload',
+                          child: Row(
+                            children: [
+                              Icon(Icons.upload_file_outlined, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Upload files',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
                         PopupMenuItem(
                           value: 'request',
                           child: Row(
@@ -2095,8 +2127,6 @@ class _SecondaryPane extends StatelessWidget {
             'Activity & Audit',
             Icons.receipt_long_outlined,
             kAdminAuditRoute,
-            enabled: false,
-            disabledHint: 'Coming soon',
           ),
 
           // 🚫 Disabled (coming soon)
@@ -2433,6 +2463,15 @@ class _SidebarNav extends StatelessWidget {
               icon: Icons.admin_panel_settings_outlined,
               label: 'Admin',
               route: '/admin-users',
+              currentRoute: currentRoute,
+              onNavigate: onNavigate,
+              collapsed: collapsed,
+              accentOverride: const Color(0xFF111827),
+            ),
+            _SidebarNavItem(
+              icon: Icons.receipt_long_outlined,
+              label: 'Audit Log',
+              route: kAdminAuditRoute,
               currentRoute: currentRoute,
               onNavigate: onNavigate,
               collapsed: collapsed,
