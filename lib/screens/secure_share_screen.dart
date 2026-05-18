@@ -22,9 +22,14 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
   bool _loading = false;
   bool _checkingStatus = true;
   bool _passwordRequired = true;
+  bool _detailsProtected = true;
+  bool _accessGranted = false;
   String? _error;
   String? _blockedStatus;
   String? _shareId;
+  String _recipientName = '';
+  String _accessNote = '';
+  String _message = '';
   DateTime? _expiresAt;
   List<_SecureSharedFile> _files = const [];
   final Set<String> _selectedFileIds = <String>{};
@@ -74,11 +79,25 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       final status = (data['status'] ?? '').toString().toLowerCase().trim();
       final expiresAtMillis = data['expiresAtMillis'];
       final passwordRequired = data['passwordRequired'] != false;
+      final detailsProtected = data['detailsProtected'] != false;
+      final rawFiles = (data['files'] is List) ? data['files'] as List : [];
 
       if (!mounted) return;
       setState(() {
         _checkingStatus = false;
         _passwordRequired = passwordRequired;
+        _detailsProtected = detailsProtected;
+        _recipientName = (data['recipientName'] ?? '').toString().trim();
+        _accessNote = (data['accessNote'] ?? '').toString().trim();
+        _message = (data['message'] ?? '').toString().trim();
+        _files = rawFiles
+            .map((f) => _SecureSharedFile.fromMap(Map<String, dynamic>.from(f)))
+            .toList();
+        if (!_detailsProtected) {
+          _selectedFileIds
+            ..clear()
+            ..addAll(_files.map((f) => f.fileId));
+        }
         _expiresAt = expiresAtMillis is num
             ? DateTime.fromMillisecondsSinceEpoch(expiresAtMillis.toInt())
             : null;
@@ -99,11 +118,11 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
   String get _blockedTitle {
     switch (_blockedStatus) {
       case 'expired':
-        return 'This secure link has expired';
+        return 'This file link has expired';
       case 'revoked':
-        return 'This secure link is no longer available';
+        return 'This file link is no longer available';
       default:
-        return 'This secure link is unavailable';
+        return 'This file link is unavailable';
     }
   }
 
@@ -113,11 +132,11 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
         final date = _expiresAt == null
             ? ''
             : ' It expired on ${_formatDate(_expiresAt!)}.';
-        return 'For your protection, access to this file share is no longer available.$date Please contact our office if you need a new secure link.';
+        return 'For your protection, access to these files is no longer available.$date Please contact our office if you need a new link.';
       case 'revoked':
-        return 'Access to this file share has been disabled. Please contact our office if you need assistance.';
+        return 'Access to these files has been disabled. Please contact our office if you need assistance.';
       default:
-        return 'We could not verify this secure link. Please contact our office if you believe this is unexpected.';
+        return 'We could not verify this file link. Please contact our office if you believe this is unexpected.';
     }
   }
 
@@ -125,7 +144,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
     final shareId = (_shareId ?? '').trim();
     final password = _passwordCtrl.text.trim();
     if (shareId.isEmpty) {
-      setState(() => _error = 'This secure link is missing its share ID.');
+      setState(() => _error = 'This file link is missing its share ID.');
       return;
     }
     if (_passwordRequired && password.isEmpty) {
@@ -150,7 +169,12 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
       final passwordRequired = data['passwordRequired'] != false;
 
       setState(() {
+        _accessGranted = true;
         _passwordRequired = passwordRequired;
+        _detailsProtected = data['detailsProtected'] != false;
+        _recipientName = (data['recipientName'] ?? '').toString().trim();
+        _accessNote = (data['accessNote'] ?? '').toString().trim();
+        _message = (data['message'] ?? '').toString().trim();
         _expiresAt = expiresAtMillis is num
             ? DateTime.fromMillisecondsSinceEpoch(expiresAtMillis.toInt())
             : null;
@@ -172,11 +196,11 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
         } else {
           _error = e.message?.trim().isNotEmpty == true
               ? e.message
-              : 'Unable to open this secure share.';
+              : 'Unable to open this file link.';
         }
       });
     } catch (e) {
-      setState(() => _error = 'Unable to open this secure share.');
+      setState(() => _error = 'Unable to open this file link.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -269,7 +293,8 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final unlocked = _files.isNotEmpty;
+    final detailsVisible = !_detailsProtected || _accessGranted;
+    final canDownload = !_passwordRequired || _accessGranted;
 
     return Scaffold(
       backgroundColor: const Color(0xFFDCDCDC),
@@ -335,23 +360,21 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Secure file share',
+                                        'Files sent to you',
                                         style: theme.textTheme.titleLarge
                                             ?.copyWith(
                                               color: const Color(0xFF101828),
                                               fontWeight: FontWeight.w700,
                                             ),
                                       ),
-                                      if (_blockedStatus == null) ...[
+                                      if (_blockedStatus == null &&
+                                          (_checkingStatus ||
+                                              detailsVisible)) ...[
                                         const SizedBox(height: 2),
                                         Text(
                                           _checkingStatus
-                                              ? 'Verifying this secure link.'
-                                              : unlocked
-                                              ? 'Download the files shared with you.'
-                                              : _passwordRequired
-                                              ? 'Enter the password provided by our office.'
-                                              : 'Opening secure files.',
+                                              ? 'Verifying this file link.'
+                                              : 'Review and download the files sent to you.',
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                                 color: const Color(0xFF667085),
@@ -380,50 +403,28 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                 title: _blockedTitle,
                                 message: _blockedMessage,
                               ),
-                            ] else if (!unlocked && _passwordRequired) ...[
-                              TextField(
-                                controller: _passwordCtrl,
-                                obscureText: true,
-                                enabled: !_loading,
-                                onSubmitted: (_) => _unlock(),
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: const Icon(Icons.key_outlined),
-                                  errorText: _error,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                            ] else if (!canDownload &&
+                                _passwordRequired &&
+                                _detailsProtected) ...[
+                              if (_accessNote.isNotEmpty) ...[
+                                _AccessNotePanel(message: _accessNote),
+                                const SizedBox(height: 12),
+                              ],
+                              Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 420,
+                                  ),
+                                  child: _PasswordAccessPanel(
+                                    controller: _passwordCtrl,
+                                    loading: _loading,
+                                    error: _error,
+                                    detailsProtected: _detailsProtected,
+                                    onSubmit: _unlock,
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 14),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 48,
-                                child: FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: AppColors.brandBlue,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  onPressed: _loading ? null : _unlock,
-                                  icon: _loading
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.lock_open_outlined,
-                                          size: 18,
-                                        ),
-                                  label: const Text('Open secure files'),
-                                ),
-                              ),
-                            ] else if (!unlocked) ...[
+                            ] else if (!detailsVisible) ...[
                               const Center(
                                 child: Padding(
                                   padding: EdgeInsets.symmetric(vertical: 18),
@@ -431,6 +432,35 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                 ),
                               ),
                             ] else ...[
+                              if (!canDownload && _passwordRequired) ...[
+                                if (_accessNote.isNotEmpty) ...[
+                                  _AccessNotePanel(message: _accessNote),
+                                  const SizedBox(height: 12),
+                                ],
+                                Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 420,
+                                    ),
+                                    child: _PasswordAccessPanel(
+                                      controller: _passwordCtrl,
+                                      loading: _loading,
+                                      error: _error,
+                                      detailsProtected: _detailsProtected,
+                                      onSubmit: _unlock,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              if (_recipientName.isNotEmpty ||
+                                  _message.isNotEmpty) ...[
+                                _ClientMessagePanel(
+                                  recipientName: _recipientName,
+                                  message: _message,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
@@ -444,7 +474,7 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                   builder: (context, constraints) {
                                     final compact = constraints.maxWidth < 560;
                                     final statusText = _expiresAt == null
-                                        ? 'Secure files are ready.'
+                                        ? 'Files are ready.'
                                         : 'Available until ${_formatDate(_expiresAt!)}';
                                     final status = Row(
                                       crossAxisAlignment:
@@ -515,7 +545,8 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                             ),
                                           ),
                                           onPressed:
-                                              (_loading ||
+                                              (!canDownload ||
+                                                  _loading ||
                                                   _selectedFileIds.isEmpty)
                                               ? null
                                               : _downloadSelected,
@@ -557,159 +588,221 @@ class _SecureShareScreenState extends State<SecureShareScreen> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: const Color(0xFFE4E7EC),
+                              if (_files.isEmpty)
+                                const _SecureShareNotice(
+                                  icon: Icons.folder_off_outlined,
+                                  title: 'No files are available',
+                                  message:
+                                      'Please contact our office if you expected files here.',
+                                )
+                              else
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: const Color(0xFFE4E7EC),
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Container(
-                                      height: 40,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                      ),
-                                      color: const Color(0xFFF9FAFB),
-                                      child: Row(
-                                        children: const [
-                                          SizedBox(width: 44),
-                                          Expanded(
-                                            child: _ShareHeaderText('Name'),
-                                          ),
-                                          SizedBox(
-                                            width: 110,
-                                            child: _ShareHeaderText('Size'),
-                                          ),
-                                          SizedBox(
-                                            width: 88,
-                                            child: _ShareHeaderText(
-                                              'Actions',
-                                              alignEnd: true,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Divider(
-                                      height: 1,
-                                      color: Color(0xFFE4E7EC),
-                                    ),
-                                    ..._files.map((file) {
-                                      final selected = _selectedFileIds
-                                          .contains(file.fileId);
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final compact =
+                                          constraints.maxWidth < 560;
                                       return Column(
                                         children: [
-                                          InkWell(
-                                            onTap: () => setState(() {
-                                              if (selected) {
-                                                _selectedFileIds.remove(
-                                                  file.fileId,
-                                                );
-                                              } else {
-                                                _selectedFileIds.add(
-                                                  file.fileId,
-                                                );
-                                              }
-                                            }),
-                                            child: Padding(
+                                          if (!compact) ...[
+                                            Container(
+                                              height: 40,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 8,
+                                                    horizontal: 14,
                                                   ),
+                                              color: const Color(0xFFF9FAFB),
                                               child: Row(
-                                                children: [
-                                                  Checkbox(
-                                                    value: selected,
-                                                    onChanged: (v) => setState(
-                                                      () {
-                                                        if (v == true) {
-                                                          _selectedFileIds.add(
-                                                            file.fileId,
-                                                          );
-                                                        } else {
-                                                          _selectedFileIds
-                                                              .remove(
-                                                                file.fileId,
-                                                              );
-                                                        }
-                                                      },
-                                                    ),
-                                                  ),
-                                                  _ClientShareFileTypeIcon(
-                                                    fileName: file.originalName,
-                                                    contentType:
-                                                        file.contentType,
-                                                  ),
-                                                  const SizedBox(width: 10),
+                                                children: const [
+                                                  SizedBox(width: 44),
                                                   Expanded(
-                                                    child: Text(
-                                                      file.originalName,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF101828,
-                                                        ),
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                      ),
+                                                    child: _ShareHeaderText(
+                                                      'Name',
                                                     ),
                                                   ),
                                                   SizedBox(
                                                     width: 110,
-                                                    child: Text(
-                                                      _formatSize(
-                                                        file.sizeBytes,
-                                                      ),
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF667085,
-                                                        ),
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                      ),
+                                                    child: _ShareHeaderText(
+                                                      'Size',
                                                     ),
                                                   ),
                                                   SizedBox(
                                                     width: 88,
-                                                    child: Align(
-                                                      alignment:
-                                                          Alignment.centerRight,
-                                                      child: IconButton(
-                                                        tooltip:
-                                                            'Download file',
-                                                        icon: const Icon(
-                                                          Icons
-                                                              .download_outlined,
-                                                          size: 18,
-                                                        ),
-                                                        onPressed: _loading
-                                                            ? null
-                                                            : () => _download(
-                                                                file,
-                                                              ),
-                                                      ),
+                                                    child: _ShareHeaderText(
+                                                      'Actions',
+                                                      alignEnd: true,
                                                     ),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                          ),
-                                          if (file != _files.last)
                                             const Divider(
                                               height: 1,
                                               color: Color(0xFFE4E7EC),
                                             ),
+                                          ],
+                                          ..._files.map((file) {
+                                            final selected = _selectedFileIds
+                                                .contains(file.fileId);
+                                            void toggleSelected(bool? v) {
+                                              setState(() {
+                                                if (v == true) {
+                                                  _selectedFileIds.add(
+                                                    file.fileId,
+                                                  );
+                                                } else {
+                                                  _selectedFileIds.remove(
+                                                    file.fileId,
+                                                  );
+                                                }
+                                              });
+                                            }
+
+                                            return Column(
+                                              children: [
+                                                InkWell(
+                                                  onTap: () => toggleSelected(
+                                                    !selected,
+                                                  ),
+                                                  child: Padding(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
+                                                          horizontal: compact
+                                                              ? 8
+                                                              : 10,
+                                                          vertical: compact
+                                                              ? 10
+                                                              : 8,
+                                                        ),
+                                                    child: Row(
+                                                      children: [
+                                                        Checkbox(
+                                                          value: selected,
+                                                          onChanged:
+                                                              toggleSelected,
+                                                        ),
+                                                        _ClientShareFileTypeIcon(
+                                                          fileName: file
+                                                              .originalName,
+                                                          contentType:
+                                                              file.contentType,
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 10,
+                                                        ),
+                                                        Expanded(
+                                                          child: Column(
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .start,
+                                                            children: [
+                                                              Text(
+                                                                file.originalName,
+                                                                maxLines:
+                                                                    compact
+                                                                    ? 2
+                                                                    : 1,
+                                                                overflow:
+                                                                    TextOverflow
+                                                                        .ellipsis,
+                                                                style:
+                                                                    const TextStyle(
+                                                                      color: Color(
+                                                                        0xFF101828,
+                                                                      ),
+                                                                      fontWeight:
+                                                                          FontWeight.w800,
+                                                                    ),
+                                                              ),
+                                                              if (compact) ...[
+                                                                const SizedBox(
+                                                                  height: 2,
+                                                                ),
+                                                                Text(
+                                                                  _formatSize(
+                                                                    file.sizeBytes,
+                                                                  ),
+                                                                  style:
+                                                                      const TextStyle(
+                                                                        color: Color(
+                                                                          0xFF667085,
+                                                                        ),
+                                                                        fontSize:
+                                                                            12,
+                                                                        fontWeight:
+                                                                            FontWeight.w700,
+                                                                      ),
+                                                                ),
+                                                              ],
+                                                            ],
+                                                          ),
+                                                        ),
+                                                        if (!compact)
+                                                          SizedBox(
+                                                            width: 110,
+                                                            child: Text(
+                                                              _formatSize(
+                                                                file.sizeBytes,
+                                                              ),
+                                                              style:
+                                                                  const TextStyle(
+                                                                    color: Color(
+                                                                      0xFF667085,
+                                                                    ),
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w700,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                        SizedBox(
+                                                          width: compact
+                                                              ? 42
+                                                              : 88,
+                                                          child: Align(
+                                                            alignment: Alignment
+                                                                .centerRight,
+                                                            child: IconButton(
+                                                              tooltip:
+                                                                  'Download file',
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .download_outlined,
+                                                                size: 18,
+                                                              ),
+                                                              onPressed:
+                                                                  (!canDownload ||
+                                                                      _loading)
+                                                                  ? null
+                                                                  : () =>
+                                                                        _download(
+                                                                          file,
+                                                                        ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (file != _files.last)
+                                                  const Divider(
+                                                    height: 1,
+                                                    color: Color(0xFFE4E7EC),
+                                                  ),
+                                              ],
+                                            );
+                                          }),
                                         ],
                                       );
-                                    }),
-                                  ],
+                                    },
+                                  ),
                                 ),
-                              ),
                             ],
                           ],
                         ),
@@ -752,6 +845,193 @@ class _ClientShareFileTypeIcon extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: Icon(meta.icon, size: 16, color: meta.color),
+      ),
+    );
+  }
+}
+
+class _AccessNotePanel extends StatelessWidget {
+  const _AccessNotePanel({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F9FF),
+            border: Border.all(color: const Color(0xFFD6E8FF)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.info_outline,
+                size: 18,
+                color: AppColors.brandBlue,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: Color(0xFF344054),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PasswordAccessPanel extends StatelessWidget {
+  const _PasswordAccessPanel({
+    required this.controller,
+    required this.loading,
+    required this.detailsProtected,
+    required this.onSubmit,
+    this.error,
+  });
+
+  final TextEditingController controller;
+  final bool loading;
+  final bool detailsProtected;
+  final VoidCallback onSubmit;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFD),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Enter password',
+            style: TextStyle(
+              color: Color(0xFF101828),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            detailsProtected
+                ? 'This verifies access before file names and downloads are shown.'
+                : 'Enter the password to download these files.',
+            style: const TextStyle(
+              color: Color(0xFF667085),
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            obscureText: true,
+            enabled: !loading,
+            onSubmitted: (_) => onSubmit(),
+            decoration: InputDecoration(
+              isDense: true,
+              labelText: 'Password',
+              prefixIcon: const Icon(Icons.key_outlined, size: 18),
+              errorText: error,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 42,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brandBlue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: loading ? null : onSubmit,
+              icon: loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.lock_open_outlined, size: 18),
+              label: const Text('Open files'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientMessagePanel extends StatelessWidget {
+  const _ClientMessagePanel({
+    required this.recipientName,
+    required this.message,
+  });
+
+  final String recipientName;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    if (recipientName.isEmpty && message.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFCFCFD),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (message.isEmpty && recipientName.isNotEmpty)
+            Text(
+              'Prepared for $recipientName',
+              style: const TextStyle(
+                color: Color(0xFF344054),
+                fontWeight: FontWeight.w900,
+                fontSize: 12.5,
+              ),
+            ),
+          if (message.isNotEmpty) ...[
+            Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF475467),
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -856,7 +1136,7 @@ class _SecureShareFooter extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Secure Client Portal.\nAll rights reserved.',
+          'Client File Portal.\nAll rights reserved.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: const Color(0xFF667085),

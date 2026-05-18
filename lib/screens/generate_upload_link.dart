@@ -108,6 +108,7 @@ class _RequestDialogPrefill {
 class GenerateUploadLinkScreen extends StatefulWidget {
   final void Function(String requestId)? onOpenDetails;
   final VoidCallback? onCreate;
+  final bool autoOpenCreate;
   final ValueNotifier<int>? createSignal; // ✅ ADD THIS LINE
 
   const GenerateUploadLinkScreen({
@@ -115,6 +116,7 @@ class GenerateUploadLinkScreen extends StatefulWidget {
     this.onOpenDetails,
     this.onCreate,
     this.createSignal,
+    this.autoOpenCreate = false,
   });
 
   @override
@@ -195,6 +197,7 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
   late _LinksView _view;
 
   bool _busy = false;
+  bool _autoCreateOpened = false;
 
   @override
   void initState() {
@@ -208,6 +211,13 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
         _openCreateRequestDialog();
       }
     });
+
+    if (widget.autoOpenCreate && !_autoCreateOpened) {
+      _autoCreateOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openCreateRequestDialog();
+      });
+    }
   }
 
   @override
@@ -1083,68 +1093,81 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                   sectionLabel('Client'),
                                   const SizedBox(height: 4),
 
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const _FieldHeader(
-                                              'Client first name',
-                                              required: true,
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final narrow =
+                                          constraints.maxWidth < 520;
+                                      final firstNameField = Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const _FieldHeader(
+                                            'Client first name',
+                                            required: true,
+                                          ),
+                                          TextFormField(
+                                            controller: firstCtrl,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Enter first name',
                                             ),
+                                            validator: (v) {
+                                              if ((v ?? '').trim().isEmpty) {
+                                                return 'First name is required.';
+                                              }
+                                              return null;
+                                            },
+                                            onChanged: (_) =>
+                                                setLocalState(() {}),
+                                          ),
+                                        ],
+                                      );
+                                      final lastNameField = Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const _FieldHeader(
+                                            'Client last name',
+                                            required: true,
+                                          ),
+                                          TextFormField(
+                                            controller: lastCtrl,
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Enter last name',
+                                            ),
+                                            validator: (v) {
+                                              if ((v ?? '').trim().isEmpty) {
+                                                return 'Last name is required.';
+                                              }
+                                              return null;
+                                            },
+                                            onChanged: (_) =>
+                                                setLocalState(() {}),
+                                          ),
+                                        ],
+                                      );
 
-                                            TextFormField(
-                                              controller: firstCtrl,
-                                              textInputAction:
-                                                  TextInputAction.next,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Enter first name',
-                                              ),
-                                              validator: (v) {
-                                                if ((v ?? '').trim().isEmpty) {
-                                                  return 'First name is required.';
-                                                }
-                                                return null;
-                                              },
-                                              onChanged: (_) =>
-                                                  setLocalState(() {}),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                      if (narrow) {
+                                        return Column(
                                           children: [
-                                            const _FieldHeader(
-                                              'Client last name',
-                                              required: true,
-                                            ),
-
-                                            TextFormField(
-                                              controller: lastCtrl,
-                                              textInputAction:
-                                                  TextInputAction.next,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Enter last name',
-                                              ),
-                                              validator: (v) {
-                                                if ((v ?? '').trim().isEmpty) {
-                                                  return 'Last name is required.';
-                                                }
-                                                return null;
-                                              },
-                                              onChanged: (_) =>
-                                                  setLocalState(() {}),
-                                            ),
+                                            firstNameField,
+                                            const SizedBox(height: 10),
+                                            lastNameField,
                                           ],
-                                        ),
-                                      ),
-                                    ],
+                                        );
+                                      }
+
+                                      return Row(
+                                        children: [
+                                          Expanded(child: firstNameField),
+                                          const SizedBox(width: 12),
+                                          Expanded(child: lastNameField),
+                                        ],
+                                      );
+                                    },
                                   ),
 
                                   const SizedBox(height: 10),
@@ -1485,25 +1508,25 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                         const SizedBox(height: 12),
 
                         // Actions
-                        Row(
-                          children: [
-                            Text(
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final narrow = constraints.maxWidth < 520;
+                            final status = Text(
                               submitting ? 'Creating...' : '',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
                               ),
-                            ),
-                            const Spacer(),
-                            TextButton(
+                            );
+                            final cancel = TextButton(
                               onPressed: submitting
                                   ? null
                                   : () => Navigator.pop(ctx),
                               child: const Text('Cancel'),
-                            ),
-                            const SizedBox(width: 10),
-                            SizedBox(
+                            );
+                            final primary = SizedBox(
                               height: 36,
+                              width: narrow ? double.infinity : null,
                               child: FilledButton(
                                 onPressed: canCreate
                                     ? () => submit(setLocalState)
@@ -1535,8 +1558,33 @@ class _GenerateUploadLinkScreenState extends State<GenerateUploadLinkScreen> {
                                             : 'Create link',
                                       ),
                               ),
-                            ),
-                          ],
+                            );
+
+                            if (narrow) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (submitting) ...[
+                                    status,
+                                    const SizedBox(height: 8),
+                                  ],
+                                  primary,
+                                  const SizedBox(height: 8),
+                                  Center(child: cancel),
+                                ],
+                              );
+                            }
+
+                            return Row(
+                              children: [
+                                status,
+                                const Spacer(),
+                                cancel,
+                                const SizedBox(width: 10),
+                                primary,
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),

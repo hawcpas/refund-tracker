@@ -488,6 +488,7 @@ class _MyAppState extends State<MyApp> {
             );
 
           case '/admin-users':
+          case '/admin-audit':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
@@ -515,13 +516,14 @@ class _MyAppState extends State<MyApp> {
                         if (role != 'admin') {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return const AppShell(initialRoute: '/admin-users');
+                        return AppShell(initialRoute: route);
                       },
                     ),
               ),
             );
 
           case '/file-box':
+          case '/file-box/upload':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
@@ -549,7 +551,7 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return const AppShell(initialRoute: '/file-box');
+                        return AppShell(initialRoute: route);
                       },
                     ),
               ),
@@ -591,6 +593,7 @@ class _MyAppState extends State<MyApp> {
             );
 
           case '/generate-upload-link':
+          case '/generate-upload-link/new':
             return MaterialPageRoute(
               settings: settings,
               builder: (_) => _AuthGate(
@@ -618,9 +621,7 @@ class _MyAppState extends State<MyApp> {
                         if (!hasDropoffAccess) {
                           return const AppShell(initialRoute: '/dashboard');
                         }
-                        return const AppShell(
-                          initialRoute: '/generate-upload-link',
-                        );
+                        return AppShell(initialRoute: route);
                       },
                     ),
               ),

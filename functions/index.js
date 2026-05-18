@@ -481,6 +481,10 @@ function normalizeName(s) {
   return (s || "").toString().trim();
 }
 
+function clampText(value, max) {
+  return normalizeName(value).slice(0, max);
+}
+
 function sha256(s) {
   return crypto.createHash("sha256").update(String(s)).digest("hex");
 }
@@ -2742,13 +2746,28 @@ exports.softDeleteUploadFile = onCall(
     );
 
     // ✅ Audit log
+    const callerSnap = await admin.firestore().collection("users").doc(auth.uid).get();
+    const caller = callerSnap.data() || {};
+    const actorName = normalizeName(caller.displayName) ||
+      `${normalizeName(caller.firstName)} ${normalizeName(caller.lastName)}`.trim() ||
+      normalizeEmail(auth.token?.email) ||
+      "Staff";
     await admin.firestore().collection("file_activity").add({
       action: "delete",
       requestId,
       fileId: fileRef.id,
+      fileDocPath: fileRef.path,
+      originalName: String(file.originalName || "").trim(),
+      storagePath: String(file.storagePath || "").trim(),
+      sizeBytes: Number(file.sizeBytes || 0),
+      contentType: String(file.contentType || "").trim(),
       actorUid: auth.uid,
       actorType: auth.token?.role || "unknown",
+      actorName,
       actorEmail: auth.token?.email || "",
+      requestClientName: String(file.requestClientName || "").trim(),
+      requestClientEmail: String(file.requestClientEmail || "").trim(),
+      requestBusinessName: String(file.requestBusinessName || "").trim(),
       occurredAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -2835,6 +2854,27 @@ exports.getDropoffDownloadUrl = onCall(
       }
 
       const [url] = await file.getSignedUrl(options);
+      const caller = callerSnap.data() || {};
+      const actorName = normalizeName(caller.displayName) ||
+        `${normalizeName(caller.firstName)} ${normalizeName(caller.lastName)}`.trim() ||
+        normalizeEmail(auth.token?.email) ||
+        "Staff";
+      await db.collection("file_activity").add({
+        action: "download",
+        surface: "file_box",
+        requestId,
+        fileId: String(meta.fileId || fileIdFromData || "").trim(),
+        fileDocPath: String(meta.fileDocPath || "").trim(),
+        originalName: String(meta.originalName || rawFilename || "").trim(),
+        storagePath,
+        sizeBytes: Number(meta.sizeBytes || 0),
+        contentType: String(meta.contentType || contentType || "").trim(),
+        actorType: role || "staff",
+        actorUid: auth.uid,
+        actorName,
+        actorEmail: normalizeEmail(auth.token?.email),
+        occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
       return { ok: true, url };
     }
 
@@ -2931,6 +2971,32 @@ exports.getDropoffDownloadUrl = onCall(
     }
 
     const [url] = await file.getSignedUrl(options);
+
+    const caller = callerSnap.data() || {};
+    const actorName = normalizeName(caller.displayName) ||
+      `${normalizeName(caller.firstName)} ${normalizeName(caller.lastName)}`.trim() ||
+      normalizeEmail(auth.token?.email) ||
+      "Staff";
+    await db.collection("file_activity").add({
+      action: "download",
+      surface: "file_box",
+      requestId,
+      fileId: fileIdFromData || "",
+      originalName: rawFilename,
+      storagePath,
+      contentType,
+      actorType: role || "staff",
+      actorUid: auth.uid,
+      actorName,
+      actorEmail: normalizeEmail(auth.token?.email),
+      requestCreatedByUid: String(req.createdByUid || "").trim(),
+      requestCreatedByRole: String(req.createdByRole || "").toLowerCase().trim(),
+      requestCreatedByName: String(req.createdByName || "").trim(),
+      requestClientName: String(req.clientName || "").trim(),
+      requestClientEmail: String(req.clientEmail || "").trim(),
+      requestBusinessName: String(req.businessName || "").trim(),
+      occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     return { ok: true, url };
   }
@@ -3687,6 +3753,7 @@ function renderSecureShareEmail({
   shareUrl,
   expiresLabel,
   fileCount,
+  detailsProtected,
 }) {
   const greeting = recipientName ? `Hello ${escapeHtml(recipientName)},` : "Hello,";
   const safeMessage = String(message || "").trim();
@@ -3695,41 +3762,48 @@ function renderSecureShareEmail({
   const safeSenderName = escapeHtml(senderName || "Axume & Associates CPAs");
   const safeShareUrl = escapeHtml(shareUrl);
   const safeExpiresLabel = escapeHtml(expiresLabel);
+  const showMessage = !detailsProtected && safeMessage;
 
   return `
-<div style="margin:0; padding:0; background:#F6F7F9; font-family:Arial, Helvetica, sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F9; padding:24px 0;">
+<div style="margin:0; padding:0; background:#F4F6F8; font-family:Segoe UI, Arial, Helvetica, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F8; padding:28px 0;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; background:#FFFFFF; border:1px solid #E4E7EC;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; background:#FFFFFF; border:1px solid #D0D5DD;">
           <tr>
-            <td style="padding:22px 24px; border-bottom:1px solid #E4E7EC;">
-              <img src="${getEmailLogoUrl()}" alt="${safeAppName}" style="max-height:42px; max-width:260px;" />
+            <td style="padding:28px 32px 24px 32px; border-bottom:1px solid #E4E7EC; background:#FFFFFF;">
+              <img src="${getEmailLogoUrl()}" alt="${safeAppName}" width="360" style="display:block; border:0; outline:none; text-decoration:none; max-width:360px; width:100%; height:auto;" />
             </td>
           </tr>
           <tr>
-            <td style="padding:24px;">
-              <h1 style="margin:0 0 12px 0; font-size:20px; line-height:1.3; color:#101828;">Secure files shared with you</h1>
-              <p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">${greeting}</p>
-              <p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">
-                ${safeSenderName} shared ${fileLabel} with you through ${safeAppName}.
+            <td style="padding:30px 32px 28px 32px;">
+              <h1 style="margin:0 0 14px 0; font-size:24px; line-height:1.25; color:#101828; font-weight:700;">Files sent to you</h1>
+              <p style="margin:0 0 16px 0; font-size:15px; line-height:1.55; color:#344054;">${greeting}</p>
+              <p style="margin:0 0 18px 0; font-size:15px; line-height:1.55; color:#344054;">
+                ${safeSenderName} sent ${fileLabel} through ${safeAppName}.
               </p>
-              ${safeMessage ? `<p style="margin:0 0 14px 0; font-size:14px; line-height:1.55; color:#344054;">${escapeHtml(safeMessage).replace(/\n/g, "<br/>")}</p>` : ""}
-              <p style="margin:0 0 20px 0; font-size:13px; line-height:1.45; color:#667085;">
-                This link is password protected. Use the password provided separately by our office.
-              </p>
-              <p style="margin:0 0 20px 0;">
-                <a href="${safeShareUrl}" style="display:inline-block; background:#0B62D6; color:#FFFFFF; text-decoration:none; font-size:14px; font-weight:700; padding:11px 16px; border-radius:6px;">
-                  Open secure files
+              ${showMessage ? `<p style="margin:0 0 18px 0; font-size:15px; line-height:1.55; color:#344054;">${escapeHtml(safeMessage).replace(/\n/g, "<br/>")}</p>` : ""}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px 0; background:#F9FAFB; border:1px solid #E4E7EC;">
+                <tr>
+                  <td style="padding:14px 16px; font-size:13.5px; line-height:1.5; color:#475467;">
+                    ${detailsProtected
+                      ? "For privacy, file names and message details are shown only after the password is entered."
+                      : "This link is password protected. Use the password provided separately by our office."}
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 22px 0;">
+                <a href="${safeShareUrl}" style="display:inline-block; background:#0B62D6; color:#FFFFFF; text-decoration:none; font-size:15px; font-weight:700; padding:12px 18px; border-radius:6px;">
+                  Open files
                 </a>
               </p>
-              <p style="margin:0; font-size:12.5px; line-height:1.45; color:#667085;">
+              <p style="margin:0; font-size:13px; line-height:1.45; color:#667085;">
                 ${safeExpiresLabel}
               </p>
             </td>
           </tr>
           <tr>
-            <td style="padding:16px 24px; border-top:1px solid #E4E7EC; font-size:12px; color:#667085;">
+            <td style="padding:16px 32px; border-top:1px solid #E4E7EC; font-size:12.5px; color:#667085; background:#FCFCFD;">
               This message was generated by ${safeAppName}. Please do not forward this link.
             </td>
           </tr>
@@ -3774,6 +3848,7 @@ exports.createSecureFileShare = onCall(
       }
 
       const passwordRequired = data?.passwordRequired !== false;
+      const detailsProtected = data?.detailsProtected !== false;
       const password = String(data?.password || "").trim();
       if (passwordRequired && password.length < 6) {
         throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
@@ -3785,6 +3860,7 @@ exports.createSecureFileShare = onCall(
       }
 
       const recipientName = normalizeName(data?.recipientName);
+      const accessNote = clampText(data?.accessNote, 220);
       const message = normalizeName(data?.message);
       const sendEmail = data?.sendEmail === true;
       if (sendEmail && !recipientEmail) {
@@ -3847,10 +3923,12 @@ exports.createSecureFileShare = onCall(
         createdByName: senderName,
         recipientEmail: recipientEmail || "",
         recipientName: recipientName || "",
+        accessNote: accessNote || "",
         message: message || "",
         status: "active",
         expiresAt,
         passwordRequired,
+        detailsProtected,
         passwordSalt: salt,
         passwordHash,
         files: metas,
@@ -3861,10 +3939,36 @@ exports.createSecureFileShare = onCall(
 
       await markFileBoxFilesSent(metas, senderName);
 
+      const activityBatch = db.batch();
+      for (const meta of metas) {
+        activityBatch.set(db.collection("file_activity").doc(), {
+          action: "sent",
+          surface: "sent_files",
+          shareId: ref.id,
+          requestId: String(meta.requestId || "").trim(),
+          fileId: String(meta.fileId || "").trim(),
+          fileDocPath: String(meta.fileDocPath || "").trim(),
+          originalName: String(meta.originalName || "").trim(),
+          storagePath: String(meta.storagePath || "").trim(),
+          sizeBytes: Number(meta.sizeBytes || 0),
+          contentType: String(meta.contentType || "").trim(),
+          actorType: String(caller.role || "staff").toLowerCase().trim(),
+          actorUid: auth.uid,
+          actorName: senderName,
+          actorEmail: normalizeEmail(auth.token?.email),
+          recipientName: recipientName || "",
+          recipientEmail: recipientEmail || "",
+          requestClientName: recipientName || "",
+          requestClientEmail: recipientEmail || "",
+          occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      await activityBatch.commit();
+
       if (sendEmail) {
         await sendAccountEmail({
           to: recipientEmail,
-          subject: "Secure files from Axume & Associates CPAs",
+          subject: "Files sent to you from Axume & Associates CPAs",
           html: renderSecureShareEmail({
             appName: APP_NAME.value() || "Axume Portal",
             recipientName,
@@ -3872,9 +3976,10 @@ exports.createSecureFileShare = onCall(
             message,
             shareUrl,
             expiresLabel: customExpiresAtMillis
-              ? "This secure link has a custom expiration time."
-              : `This secure link expires in ${expirationDays} ${expirationDays === 1 ? "day" : "days"}.`,
+              ? "This file link has a custom expiration time."
+              : `This file link expires in ${expirationDays} ${expirationDays === 1 ? "day" : "days"}.`,
             fileCount: metas.length,
+            detailsProtected,
           }),
         });
       }
@@ -3948,12 +4053,40 @@ exports.openSecureFileShare = onCall(
     );
 
     const files = Array.isArray(share.files) ? share.files : [];
+    const openBatch = db.batch();
+    for (const file of files) {
+      openBatch.set(db.collection("file_activity").doc(), {
+        action: "view",
+        surface: "sent_files",
+        shareId,
+        requestId: String(file.requestId || "").trim(),
+        fileId: String(file.fileId || "").trim(),
+        fileDocPath: String(file.fileDocPath || "").trim(),
+        originalName: String(file.originalName || "").trim(),
+        storagePath: String(file.storagePath || "").trim(),
+        sizeBytes: Number(file.sizeBytes || 0),
+        contentType: String(file.contentType || "").trim(),
+        actorType: "recipient",
+        actorUid: null,
+        actorName: share.recipientName || share.recipientEmail || "Recipient",
+        actorEmail: share.recipientEmail || "",
+        recipientName: share.recipientName || "",
+        recipientEmail: share.recipientEmail || "",
+        requestClientName: share.recipientName || "",
+        requestClientEmail: share.recipientEmail || "",
+        occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    if (files.length > 0) await openBatch.commit();
+
     return {
       ok: true,
       shareId,
       recipientName: share.recipientName || "",
       message: share.message || "",
+      accessNote: share.accessNote || "",
       passwordRequired,
+      detailsProtected: share.detailsProtected !== false,
       expiresAtMillis: expiresAt?.toMillis?.() ?? null,
       files: files.map((f) => ({
         fileId: String(f.fileId || ""),
@@ -3995,6 +4128,18 @@ exports.getSecureShareStatus = onCall(
       status,
       expiresAtMillis,
       passwordRequired: share.passwordRequired !== false,
+      detailsProtected: share.detailsProtected !== false,
+      accessNote: String(share.accessNote || ""),
+      recipientName: share.detailsProtected === false ? String(share.recipientName || "") : "",
+      message: share.detailsProtected === false ? String(share.message || "") : "",
+      files: share.detailsProtected === false && Array.isArray(share.files)
+        ? share.files.map((f) => ({
+          fileId: String(f.fileId || ""),
+          originalName: String(f.originalName || "File"),
+          contentType: String(f.contentType || ""),
+          sizeBytes: Number(f.sizeBytes || 0),
+        }))
+        : [],
     };
   }
 );
@@ -4057,6 +4202,28 @@ exports.getSecureShareDownloadUrl = onCall(
       { merge: true }
     );
 
+    await db.collection("file_activity").add({
+      action: "download",
+      surface: "sent_files",
+      shareId,
+      requestId: String(meta.requestId || "").trim(),
+      fileId: String(meta.fileId || "").trim(),
+      fileDocPath: String(meta.fileDocPath || "").trim(),
+      originalName: String(meta.originalName || "").trim(),
+      storagePath: String(meta.storagePath || "").trim(),
+      sizeBytes: Number(meta.sizeBytes || 0),
+      contentType: String(meta.contentType || "").trim(),
+      actorType: "recipient",
+      actorUid: null,
+      actorName: share.recipientName || share.recipientEmail || "Recipient",
+      actorEmail: share.recipientEmail || "",
+      recipientName: share.recipientName || "",
+      recipientEmail: share.recipientEmail || "",
+      requestClientName: share.recipientName || "",
+      requestClientEmail: share.recipientEmail || "",
+      occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     return { ok: true, url };
   }
 );
@@ -4110,6 +4277,39 @@ exports.getSecureShareZipDownloadUrl = onCall(
       throw new HttpsError("failed-precondition", "No files selected for download.");
     }
 
+    async function recordSelectedDownloadActivity(selectedFiles) {
+      await ref.set(
+        { lastDownloadedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+
+      const batch = db.batch();
+      for (const file of selectedFiles) {
+        batch.set(db.collection("file_activity").doc(), {
+          action: "download",
+          surface: "sent_files",
+          shareId,
+          requestId: String(file.requestId || "").trim(),
+          fileId: String(file.fileId || "").trim(),
+          fileDocPath: String(file.fileDocPath || "").trim(),
+          originalName: String(file.originalName || "").trim(),
+          storagePath: String(file.storagePath || "").trim(),
+          sizeBytes: Number(file.sizeBytes || 0),
+          contentType: String(file.contentType || "").trim(),
+          actorType: "recipient",
+          actorUid: null,
+          actorName: share.recipientName || share.recipientEmail || "Recipient",
+          actorEmail: share.recipientEmail || "",
+          recipientName: share.recipientName || "",
+          recipientEmail: share.recipientEmail || "",
+          requestClientName: share.recipientName || "",
+          requestClientEmail: share.recipientEmail || "",
+          occurredAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+
     if (files.length === 1) {
       const file = files[0];
       const safeName = safeFilename(file.originalName || file.fileId || "file");
@@ -4122,6 +4322,7 @@ exports.getSecureShareZipDownloadUrl = onCall(
           `filename*=UTF-8''${encodeURIComponent(safeName)}`,
         ...(file.contentType ? { responseType: file.contentType } : {}),
       });
+      await recordSelectedDownloadActivity(files);
       return { ok: true, url, fileCount: 1 };
     }
 
@@ -4179,10 +4380,7 @@ exports.getSecureShareZipDownloadUrl = onCall(
       responseType: "application/zip",
     });
 
-    await ref.set(
-      { lastDownloadedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
+    await recordSelectedDownloadActivity(files);
 
     return { ok: true, url, fileCount: files.length };
   }
@@ -4230,6 +4428,7 @@ exports.listSecureFileShares = onCall(
         url: secureShareUrl(doc.id),
         recipientName: String(share.recipientName || ""),
         recipientEmail: String(share.recipientEmail || ""),
+        accessNote: String(share.accessNote || ""),
         message: String(share.message || ""),
         createdByName: String(share.createdByName || ""),
         createdByEmail: String(share.createdByEmail || ""),
@@ -4299,6 +4498,7 @@ exports.updateSecureFileShare = onCall(
       }
 
       const recipientName = normalizeName(data?.recipientName);
+      const accessNote = clampText(data?.accessNote, 220);
       const message = normalizeName(data?.message);
       const expirationDaysRaw = Number(data?.expirationDays || 7);
       const expirationDays = [1, 7, 14, 30].includes(expirationDaysRaw)
@@ -4376,6 +4576,7 @@ exports.updateSecureFileShare = onCall(
       const update = {
         recipientEmail: recipientEmail || "",
         recipientName: recipientName || "",
+        accessNote: accessNote || "",
         message: message || "",
         status: "active",
         expiresAt: admin.firestore.Timestamp.fromMillis(

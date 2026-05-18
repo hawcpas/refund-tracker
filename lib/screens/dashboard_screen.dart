@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_colors.dart';
 import '../widgets/page_scaffold.dart';
@@ -169,14 +171,21 @@ class _StaticSurface extends StatelessWidget {
 /// FILE TYPE META (MATCHES File Box)
 /// ============================
 
-class _RecentUploadsFromActivity extends StatelessWidget {
+enum _RecentFileFilter { all, today, week, notSent, pdf, client }
+
+class _RecentUploadsFromActivity extends StatefulWidget {
   const _RecentUploadsFromActivity({required this.isAdmin});
 
   final bool isAdmin;
 
-  static const int _maxRecentRows = 6;
-  static const double _recentRowHeight = 56.0;
-  static const double _recentMaxHeight = _maxRecentRows * _recentRowHeight;
+  @override
+  State<_RecentUploadsFromActivity> createState() =>
+      _RecentUploadsFromActivityState();
+}
+
+class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> {
+  _RecentFileFilter _filter = _RecentFileFilter.all;
+  final Set<String> _pinnedFileIds = {};
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream(String uid) {
     return FirebaseFirestore.instance
@@ -202,6 +211,92 @@ class _RecentUploadsFromActivity extends StatelessWidget {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  String _filterLabel(_RecentFileFilter filter) {
+    switch (filter) {
+      case _RecentFileFilter.all:
+        return 'All';
+      case _RecentFileFilter.today:
+        return 'Today';
+      case _RecentFileFilter.week:
+        return 'This week';
+      case _RecentFileFilter.notSent:
+        return 'Not sent';
+      case _RecentFileFilter.pdf:
+        return 'PDFs';
+      case _RecentFileFilter.client:
+        return 'By client';
+    }
+  }
+
+  bool _passesFilter(Map<String, dynamic> m, String fileName, String contentType) {
+    final createdAt = _asDate(m['createdAt']);
+    final now = DateTime.now();
+    final client = _s(m['requestClientName']).isNotEmpty ||
+        _s(m['requestClientEmail']).isNotEmpty ||
+        _s(m['requestBusinessName']).isNotEmpty;
+    final lastAction = _s(m['lastActivityAction']).toLowerCase();
+    final sentAt = _asDate(m['sentAt']) ?? _asDate(m['lastSentAt']);
+
+    switch (_filter) {
+      case _RecentFileFilter.all:
+        return true;
+      case _RecentFileFilter.today:
+        return createdAt != null &&
+            createdAt.year == now.year &&
+            createdAt.month == now.month &&
+            createdAt.day == now.day;
+      case _RecentFileFilter.week:
+        return createdAt != null &&
+            createdAt.isAfter(now.subtract(const Duration(days: 7)));
+      case _RecentFileFilter.notSent:
+        return sentAt == null && lastAction != 'sent';
+      case _RecentFileFilter.pdf:
+        return fileName.toLowerCase().endsWith('.pdf') ||
+            contentType.toLowerCase().contains('pdf');
+      case _RecentFileFilter.client:
+        return client;
+    }
+  }
+
+  Future<void> _downloadFile(
+    BuildContext context,
+    Map<String, dynamic> m,
+    String fileId,
+  ) async {
+    final storagePath = _s(m['storagePath']);
+    final filename = _s(m['originalName']).isEmpty
+        ? 'File'
+        : _s(m['originalName']);
+    if (storagePath.isEmpty) return;
+
+    try {
+      final fn = widget.isAdmin ? 'getAdminDownloadUrl' : 'getDropoffDownloadUrl';
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(fn)
+          .call({
+            'storagePath': storagePath,
+            'filename': filename,
+            'contentType': _s(m['contentType']),
+            'requestId': _s(m['requestId']),
+            'fileId': fileId,
+          });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final url = _s(data['url']);
+      if (url.isEmpty) throw Exception('No download URL returned.');
+      final uri = Uri.parse(url);
+      if (kIsWeb) {
+        await launchUrl(uri, webOnlyWindowName: '_self');
+      } else {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download failed: $e')),
+      );
+    }
   }
 
   String _formatDateTime(BuildContext context, DateTime? dt) {
@@ -546,8 +641,49 @@ class _RecentUploadsFromActivity extends StatelessWidget {
           );
         }
 
+        final visibleDocs = docs.where((d) {
+          final m = d.data();
+          final fileName = _s(m['originalName']).isEmpty
+              ? 'Untitled'
+              : _s(m['originalName']);
+          final contentType = _s(m['contentType']);
+          return _passesFilter(m, fileName, contentType);
+        }).toList()
+          ..sort((a, b) {
+            final aPinned = _pinnedFileIds.contains(a.id);
+            final bPinned = _pinnedFileIds.contains(b.id);
+            if (aPinned == bPinned) return 0;
+            return aPinned ? -1 : 1;
+          });
+
+        if (visibleDocs.isEmpty) {
+          return _DashboardListSection(
+            title: 'Recent files',
+            subtitle: 'Filter: ${_filterLabel(_filter)}',
+            headerTrailing: _RecentFileFilterBar(
+              selected: _filter,
+              labelFor: _filterLabel,
+              onChanged: (value) => setState(() => _filter = value),
+            ),
+            children: [
+              _DashboardListRow(
+                leadingIcon: Icons.filter_alt_off_outlined,
+                title: 'No matching files',
+                subtitle: 'Try a different recent file filter.',
+                onTap: () {},
+                enabled: false,
+              ),
+              _DashboardFooterAction(
+                label: 'View all in File Box',
+                icon: Icons.folder_open_outlined,
+                onPressed: () => Navigator.pushNamed(context, '/file-box'),
+              ),
+            ],
+          );
+        }
+
         // Build rows from live file docs (same source as File Box)
-        final rows = docs.map((d) {
+        final rows = visibleDocs.map((d) {
           final m = d.data();
 
           final fileName = _s(m['originalName']).isEmpty
@@ -567,10 +703,26 @@ class _RecentUploadsFromActivity extends StatelessWidget {
           final clientName = (uploadedBy is Map) ? _s(uploadedBy['name']) : '';
 
           final createdAt = _asDate(m['createdAt']);
+          final lastActionRaw = _s(m['lastActivityAction']);
+          final lastAction = lastActionRaw.isEmpty
+              ? 'Uploaded'
+              : _activityLabel(lastActionRaw);
+          final lastActivityAt = _asDate(m['lastActivityAt']) ?? createdAt;
+          final sentAt = _asDate(m['sentAt']) ?? _asDate(m['lastSentAt']);
+          final downloadedAt = _asDate(m['lastDownloadedAt']);
+          final reviewedAt = _asDate(m['lastViewedAt']);
+          final status = downloadedAt != null
+              ? 'Downloaded'
+              : sentAt != null || lastActionRaw.toLowerCase() == 'sent'
+              ? 'Sent'
+              : reviewedAt != null || lastActionRaw.toLowerCase() == 'view'
+              ? 'Reviewed'
+              : 'Not reviewed';
+          final pinned = _pinnedFileIds.contains(d.id);
           final subtitleParts = <String>[
             if (clientName.isNotEmpty) 'From $clientName' else 'From Client',
             if (business.isNotEmpty) business,
-            _relativeTime(createdAt),
+            '$lastAction ${_relativeTime(lastActivityAt)}',
           ];
 
           return Tooltip(
@@ -582,6 +734,52 @@ class _RecentUploadsFromActivity extends StatelessWidget {
               title: fileName,
               subtitle: subtitleParts.join(' • '),
               onTap: () => _showFileDetails(context, d),
+              badges: [
+                if (pinned) const _StatusBadge(label: 'Pinned'),
+                _StatusBadge(label: status),
+              ],
+              trailing: _DashboardRowMenu(
+                actions: [
+                  _DashboardMenuAction(
+                    icon: pinned ? Icons.star : Icons.star_border_outlined,
+                    label: pinned ? 'Unpin file' : 'Pin file',
+                    onPressed: () {
+                      setState(() {
+                        if (pinned) {
+                          _pinnedFileIds.remove(d.id);
+                        } else {
+                          _pinnedFileIds.add(d.id);
+                        }
+                      });
+                    },
+                  ),
+                  _DashboardMenuAction(
+                    icon: Icons.visibility_outlined,
+                    label: 'View details',
+                    onPressed: () => _showFileDetails(context, d),
+                  ),
+                  _DashboardMenuAction(
+                    icon: Icons.download_outlined,
+                    label: 'Download',
+                    onPressed: () => _downloadFile(context, m, d.id),
+                  ),
+                  _DashboardMenuAction(
+                    icon: Icons.send_outlined,
+                    label: 'Send file',
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/send-files/new'),
+                  ),
+                  if (_s(m['requestId']).isNotEmpty)
+                    _DashboardMenuAction(
+                      icon: Icons.open_in_new_outlined,
+                      label: 'Open request',
+                      onPressed: () => Navigator.pushNamed(
+                        context,
+                        '/generate-upload-link',
+                      ),
+                    ),
+                ],
+              ),
             ),
           );
         }).toList();
@@ -589,25 +787,512 @@ class _RecentUploadsFromActivity extends StatelessWidget {
         // ✅ Hard cap visual height with internal scroll
         return _DashboardListSection(
           title: 'Recent files',
-          subtitle: 'Only files currently visible in File Box.',
+          subtitle: 'Uploaded files with quick actions and activity status.',
+          headerTrailing: _RecentFileFilterBar(
+            selected: _filter,
+            labelFor: _filterLabel,
+            onChanged: (value) => setState(() => _filter = value),
+          ),
           children: [
-            SizedBox(
-              height: _recentMaxHeight,
-              child: Scrollbar(
-                thumbVisibility: rows.length > _maxRecentRows,
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: rows.length,
-                  physics: rows.length > _maxRecentRows
-                      ? const AlwaysScrollableScrollPhysics()
-                      : const NeverScrollableScrollPhysics(),
-                  separatorBuilder: (_, __) =>
-                      Divider(height: 1, color: Colors.black.withOpacity(0.08)),
-                  itemBuilder: (context, index) => rows[index],
-                ),
-              ),
+            ...rows,
+            _DashboardFooterAction(
+              label: 'View all in File Box',
+              icon: Icons.folder_open_outlined,
+              onPressed: () => Navigator.pushNamed(context, '/file-box'),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+String _dashS(dynamic v) => (v ?? '').toString().trim();
+
+DateTime? _dashDate(dynamic v) => v is Timestamp ? v.toDate() : null;
+
+DateTime _startOfToday() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day);
+}
+
+String _dashRelative(DateTime? dt) {
+  if (dt == null) return 'No activity yet';
+  final diff = DateTime.now().difference(dt);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+  if (diff.inHours < 24) return '${diff.inHours} hr ago';
+  return '${diff.inDays} d ago';
+}
+
+class _NeedsAttentionSection extends StatefulWidget {
+  const _NeedsAttentionSection({
+    required this.uid,
+    required this.hasDropoffAccess,
+  });
+
+  final String uid;
+  final bool hasDropoffAccess;
+
+  @override
+  State<_NeedsAttentionSection> createState() => _NeedsAttentionSectionState();
+}
+
+class _NeedsAttentionSectionState extends State<_NeedsAttentionSection> {
+  late Future<List<_AttentionMetric>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NeedsAttentionSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid ||
+        oldWidget.hasDropoffAccess != widget.hasDropoffAccess) {
+      _future = _load();
+    }
+  }
+
+  Future<List<_AttentionMetric>> _load() async {
+    if (!widget.hasDropoffAccess) return const [];
+
+    final filesFuture = FirebaseFirestore.instance
+        .collectionGroup('files')
+        .where('deleted', isEqualTo: false)
+        .where('requestCreatedByUid', isEqualTo: widget.uid)
+        .limit(50)
+        .get()
+        .timeout(const Duration(seconds: 10));
+    final requestsFuture = FirebaseFirestore.instance
+        .collection('dropoff_requests')
+        .where('createdByUid', isEqualTo: widget.uid)
+        .where('status', isEqualTo: 'open')
+        .limit(50)
+        .get()
+        .timeout(const Duration(seconds: 10));
+    final sharesFuture = _loadShareRows();
+
+    final results = await Future.wait([
+      filesFuture,
+      requestsFuture,
+      sharesFuture,
+    ]).timeout(const Duration(seconds: 12));
+    final files = (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
+    final requests = (results[1] as QuerySnapshot<Map<String, dynamic>>).docs;
+    final shares = results[2] as List<Map<String, dynamic>>;
+
+    final notReviewed = files.where((doc) {
+      final m = doc.data();
+      final action = _dashS(m['lastActivityAction']).toLowerCase();
+      return action != 'view' && action != 'download' && action != 'sent';
+    }).length;
+
+    final expiringSoon = shares.where((raw) {
+      final m = raw;
+      final ms = m['expiresAtMillis'];
+      if (ms is! num) return false;
+      final expires = DateTime.fromMillisecondsSinceEpoch(ms.toInt());
+      final diff = expires.difference(DateTime.now());
+      return _dashS(m['status']).toLowerCase() == 'active' &&
+          !diff.isNegative &&
+          diff.inHours <= 24;
+    }).length;
+
+    final openedNotDownloaded = shares.where((raw) {
+      final m = raw;
+      return m['lastViewedAtMillis'] is num &&
+          m['lastDownloadedAtMillis'] is! num &&
+          _dashS(m['status']).toLowerCase() == 'active';
+    }).length;
+
+    final openNoFiles = requests.where((doc) {
+      final m = doc.data();
+      final count = m['fileCount'] ?? m['filesCount'] ?? m['uploadCount'];
+      return count is! num || count.toInt() == 0;
+    }).length;
+
+    return [
+      _AttentionMetric(
+        icon: Icons.mark_email_unread_outlined,
+        label: 'Files not reviewed',
+        value: notReviewed,
+        route: '/file-box',
+      ),
+      _AttentionMetric(
+        icon: Icons.hourglass_top_outlined,
+        label: 'Links expiring soon',
+        value: expiringSoon,
+        route: '/send-files',
+      ),
+      _AttentionMetric(
+        icon: Icons.visibility_outlined,
+        label: 'Opened, not downloaded',
+        value: openedNotDownloaded,
+        route: '/send-files',
+      ),
+      _AttentionMetric(
+        icon: Icons.upload_file_outlined,
+        label: 'Requests with no files',
+        value: openNoFiles,
+        route: '/generate-upload-link',
+      ),
+    ];
+  }
+
+  Future<List<Map<String, dynamic>>> _loadShareRows() async {
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('listSecureFileShares')
+          .call()
+          .timeout(const Duration(seconds: 10));
+      final sharesData = Map<String, dynamic>.from(res.data as Map);
+      final shares = (sharesData['shares'] is List)
+          ? sharesData['shares'] as List
+          : const [];
+      return shares.map((raw) => Map<String, dynamic>.from(raw as Map)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<_AttentionMetric>>(
+      future: _future,
+      builder: (context, snap) {
+        final metrics = snap.data ?? const <_AttentionMetric>[];
+        return _DashboardListSection(
+          title: 'Needs attention',
+          subtitle: 'A quick view of items that may need follow-up today.',
+          children: snap.hasError
+              ? [
+                  _DashboardListRow(
+                    leadingIcon: Icons.warning_amber_outlined,
+                    title: 'Needs attention is unavailable',
+                    subtitle: 'Open File Box, Sent Files, or Requests directly.',
+                    onTap: () => setState(() => _future = _load()),
+                    trailing: TextButton(
+                      onPressed: () => setState(() => _future = _load()),
+                      child: const Text('Retry'),
+                    ),
+                  ),
+                ]
+              : snap.hasData
+              ? metrics
+                    .map(
+                      (m) => _MetricRow(
+                        metric: m,
+                        onTap: () => Navigator.pushNamed(context, m.route),
+                      ),
+                    )
+                    .toList()
+              : const [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                ],
+        );
+      },
+    );
+  }
+}
+
+class _AttentionMetric {
+  const _AttentionMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.route,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+  final String route;
+}
+
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({required this.metric, required this.onTap});
+
+  final _AttentionMetric metric;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardListRow(
+      leadingIcon: metric.icon,
+      title: metric.label,
+      subtitle: metric.value == 0 ? 'Nothing waiting right now' : 'Review these items',
+      onTap: onTap,
+      badges: [_StatusBadge(label: metric.value.toString())],
+    );
+  }
+}
+
+class _RecentSentLinksSection extends StatelessWidget {
+  const _RecentSentLinksSection({required this.hasDropoffAccess});
+
+  final bool hasDropoffAccess;
+
+  Future<List<Map<String, dynamic>>> _load() async {
+    if (!hasDropoffAccess) return const [];
+    final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('listSecureFileShares')
+        .call();
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final raw = (data['shares'] is List) ? data['shares'] as List : const [];
+    return raw.take(5).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _load(),
+      builder: (context, snap) {
+        final rows = snap.data ?? const <Map<String, dynamic>>[];
+        return _DashboardListSection(
+          title: 'Recently sent',
+          subtitle: 'File links sent to clients and their latest access status.',
+          children: snap.hasData
+              ? [
+                  if (rows.isEmpty)
+                    _DashboardListRow(
+                      leadingIcon: Icons.send_outlined,
+                      title: 'No sent links yet',
+                      subtitle: 'Create a file link when you are ready to send files.',
+                      onTap: () => Navigator.pushNamed(context, '/send-files/new'),
+                      enabled: hasDropoffAccess,
+                    )
+                  else
+                    ...rows.map((m) {
+                      final name = _dashS(m['recipientName']).isNotEmpty
+                          ? _dashS(m['recipientName'])
+                          : _dashS(m['recipientEmail']).isNotEmpty
+                          ? _dashS(m['recipientEmail'])
+                          : 'Client';
+                      final lastViewed = m['lastViewedAtMillis'] is num
+                          ? DateTime.fromMillisecondsSinceEpoch(
+                              (m['lastViewedAtMillis'] as num).toInt(),
+                            )
+                          : null;
+                      final lastDownloaded = m['lastDownloadedAtMillis'] is num
+                          ? DateTime.fromMillisecondsSinceEpoch(
+                              (m['lastDownloadedAtMillis'] as num).toInt(),
+                            )
+                          : null;
+                      final activity = lastDownloaded != null
+                          ? 'Downloaded ${_dashRelative(lastDownloaded)}'
+                          : lastViewed != null
+                          ? 'Viewed ${_dashRelative(lastViewed)}'
+                          : 'Never opened';
+                      return _DashboardListRow(
+                        leadingIcon: Icons.link_outlined,
+                        title: name,
+                        subtitle:
+                            '${_dashS(m['recipientEmail'])} - $activity',
+                        onTap: () => Navigator.pushNamed(context, '/send-files'),
+                        badges: [_StatusBadge(label: _dashS(m['status']).isEmpty ? 'Active' : _dashS(m['status']))],
+                        trailing: _DashboardRowMenu(
+                          actions: [
+                            _DashboardMenuAction(
+                              icon: Icons.copy_outlined,
+                              label: 'Copy link',
+                              onPressed: () => Clipboard.setData(
+                                ClipboardData(text: _dashS(m['url'])),
+                              ),
+                            ),
+                            _DashboardMenuAction(
+                              icon: Icons.open_in_new_outlined,
+                              label: 'Open Send Files',
+                              onPressed: () =>
+                                  Navigator.pushNamed(context, '/send-files'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  _DashboardFooterAction(
+                    label: 'View all sent links',
+                    icon: Icons.send_outlined,
+                    onPressed: () => Navigator.pushNamed(context, '/send-files'),
+                  ),
+                ]
+              : const [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                ],
+        );
+      },
+    );
+  }
+}
+
+class _OpenRequestsSection extends StatelessWidget {
+  const _OpenRequestsSection({
+    required this.uid,
+    required this.hasDropoffAccess,
+  });
+
+  final String uid;
+  final bool hasDropoffAccess;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasDropoffAccess) return const SizedBox.shrink();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('dropoff_requests')
+          .where('createdByUid', isEqualTo: uid)
+          .where('status', isEqualTo: 'open')
+          .limit(5)
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        return _DashboardListSection(
+          title: 'Open requests',
+          subtitle: 'Active client upload requests that may need follow-up.',
+          children: snap.hasData
+              ? [
+                  if (docs.isEmpty)
+                    _DashboardListRow(
+                      leadingIcon: Icons.task_alt_outlined,
+                      title: 'No open requests',
+                      subtitle: 'All file requests are currently quiet.',
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        '/generate-upload-link',
+                      ),
+                    )
+                  else
+                    ...docs.map((doc) {
+                      final m = doc.data();
+                      final client = _dashS(m['clientName']).isNotEmpty
+                          ? _dashS(m['clientName'])
+                          : _dashS(m['clientEmail']).isNotEmpty
+                          ? _dashS(m['clientEmail'])
+                          : 'Client request';
+                      final expires = _dashDate(m['expiresAt']);
+                      final count = m['fileCount'] ?? m['filesCount'] ?? m['uploadCount'];
+                      final fileCount = count is num ? count.toInt() : 0;
+                      return _DashboardListRow(
+                        leadingIcon: Icons.request_page_outlined,
+                        title: client,
+                        subtitle:
+                            '$fileCount files received - expires ${_dashRelative(expires)}',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/generate-upload-link',
+                        ),
+                        trailing: _DashboardRowMenu(
+                          actions: [
+                            _DashboardMenuAction(
+                              icon: Icons.copy_outlined,
+                              label: 'Copy upload link',
+                              onPressed: () => Clipboard.setData(
+                                ClipboardData(text: _dashS(m['url'])),
+                              ),
+                            ),
+                            _DashboardMenuAction(
+                              icon: Icons.open_in_new_outlined,
+                              label: 'Open request',
+                              onPressed: () => Navigator.pushNamed(
+                                context,
+                                '/generate-upload-link',
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  _DashboardFooterAction(
+                    label: 'Create or manage requests',
+                    icon: Icons.request_page_outlined,
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/generate-upload-link'),
+                  ),
+                ]
+              : const [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivityTodaySection extends StatelessWidget {
+  const _ActivityTodaySection({required this.isAdmin});
+
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isAdmin) return const SizedBox.shrink();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('file_activity')
+          .where('occurredAt', isGreaterThanOrEqualTo: Timestamp.fromDate(_startOfToday()))
+          .orderBy('occurredAt', descending: true)
+          .limit(8)
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        return _DashboardListSection(
+          title: 'Activity today',
+          subtitle: 'Recent file events across sends, opens, and downloads.',
+          children: snap.hasData
+              ? [
+                  if (docs.isEmpty)
+                    _DashboardListRow(
+                      leadingIcon: Icons.timeline_outlined,
+                      title: 'No activity yet today',
+                      subtitle: 'New activity will appear here as it happens.',
+                      onTap: () => Navigator.pushNamed(context, '/admin-audit'),
+                    )
+                  else
+                    ...docs.map((doc) {
+                      final m = doc.data();
+                      final action = _dashS(m['action']).isEmpty
+                          ? 'Activity'
+                          : _dashS(m['action']);
+                      final actor = _dashS(m['actorName']).isNotEmpty
+                          ? _dashS(m['actorName'])
+                          : _dashS(m['actorEmail']);
+                      final file = _dashS(m['fileName']).isNotEmpty
+                          ? _dashS(m['fileName'])
+                          : _dashS(m['originalName']);
+                      return _DashboardListRow(
+                        leadingIcon: Icons.timeline_outlined,
+                        title: '${action[0].toUpperCase()}${action.substring(1)}',
+                        subtitle: [
+                          if (actor.isNotEmpty) actor,
+                          if (file.isNotEmpty) file,
+                          _dashRelative(_dashDate(m['occurredAt'])),
+                        ].join(' - '),
+                        onTap: () => Navigator.pushNamed(context, '/admin-audit'),
+                      );
+                    }),
+                  _DashboardFooterAction(
+                    label: 'Open full audit timeline',
+                    icon: Icons.manage_search_outlined,
+                    onPressed: () => Navigator.pushNamed(context, '/admin-audit'),
+                  ),
+                ]
+              : const [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                ],
         );
       },
     );
@@ -843,11 +1528,13 @@ class _DashboardListSection extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    this.headerTrailing,
   });
 
   final String title;
   final String subtitle;
   final List<Widget> children;
+  final Widget? headerTrailing;
 
   @override
   Widget build(BuildContext context) {
@@ -857,12 +1544,19 @@ class _DashboardListSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            title,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF111827),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF111827),
+                  ),
+                ),
+              ),
+              if (headerTrailing != null) headerTrailing!,
+            ],
           ),
         ),
         Padding(
@@ -903,6 +1597,7 @@ class _DashboardListRow extends StatelessWidget {
     this.leadingColor = const Color(0xFFF1F5F9),
     this.iconColor = AppColors.brandBlue,
     this.trailing,
+    this.badges = const [],
     this.enabled = true,
   });
 
@@ -914,6 +1609,7 @@ class _DashboardListRow extends StatelessWidget {
   final Color leadingColor;
   final Color iconColor;
   final Widget? trailing;
+  final List<Widget> badges;
   final bool enabled;
 
   @override
@@ -949,16 +1645,26 @@ class _DashboardListRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: enabled
-                          ? const Color(0xFF111827)
-                          : const Color(0xFF98A2B3),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: enabled
+                                ? const Color(0xFF111827)
+                                : const Color(0xFF98A2B3),
+                          ),
+                        ),
+                      ),
+                      if (badges.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        ...badges,
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -984,6 +1690,173 @@ class _DashboardListRow extends StatelessWidget {
                       ? const Color(0xFF9CA3AF)
                       : const Color(0xFFD1D5DB),
                 ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = label.toLowerCase();
+    final color = normalized == 'new' || normalized == 'not reviewed'
+        ? AppColors.brandBlue
+        : normalized == 'sent'
+        ? const Color(0xFF7A5AF8)
+        : normalized == 'downloaded'
+        ? const Color(0xFF067647)
+        : normalized == 'reviewed'
+        ? const Color(0xFF475467)
+        : normalized == 'pinned'
+        ? const Color(0xFFB54708)
+        : const Color(0xFF667085);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.20)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardMenuAction {
+  const _DashboardMenuAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+}
+
+class _DashboardRowMenu extends StatelessWidget {
+  const _DashboardRowMenu({required this.actions});
+
+  final List<_DashboardMenuAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_DashboardMenuAction>(
+      tooltip: 'Actions',
+      icon: const Icon(Icons.more_horiz, size: 20),
+      onSelected: (action) => action.onPressed(),
+      itemBuilder: (context) => actions
+          .map(
+            (action) => PopupMenuItem<_DashboardMenuAction>(
+              value: action,
+              child: Row(
+                children: [
+                  Icon(action.icon, size: 18, color: const Color(0xFF475467)),
+                  const SizedBox(width: 10),
+                  Text(action.label),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _DashboardFooterAction extends StatelessWidget {
+  const _DashboardFooterAction({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: TextButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 16),
+          label: Text(label),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentFileFilterBar extends StatelessWidget {
+  const _RecentFileFilterBar({
+    required this.selected,
+    required this.labelFor,
+    required this.onChanged,
+  });
+
+  final _RecentFileFilter selected;
+  final String Function(_RecentFileFilter) labelFor;
+  final ValueChanged<_RecentFileFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_RecentFileFilter>(
+      tooltip: 'Filter recent files',
+      onSelected: onChanged,
+      itemBuilder: (context) => _RecentFileFilter.values
+          .map(
+            (filter) => PopupMenuItem<_RecentFileFilter>(
+              value: filter,
+              child: Row(
+                children: [
+                  if (filter == selected)
+                    const Icon(Icons.check, size: 16, color: AppColors.brandBlue)
+                  else
+                    const SizedBox(width: 16),
+                  const SizedBox(width: 8),
+                  Text(labelFor(filter)),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: const Color(0xFFE4E7EC)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.filter_list, size: 15, color: Color(0xFF475467)),
+            const SizedBox(width: 6),
+            Text(
+              labelFor(selected),
+              style: const TextStyle(
+                color: Color(0xFF344054),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
@@ -1389,10 +2262,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final isAdmin = !_loadingProfile && _role == 'admin';
     final welcomeText = _fullName.isNotEmpty
         ? 'Welcome, $_fullName'
         : 'Welcome';
+
+    if (uid.isEmpty) return const SizedBox.shrink();
 
     return PageScaffold(
       title: '',
@@ -1405,57 +2281,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
         subtitle: 'Choose a common workflow or review recent activity.',
       ),
 
-      commandBar: FluentCommandBar(
-        actions: [
-          FluentCommandAction(
-            icon: Icons.upload_file_outlined,
-            label: 'Upload files',
-            onPressed: _hasDropoffAccess
-                ? () => Navigator.pushNamed(context, '/file-box')
-                : null,
-            accent: true,
-          ),
-
-          FluentCommandAction(
-            icon: Icons.send_outlined,
-            label: 'Send files',
-            onPressed: _hasDropoffAccess
-                ? () => Navigator.pushNamed(context, '/send-files/new')
-                : null,
-            accent: false,
-          ),
-
-          FluentCommandAction(
-            icon: Icons.request_page_outlined,
-            label: 'Request Files',
-            onPressed: _hasDropoffAccess
-                ? () => Navigator.pushNamed(context, '/generate-upload-link')
-                : null,
-            accent: false,
-          ),
-
-          // Admin (admins only)
-          if (isAdmin)
-            FluentCommandAction(
-              icon: Icons.admin_panel_settings_outlined,
-              label: 'Admin',
-              onPressed: () {
-                final shell = context.findAncestorStateOfType<AppShellState>();
-                shell?.openAdmin();
-              },
-              accent: false, // ✅ neutral black
-            ),
-        ],
-        overflowActions: const [],
-      ),
-
       child: ContentTextZoom(
         scale: 1.1, // ✅ TEST HERE (try 1.05–1.12)
 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _NeedsAttentionSection(
+              uid: uid,
+              hasDropoffAccess: _hasDropoffAccess,
+            ),
+            const SizedBox(height: 14),
             _RecentUploadsFromActivity(isAdmin: isAdmin),
+            const SizedBox(height: 14),
+            _RecentSentLinksSection(hasDropoffAccess: _hasDropoffAccess),
+            const SizedBox(height: 14),
+            _OpenRequestsSection(uid: uid, hasDropoffAccess: _hasDropoffAccess),
+            const SizedBox(height: 14),
+            _ActivityTodaySection(isAdmin: isAdmin),
 
             if (!_hasDropoffAccess)
               _SurfaceTable(

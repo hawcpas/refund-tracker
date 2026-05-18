@@ -23,7 +23,9 @@ enum _DateFilter { all, last30 }
 enum _DuplicateUploadAction { replace, skip, cancel }
 
 class FileBoxScreen extends StatefulWidget {
-  const FileBoxScreen({super.key});
+  const FileBoxScreen({super.key, this.autoOpenUpload = false});
+
+  final bool autoOpenUpload;
 
   @override
   State<FileBoxScreen> createState() => _FileBoxScreenState();
@@ -50,6 +52,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
   int _visibleCount = _pageSize;
 
   bool _busy = false;
+  bool _autoUploadOpened = false;
   bool _draggingUploads = false;
   List<String> _uploadingNames = const [];
   final List<_FileBoxPendingUpload> _pendingUploads = [];
@@ -100,6 +103,13 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
     _loadingRole = false;
     if (mounted) setState(() {});
+
+    if (mounted && widget.autoOpenUpload && !_autoUploadOpened) {
+      _autoUploadOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _chooseAndUploadToFileBox();
+      });
+    }
   }
 
   String _s(dynamic v) => (v ?? '').toString().trim();
@@ -1490,41 +1500,12 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
 
     final uploadedAt = _tsToDate(m['createdAt']) ?? doc.when;
 
-    final clientName = (m['requestClientName'] ?? doc.clientName)
-        .toString()
-        .trim();
-    final clientEmail = (m['requestClientEmail'] ?? doc.clientEmail)
-        .toString()
-        .trim();
-    final businessName = (m['requestBusinessName'] ?? doc.companyName)
-        .toString()
-        .trim();
-
     final requestedBy = (m['requestCreatedByName'] ?? doc.requestedBy)
         .toString()
         .trim();
     final requestedByEmail = (m['requestCreatedByEmail'] ?? '')
         .toString()
         .trim();
-    final uploadedBy = m['uploadedBy'];
-    final uploadedByName =
-        uploadedBy is Map &&
-            (uploadedBy['name'] ?? '').toString().trim().isNotEmpty
-        ? (uploadedBy['name'] ?? '').toString().trim()
-        : requestedBy;
-    final uploadedByEmail =
-        uploadedBy is Map &&
-            (uploadedBy['email'] ?? '').toString().trim().isNotEmpty
-        ? (uploadedBy['email'] ?? '').toString().trim()
-        : requestedByEmail;
-    final uploadedByRole =
-        uploadedBy is Map &&
-            (uploadedBy['role'] ?? '').toString().trim().isNotEmpty
-        ? (uploadedBy['role'] ?? '').toString().trim()
-        : uploadedBy is Map &&
-              (uploadedBy['type'] ?? '').toString().trim().isNotEmpty
-        ? (uploadedBy['type'] ?? '').toString().trim()
-        : (m['requestCreatedByRole'] ?? '').toString().trim();
 
     final requestId = (m['requestId'] ?? '').toString().trim();
 
@@ -1641,22 +1622,6 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                       label: 'Creator',
                       value: requestedBy.isNotEmpty ? requestedBy : '-',
                       secondary: requestedByEmail,
-                    ),
-                    _FileDetailRow(
-                      label: 'Uploaded by',
-                      value: uploadedByName.isNotEmpty ? uploadedByName : '-',
-                      secondary: [
-                        if (uploadedByEmail.isNotEmpty) uploadedByEmail,
-                        if (uploadedByRole.isNotEmpty) uploadedByRole,
-                      ].join(' - '),
-                    ),
-                    _FileDetailRow(
-                      label: 'Client',
-                      value: clientName.isNotEmpty ? clientName : '-',
-                      secondary: [
-                        if (businessName.isNotEmpty) businessName,
-                        if (clientEmail.isNotEmpty) clientEmail,
-                      ].join(' - '),
                     ),
                   ],
                 ),
@@ -1790,7 +1755,12 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  padding: EdgeInsets.fromLTRB(
+                    isMobile ? 10 : 16,
+                    isMobile ? 10 : 14,
+                    isMobile ? 10 : 16,
+                    0,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -2089,70 +2059,75 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                   child: _filterBar(theme, all),
                                 ),
                                 // ===== Table header =====
-                                Container(
-                                  height: 42,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF9FAFB),
-                                    border: Border(
-                                      bottom: BorderSide(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.06,
+                                if (!isMobile || _selected.isNotEmpty)
+                                  Container(
+                                    height: isMobile && _selected.isNotEmpty
+                                        ? 48
+                                        : 42,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isMobile ? 6 : 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      border: Border(
+                                        bottom: BorderSide(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.06,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  child: _selected.isNotEmpty
-                                      ? _FileBoxSelectionToolbar(
-                                          selectedCount: _selected.length,
-                                          isAdmin: isAdmin,
-                                          busy: _busy,
-                                          canAct: _selectedDocsCache.isNotEmpty,
-                                          downloadIcon: selectedActionIcon,
-                                          downloadLabel: selectedActionLabel,
-                                          onClear: () =>
-                                              setState(() => _selected.clear()),
-                                          onSecureShare: () =>
-                                              _showSecureShareDialog(
-                                                _selectedDocsCache,
-                                              ),
-                                          onDownload: () {
-                                            if (selectedActionIsSingleDownload) {
-                                              final doc =
-                                                  _selectedDocsCache.single;
-                                              _downloadFile(
-                                                isAdmin: isAdmin,
-                                                storagePath: doc.storagePath,
-                                                filename: doc.originalName,
-                                                contentType: doc.contentType,
-                                                requestId: doc.requestId,
-                                                fileId: doc.id,
-                                                showReadyDialog: false,
-                                              );
-                                              return;
-                                            }
-
-                                            _downloadSelectedZip(
-                                              _selectedDocsCache,
-                                            );
-                                          },
-                                          onDelete: () => _deleteSelectedAdmin(
-                                            _selectedDocsCache,
-                                          ),
-                                          allVisibleSelected:
-                                              allVisibleSelected,
-                                          onToggleAll: (v) {
-                                            setState(() {
-                                              if (allVisibleSelected) {
-                                                _selected.removeAll(visibleIds);
-                                              } else {
-                                                _selected.addAll(visibleIds);
+                                    child: _selected.isNotEmpty
+                                        ? _FileBoxSelectionToolbar(
+                                            selectedCount: _selected.length,
+                                            isAdmin: isAdmin,
+                                            busy: _busy,
+                                            canAct:
+                                                _selectedDocsCache.isNotEmpty,
+                                            downloadIcon: selectedActionIcon,
+                                            downloadLabel: selectedActionLabel,
+                                            onClear: () => setState(
+                                              () => _selected.clear(),
+                                            ),
+                                            onSecureShare: () =>
+                                                _showSecureShareDialog(
+                                                  _selectedDocsCache,
+                                                ),
+                                            onDownload: () {
+                                              if (selectedActionIsSingleDownload) {
+                                                final doc =
+                                                    _selectedDocsCache.single;
+                                                _downloadFile(
+                                                  isAdmin: isAdmin,
+                                                  storagePath: doc.storagePath,
+                                                  filename: doc.originalName,
+                                                  contentType: doc.contentType,
+                                                  requestId: doc.requestId,
+                                                  fileId: doc.id,
+                                                  showReadyDialog: false,
+                                                );
+                                                return;
                                               }
-                                            });
-                                          },
-                                        )
+
+                                              _downloadSelectedZip(
+                                                _selectedDocsCache,
+                                              );
+                                            },
+                                            onDelete: () => _deleteSelectedAdmin(
+                                              _selectedDocsCache,
+                                            ),
+                                            allVisibleSelected:
+                                                allVisibleSelected,
+                                            onToggleAll: (v) {
+                                              setState(() {
+                                                if (allVisibleSelected) {
+                                                  _selected.removeAll(visibleIds);
+                                                } else {
+                                                  _selected.addAll(visibleIds);
+                                                }
+                                              });
+                                            },
+                                          )
                                       : Row(
                                           children: [
                                             Checkbox(
@@ -3408,51 +3383,79 @@ class _UploadRowEnhanced extends StatelessWidget {
         highlightColor: const Color(0xFF101828).withValues(alpha: 0.04),
         onTap: busy ? null : onShowDetails,
         child: SizedBox(
-          height: isMobile ? 58 : 56,
+          height: isMobile ? 64 : 56,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 8 : 10,
+              vertical: isMobile ? 2 : 4,
+            ),
             child: Row(
               children: [
-                Checkbox(
-                  value: selected,
-                  onChanged: busy ? null : (v) => onSelect(v ?? false),
+                SizedBox(
+                  width: isMobile ? 34 : 48,
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: busy ? null : (v) => onSelect(v ?? false),
+                    visualDensity: isMobile
+                        ? VisualDensity.compact
+                        : VisualDensity.standard,
+                  ),
                 ),
                 Tooltip(
                   message: meta.tooltip,
                   child: _FileKindIconTile(meta: meta),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: isMobile ? 8 : 10),
 
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SelectableText(
-                        isDeleted ? '$name (Deleted)' : name,
-                        maxLines: 1,
-                        onTap: busy ? null : onShowDetails,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: isDeleted
-                              ? const Color(0xFFB42318)
-                              : const Color(0xFF101828),
-                          decoration: isDeleted
-                              ? TextDecoration.lineThrough
-                              : null,
+                      if (isMobile)
+                        Text(
+                          isDeleted ? '$name (Deleted)' : name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            height: 1.05,
+                            color: isDeleted
+                                ? const Color(0xFFB42318)
+                                : const Color(0xFF101828),
+                            decoration: isDeleted
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        )
+                      else
+                        SelectableText(
+                          isDeleted ? '$name (Deleted)' : name,
+                          maxLines: 1,
+                          onTap: busy ? null : onShowDetails,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: isDeleted
+                                ? const Color(0xFFB42318)
+                                : const Color(0xFF101828),
+                            decoration: isDeleted
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
+                      if (!isMobile) const SizedBox(height: 2),
                       if (isMobile)
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SelectableText(
-                              fileTypeLabel,
+                            Text(
+                              '$fileTypeLabel - ${_formatSize(sizeBytes)}',
                               maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: const Color(0xFF667085),
                                 fontWeight: FontWeight.w600,
+                                height: 1.05,
                               ),
                             ),
                             if (notableActivity != null)
@@ -3464,6 +3467,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                                   color: const Color(0xFF98A2B3),
                                   fontWeight: FontWeight.w600,
                                   fontSize: 10.5,
+                                  height: 1.05,
                                 ),
                               ),
                           ],
