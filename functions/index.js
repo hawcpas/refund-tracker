@@ -324,6 +324,35 @@ function renderOtpEmail({ appName, code }) {
 `;
 }
 
+function renderPasswordResetCodeEmail({ appName, code }) {
+  const safeAppName = (appName || "Axume Portal").toString();
+
+  return `
+<div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:620px; margin:0 auto; background:#ffffff;">
+    <tr>
+      <td style="padding:28px 24px 18px 24px; border-bottom:1px solid #E4E7EC; background:#F9FAFB;">
+        <img src="${getEmailLogoUrl()}" alt="${safeAppName}" width="360" style="display:block;border:0;outline:none;text-decoration:none;max-width:360px;height:auto;" />
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:28px 24px;">
+        <h2 style="margin:0 0 10px 0; font-size:22px; color:#0B1F33;">Password reset verification</h2>
+        <p style="margin:0 0 18px 0; font-size:15px; color:#344054;">
+          Use this verification code to continue resetting your ${safeAppName} password.
+        </p>
+        <div style="font-size:34px; letter-spacing:8px; font-weight:800; color:#08449E; padding:16px 18px; border:1px solid #D0D5DD; border-radius:8px; text-align:center; background:#F9FAFB;">
+          ${code}
+        </div>
+        <p style="margin:18px 0 0 0; font-size:13px; color:#667085;">
+          This code expires in 10 minutes. If you did not request a password reset, you can ignore this email.
+        </p>
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
 function renderEmailChangeVerificationEmail({ appName, confirmUrl }) {
   return `
 <div style="font-family:Segoe UI, Arial, sans-serif; background:#ffffff; color:#0B1F33; line-height:1.55;">
@@ -771,6 +800,171 @@ exports.sendLoginOtp = onCall(
 );
 
 const https = require("https"); // ✅ add near the top with other requires
+
+exports.requestPasswordResetCode = onCall(
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
+  async (request) => {
+    const email = normalizeEmail(request.data?.email);
+    if (!email || !email.includes("@")) {
+      throw new HttpsError("invalid-argument", "Valid email is required.");
+    }
+
+    const CODE_TTL_MS = 10 * 60 * 1000;
+    const RESEND_COOLDOWN_MS = 60 * 1000;
+    const nowMs = Date.now();
+    const ref = db.collection("password_reset_codes").doc(hashOtp(email));
+    const existing = await ref.get();
+
+    if (existing.exists) {
+      const data = existing.data() || {};
+      const lastSentAtMs = Number(data.lastSentAtMs || 0);
+      const sinceLastSend = nowMs - lastSentAtMs;
+      if (lastSentAtMs && sinceLastSend < RESEND_COOLDOWN_MS) {
+        return {
+          ok: true,
+          throttled: true,
+          remainingSeconds: Math.ceil((RESEND_COOLDOWN_MS - sinceLastSend) / 1000),
+        };
+      }
+    }
+
+    let userRecord = null;
+    try {
+      userRecord = await admin.auth().getUserByEmail(email);
+    } catch (err) {
+      if (!(err && (err.code === "auth/user-not-found" || err.errorInfo?.code === "auth/user-not-found"))) {
+        console.error("requestPasswordResetCode lookup failed", err);
+        throw new HttpsError("internal", "Unable to start password reset.");
+      }
+    }
+
+    if (!userRecord) {
+      return { ok: true, sent: true, remainingSeconds: 60 };
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await ref.set({
+      email,
+      uid: userRecord.uid,
+      codeHash: hashOtp(code),
+      expiresAt: admin.firestore.Timestamp.fromDate(new Date(nowMs + CODE_TTL_MS)),
+      attempts: 0,
+      lastSentAtMs: nowMs,
+      resetTokenHash: null,
+      tokenExpiresAt: null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    await sendAccountEmail({
+      to: email,
+      subject: "Password reset verification code",
+      html: renderPasswordResetCodeEmail({
+        appName: APP_NAME.value(),
+        code,
+      }),
+    });
+
+    return {
+      ok: true,
+      sent: true,
+      remainingSeconds: 60,
+      expiresAt: new Date(nowMs + CODE_TTL_MS).toISOString(),
+    };
+  }
+);
+
+exports.verifyPasswordResetCode = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const email = normalizeEmail(request.data?.email);
+    const code = String(request.data?.code || "").trim();
+    if (!email || !email.includes("@") || !/^\d{6}$/.test(code)) {
+      throw new HttpsError("invalid-argument", "Valid email and code are required.");
+    }
+
+    const ref = db.collection("password_reset_codes").doc(hashOtp(email));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "No active reset code.");
+    }
+
+    const data = snap.data() || {};
+    const expiresAt = data.expiresAt?.toDate?.();
+    if (!expiresAt || expiresAt.getTime() < Date.now()) {
+      await ref.delete();
+      throw new HttpsError("deadline-exceeded", "Code expired.");
+    }
+
+    const attempts = Number(data.attempts || 0);
+    if (attempts >= 5) {
+      await ref.delete();
+      throw new HttpsError("resource-exhausted", "Too many attempts.");
+    }
+
+    if (data.codeHash !== hashOtp(code)) {
+      await ref.update({
+        attempts: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      throw new HttpsError("permission-denied", "Invalid code.");
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    await ref.update({
+      resetTokenHash: hashOtp(resetToken),
+      tokenExpiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 10 * 60 * 1000)),
+      codeVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, resetToken };
+  }
+);
+
+exports.completePasswordResetWithCode = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const email = normalizeEmail(request.data?.email);
+    const resetToken = String(request.data?.resetToken || "").trim();
+    const newPassword = String(request.data?.newPassword || "");
+
+    if (!email || !email.includes("@") || !resetToken) {
+      throw new HttpsError("invalid-argument", "Reset session is required.");
+    }
+    if (newPassword.length < 8) {
+      throw new HttpsError("invalid-argument", "Password must be at least 8 characters.");
+    }
+
+    const ref = db.collection("password_reset_codes").doc(hashOtp(email));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Reset session expired.");
+    }
+
+    const data = snap.data() || {};
+    const tokenExpiresAt = data.tokenExpiresAt?.toDate?.();
+    if (!tokenExpiresAt || tokenExpiresAt.getTime() < Date.now()) {
+      await ref.delete();
+      throw new HttpsError("deadline-exceeded", "Reset session expired.");
+    }
+    if (data.resetTokenHash !== hashOtp(resetToken)) {
+      throw new HttpsError("permission-denied", "Invalid reset session.");
+    }
+
+    await admin.auth().updateUser(data.uid, { password: newPassword });
+    await ref.delete();
+
+    await admin.firestore().collection("auditLogs").add({
+      type: "password_reset_completed",
+      uid: data.uid,
+      email,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, email };
+  }
+);
 
 // ============================
 // Microsoft Graph helpers (Application permissions)

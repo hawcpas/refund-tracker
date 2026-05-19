@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
 import '../widgets/centered_form.dart';
@@ -12,8 +12,15 @@ import '../screens/verify_email_screen.dart';
 import '../screens/otp_verify_screen.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../theme/brand_logo_svg.dart';
+import 'package:flutter/services.dart';
 
-enum LoginStep { email, password }
+enum LoginStep {
+  email,
+  password,
+  resetOptions,
+  resetCodeSent,
+  resetUpdatePassword,
+}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,24 +31,24 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final resetCodeController = TextEditingController();
+  final newPasswordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
 
   final emailFocusNode = FocusNode();
   final passwordFocusNode = FocusNode();
 
   final AuthService _auth = AuthService();
 
-  late final AnimationController _signinController;
-  late final Animation<double> _fadeAnim;
-  late final Animation<double> _liftAnim;
-
   bool isLoading = false;
   bool obscurePassword = true;
+  bool obscureNewPassword = true;
+  bool obscureConfirmPassword = true;
   bool _rememberMe = true; // Intuit defaults this ON
-  bool _pageReady = false;
+  bool _pageReady = true;
 
   LoginStep _step = LoginStep.email;
 
@@ -51,6 +58,10 @@ class _LoginScreenState extends State<LoginScreen>
 
   bool _checkingEmail = false;
   bool _noAccountBanner = false;
+  bool _sendingReset = false;
+  bool _verifyingReset = false;
+  String? _resetMessage;
+  String? _resetToken;
 
   // âœ… Refined density (matches your â€œless bulkyâ€ direction)
   static const double _cardRadius = 18;
@@ -76,37 +87,18 @@ class _LoginScreenState extends State<LoginScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _signinController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 420),
-    );
-
-    _fadeAnim = CurvedAnimation(
-      parent: _signinController,
-      curve: Curves.easeOut,
-    );
-
-    _liftAnim = Tween<double>(begin: 0, end: -4).animate(
-      CurvedAnimation(parent: _signinController, curve: Curves.easeOutCubic),
-    );
-
-    // âœ… Load async data, then show page
-    Future.microtask(() async {
-      await _loadSavedEmail();
-
-      if (!mounted) return;
-
-      // Small intentional delay = smoother first paint
-      await Future.delayed(const Duration(milliseconds: 180));
-
-      if (!mounted) return;
-      setState(() => _pageReady = true);
-    });
+    // Load saved login preferences after first paint so the card appears quickly.
+    Future.microtask(_loadSavedEmail);
   }
 
   Future<void> _loadSavedEmail() async {
-    final remember = await LocalAuthPrefs.getRememberMe();
-    final savedEmail = await LocalAuthPrefs.getSavedEmail();
+    final results = await Future.wait<Object?>([
+      LocalAuthPrefs.getRememberMe(),
+      LocalAuthPrefs.getSavedEmail(),
+    ]);
+
+    final remember = results[0] as bool;
+    final savedEmail = results[1] as String?;
 
     if (!mounted) return;
 
@@ -135,9 +127,11 @@ class _LoginScreenState extends State<LoginScreen>
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
+    resetCodeController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
-    _signinController.dispose();
     WidgetsBinding.instance.removeObserver(this);
 
     super.dispose();
@@ -152,9 +146,134 @@ class _LoginScreenState extends State<LoginScreen>
         _emailError = null;
         _passwordError = null;
         _authError = null;
+        _resetMessage = null;
         _noAccountBanner = false;
       });
     }
+  }
+
+  void _showResetOptions() {
+    final email = emailController.text.trim().toLowerCase();
+    setState(() {
+      _step = LoginStep.resetOptions;
+      _emailError = email.isEmpty || !email.contains('@')
+          ? 'Enter your email address first.'
+          : null;
+      _passwordError = null;
+      _authError = null;
+      _resetMessage = null;
+    });
+  }
+
+  Future<void> _sendPasswordResetCode() async {
+    final email = emailController.text.trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _emailError = 'Enter a valid email address.');
+      return;
+    }
+
+    setState(() {
+      _sendingReset = true;
+      _emailError = null;
+      _resetMessage = null;
+    });
+
+    final result = await _auth.requestPasswordResetCode(email);
+    if (!mounted) return;
+
+    setState(() {
+      _sendingReset = false;
+      if (result.isSuccess) {
+        resetCodeController.clear();
+        _resetToken = null;
+        _step = LoginStep.resetCodeSent;
+      } else if (result.code == 'resource-exhausted') {
+        _resetMessage =
+            'Too many requests. Please wait a moment and try again.';
+      } else {
+        _resetMessage =
+            result.message ??
+            'We could not send a reset code right now. Please try again.';
+      }
+    });
+  }
+
+  Future<void> _verifyResetCode() async {
+    final email = emailController.text.trim().toLowerCase();
+    final code = resetCodeController.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      setState(() => _resetMessage = 'Enter the 6-digit code from your email.');
+      return;
+    }
+
+    setState(() {
+      _verifyingReset = true;
+      _resetMessage = null;
+    });
+
+    final result = await _auth.verifyPasswordResetCode(
+      email: email,
+      code: code,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _verifyingReset = false;
+      if (result.isSuccess && (result.data ?? '').isNotEmpty) {
+        _resetToken = result.data;
+        newPasswordController.clear();
+        confirmPasswordController.clear();
+        obscureNewPassword = true;
+        obscureConfirmPassword = true;
+        _step = LoginStep.resetUpdatePassword;
+      } else {
+        _resetMessage =
+            result.message ?? 'The verification code is invalid or expired.';
+      }
+    });
+  }
+
+  Future<void> _completeResetAndLogin() async {
+    final email = emailController.text.trim().toLowerCase();
+    final token = _resetToken ?? '';
+    final p1 = newPasswordController.text.trim();
+    final p2 = confirmPasswordController.text.trim();
+
+    if (p1.length < 8) {
+      setState(() => _resetMessage = 'Password must be at least 8 characters.');
+      return;
+    }
+    if (p1 != p2) {
+      setState(() => _resetMessage = 'Passwords do not match.');
+      return;
+    }
+
+    setState(() {
+      _sendingReset = true;
+      _resetMessage = null;
+    });
+
+    final result = await _auth.completePasswordResetWithCode(
+      email: email,
+      resetToken: token,
+      newPassword: p1,
+    );
+    if (!mounted) return;
+
+    if (!result.isSuccess) {
+      setState(() {
+        _sendingReset = false;
+        _resetMessage =
+            result.message ??
+            'Unable to update password. Please request a new code.';
+      });
+      return;
+    }
+
+    setState(() => _sendingReset = false);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const OtpVerifyScreen()),
+    );
   }
 
   Future<void> _continueToPassword() async {
@@ -171,54 +290,23 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() {
       _emailError = null;
       _noAccountBanner = false;
-      _checkingEmail = true;
+      _step = LoginStep.password;
     });
 
-    try {
-      final exists = await _auth.emailExists(email);
-      if (!mounted) return;
-
-      if (!exists) {
-        setState(() {
-          _checkingEmail = false;
-          _noAccountBanner = true; // âœ… Show Intuit-style warning box
-        });
-        return;
-      }
-
-      // âœ… Persist Remember Me ONLY after email is confirmed to exist
+    Future<void>.microtask(() async {
       await LocalAuthPrefs.setRememberMe(_rememberMe);
       if (_rememberMe) {
         await LocalAuthPrefs.saveEmail(email);
       } else {
         await LocalAuthPrefs.clearEmail();
       }
+    });
 
-      if (!mounted) return;
-
-      setState(() {
-        _checkingEmail = false;
-        _step = LoginStep.password;
-      });
-
-      Future.delayed(const Duration(milliseconds: 250), () {
-        if (mounted) {
-          FocusScope.of(context).requestFocus(passwordFocusNode);
-        }
-      });
-    } on FirebaseAuthException catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _checkingEmail = false;
-        _emailError = "Unable to verify email right now. Please try again.";
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _checkingEmail = false;
-        _emailError = "Unable to verify email right now. Please try again.";
-      });
-    }
+    Future.delayed(const Duration(milliseconds: 60), () {
+      if (mounted) {
+        FocusScope.of(context).requestFocus(passwordFocusNode);
+      }
+    });
   }
 
   void _login() async {
@@ -246,12 +334,11 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    // âœ… spinner visible at least briefly
+    // Keep the spinner visible just long enough to avoid flicker.
     final startedAt = DateTime.now();
-    const minSpinnerMs = 300;
+    const minSpinnerMs = 120;
 
     setState(() => isLoading = true);
-    _signinController.forward();
 
     final user = await _auth.login(email, password);
 
@@ -266,7 +353,6 @@ class _LoginScreenState extends State<LoginScreen>
     }
 
     setState(() => isLoading = false);
-    _signinController.reverse();
 
     if (user == null) {
       setState(() {
@@ -283,60 +369,16 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (!verified) {
       Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 320),
-
-          pageBuilder: (_, __, ___) => OtpVerifyScreen(
-            nextRoute: pendingPostLoginRoute,
-            otpAlreadySent: true, // âœ… ONLY place this should be set
-          ),
-
-          transitionsBuilder: (_, animation, __, child) {
-            final fade = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            );
-
-            final slide = Tween<Offset>(
-              begin: const Offset(0.04, 0),
-              end: Offset.zero,
-            ).animate(fade);
-
-            return FadeTransition(
-              opacity: fade,
-              child: SlideTransition(position: slide, child: child),
-            );
-          },
-        ),
+        MaterialPageRoute(builder: (_) => const VerifyEmailScreen()),
       );
       return;
     }
 
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) =>
-            OtpVerifyScreen(nextRoute: pendingPostLoginRoute),
-        transitionsBuilder: (_, animation, __, child) {
-          final fade = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          );
-
-          final slide = Tween<Offset>(
-            begin: const Offset(0.04, 0),
-            end: Offset.zero,
-          ).animate(fade);
-
-          return FadeTransition(
-            opacity: fade,
-            child: SlideTransition(position: slide, child: child),
-          );
-        },
-      ),
-    );
-
+    final nextRoute = pendingPostLoginRoute;
     pendingPostLoginRoute = null;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => OtpVerifyScreen(nextRoute: nextRoute)),
+    );
   }
 
   Widget _noAccountBox() {
@@ -392,239 +434,220 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _loginCard(ThemeData theme, bool showAuthError) {
     final VoidCallback? primaryAction = (isLoading || _checkingEmail)
         ? null
-        : (_step == LoginStep.password ? _login : _continueToPassword);
+        : (_step == LoginStep.password
+              ? _login
+              : _step == LoginStep.email
+              ? _continueToPassword
+              : null);
+
+    final title = switch (_step) {
+      LoginStep.email => 'Sign in',
+      LoginStep.password => 'Enter your password',
+      LoginStep.resetOptions => "Verify it's you",
+      LoginStep.resetCodeSent => 'Check your email',
+      LoginStep.resetUpdatePassword => 'Update your password',
+    };
+
+    final subtitle = switch (_step) {
+      LoginStep.email => 'Use your Axume & Associates account',
+      LoginStep.password => emailController.text.trim(),
+      LoginStep.resetOptions => 'Choose how you want to verify your identity.',
+      LoginStep.resetCodeSent =>
+        'To protect your account, we sent a 6-digit verification code to:',
+      LoginStep.resetUpdatePassword =>
+        'Create a new password for ${emailController.text.trim().toLowerCase()}',
+    };
 
     return CenteredForm(
       maxWidth: 380,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AnimatedBuilder(
-            animation: _signinController,
-            builder: (context, child) {
-              return Opacity(
-                opacity: 1 - (_fadeAnim.value * 0.08),
-                child: Transform.translate(
-                  offset: Offset(0, _liftAnim.value),
-                  child: child,
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFD4D7DC)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFD4D7DC)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+              ],
+            ),
+
+            child: IgnorePointer(
+              ignoring: isLoading,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // âœ… Logo INSIDE card (Intuit-style)
+                  Center(
+                    child: SvgPicture.string(
+                      kBrandLogoSvg2,
+                      height: 80,
+                      fit: BoxFit.contain,
+                    ),
                   ),
-                ],
-              ),
 
-              child: IgnorePointer(
-                ignoring: isLoading,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF9FAFB),
-                          border: Border.all(color: const Color(0xFFE4E7EC)),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          _step == LoginStep.password
-                              ? "Step 2 of 3"
-                              : "Step 1 of 3",
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ),
+                  const SizedBox(
+                    height: 18,
+                  ), // instead of 16, above or below logo
+
+                  Text(
+                    title,
+                    textAlign: TextAlign.center, // âœ… CENTERED
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF393A3D),
                     ),
+                  ),
 
+                  const SizedBox(height: 6),
+
+                  Text(
+                    subtitle,
+                    textAlign: TextAlign.center, // âœ… CENTERED
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: _step == LoginStep.password
+                          ? const Color(0xFF60646C)
+                          : const Color(0xFF6B6C72),
+                      fontWeight: _step == LoginStep.password
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                  if (_step == LoginStep.resetCodeSent) ...[
                     const SizedBox(height: 8),
-                    // âœ… Logo INSIDE card (Intuit-style)
-                    Center(
-                      child: SvgPicture.string(
-                        kBrandLogoSvg2,
-                        height: 80,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-
-                    const SizedBox(
-                      height: 18,
-                    ), // instead of 16, above or below logo
-
                     Text(
-                      _step == LoginStep.password
-                          ? "Enter your password"
-                          : "Sign in",
-                      textAlign: TextAlign.center, // âœ… CENTERED
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF393A3D),
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    Text(
-                      _step == LoginStep.password
-                          ? "Confirm your password to continue"
-                          : "Use your Axume & Associates account",
-                      textAlign: TextAlign.center, // âœ… CENTERED
+                      emailController.text.trim().toLowerCase(),
+                      textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF6B6C72),
-                        fontWeight: FontWeight.w500,
-                        height: 1.35,
+                        color: const Color(0xFF111827),
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
+                  ],
 
-                    const SizedBox(height: 20),
+                  SizedBox(height: _step == LoginStep.password ? 14 : 20),
 
-                    // âœ… Intuit-style screen swap
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 320),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeIn,
-                      transitionBuilder: (child, animation) {
-                        return SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(0.04, 0),
-                            end: Offset.zero,
-                          ).animate(animation),
-                          child: FadeTransition(
-                            opacity: animation,
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: _step == LoginStep.email
-                          ? Column(
-                              key: const ValueKey('email-step'),
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                  _step == LoginStep.email
+                      ? Column(
+                          key: const ValueKey('email-step'),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_noAccountBanner) _noAccountBox(),
+                            IntuitTextField(
+                              controller: emailController,
+                              focusNode: emailFocusNode,
+                              label: "Email",
+                              enabled: !isLoading && !_checkingEmail,
+                              textInputAction: TextInputAction.done,
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: _continueToPassword,
+                              errorText: _emailError,
+                            ),
+
+                            // âœ… REMEMBER ME â€” EXACT PLACEMENT
+                            const SizedBox(height: 8),
+
+                            Row(
                               children: [
-                                if (_noAccountBanner) _noAccountBox(),
-                                IntuitTextField(
-                                  controller: emailController,
-                                  focusNode: emailFocusNode,
-                                  label: "Email",
-                                  enabled: !isLoading && !_checkingEmail,
-                                  textInputAction: TextInputAction.done,
-                                  onChanged: (_) => _clearInlineErrors(),
-                                  onSubmitted: _continueToPassword,
-                                  errorText: _emailError,
+                                Checkbox(
+                                  value: _rememberMe,
+                                  onChanged: isLoading
+                                      ? null
+                                      : (val) {
+                                          setState(() {
+                                            _rememberMe = val ?? true;
+                                          });
+                                        },
+                                  activeColor: AppColors.brandBlue,
+                                  visualDensity: VisualDensity.compact,
                                 ),
-
-                                // âœ… REMEMBER ME â€” EXACT PLACEMENT
-                                const SizedBox(height: 8),
-
-                                Row(
-                                  children: [
-                                    Checkbox(
-                                      value: _rememberMe,
-                                      onChanged: isLoading
-                                          ? null
-                                          : (val) {
-                                              setState(() {
-                                                _rememberMe = val ?? true;
-                                              });
-                                            },
-                                      activeColor: AppColors.brandBlue,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Text(
-                                      "Remember me",
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xFF6B6C72),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            )
-                          : Column(
-                              key: const ValueKey('password-step'),
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                // âœ… Centered identity block (polished)
-                                Column(
-                                  children: [
-                                    Text(
-                                      emailController.text,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF393A3D),
-                                      ),
-                                    ),
-
-                                    const SizedBox(height: 2),
-
-                                    _HoverUnderlineLink(
-                                      label: "Use a different account",
-                                      onTap: isLoading
-                                          ? () {}
-                                          : () {
-                                              setState(() {
-                                                _step = LoginStep.email;
-                                                passwordController.clear();
-                                              });
-                                            },
-                                    ),
-                                  ],
-                                ),
-
-                                const SizedBox(height: 12),
-
-                                IntuitTextField(
-                                  controller: passwordController,
-                                  focusNode: passwordFocusNode,
-                                  label: "Password",
-                                  enabled: !isLoading,
-                                  obscureText: obscurePassword,
-                                  onChanged: (_) => _clearInlineErrors(),
-                                  onSubmitted: _login,
-                                  errorText: _passwordError ?? _authError,
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      obscurePassword
-                                          ? Icons.visibility_off
-                                          : Icons.visibility,
-                                      size: 20,
-                                    ),
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => setState(
-                                            () => obscurePassword =
-                                                !obscurePassword,
-                                          ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  "Remember me",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF6B6C72),
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
                             ),
-                    ),
+                          ],
+                        )
+                      : _step == LoginStep.password
+                      ? Column(
+                          key: const ValueKey('password-step'),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // âœ… Centered identity block (polished)
+                            Column(
+                              children: [
+                                _HoverUnderlineLink(
+                                  label: "Use a different account",
+                                  onTap: isLoading
+                                      ? () {}
+                                      : () {
+                                          setState(() {
+                                            _step = LoginStep.email;
+                                            passwordController.clear();
+                                          });
+                                        },
+                                ),
+                              ],
+                            ),
 
+                            const SizedBox(height: 18),
+
+                            IntuitTextField(
+                              controller: passwordController,
+                              focusNode: passwordFocusNode,
+                              label: "Password",
+                              enabled: !isLoading,
+                              obscureText: obscurePassword,
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: _login,
+                              errorText: _passwordError ?? _authError,
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  size: 20,
+                                ),
+                                onPressed: isLoading
+                                    ? null
+                                    : () => setState(
+                                        () =>
+                                            obscurePassword = !obscurePassword,
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.center,
+                              child: _HoverUnderlineLink(
+                                label: 'Forgot password?',
+                                onTap: isLoading ? () {} : _showResetOptions,
+                              ),
+                            ),
+                          ],
+                        )
+                      : _step == LoginStep.resetOptions
+                      ? _resetOptionsStep()
+                      : _step == LoginStep.resetCodeSent
+                      ? _resetCodeSentStep(theme)
+                      : _resetUpdatePasswordStep(theme),
+
+                  if (_step == LoginStep.email ||
+                      _step == LoginStep.password) ...[
                     const SizedBox(height: 12),
-
                     SizedBox(
                       height: 42,
                       child: Material(
@@ -633,7 +656,7 @@ class _LoginScreenState extends State<LoginScreen>
                           onTap: primaryAction,
                           borderRadius: BorderRadius.circular(6),
                           child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 220),
+                            duration: const Duration(milliseconds: 100),
                             child: Container(
                               key: ValueKey('${_step}_$isLoading'),
                               decoration: BoxDecoration(
@@ -667,26 +690,233 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
                     ),
+                  ],
 
+                  if (_step == LoginStep.email) ...[
                     const SizedBox(height: 12),
                     const LoginLegalNotice(),
-
-                    const SizedBox(height: 16),
-
-                    Text(
-                      "Accounts are created by invitation only.",
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF6B6C72),
-                      ),
-                    ),
                   ],
-                ),
+
+                  const SizedBox(height: 16),
+
+                  Text(
+                    "Accounts are created by invitation only.",
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF6B6C72),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _resetOptionsStep() {
+    return Column(
+      key: const ValueKey('reset-options-step'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_emailError != null) ...[
+          _InlineBanner(tone: _InlineBannerTone.error, message: _emailError!),
+          const SizedBox(height: 12),
+        ],
+        if (_resetMessage != null) ...[
+          _InlineBanner(tone: _InlineBannerTone.error, message: _resetMessage!),
+          const SizedBox(height: 12),
+        ],
+        _ResetOptionTile(
+          icon: Icons.mail_outline,
+          title: 'Email a code',
+          subtitle: emailController.text.trim().toLowerCase(),
+          busy: _sendingReset,
+          onTap: _sendingReset ? null : _sendPasswordResetCode,
+        ),
+        const SizedBox(height: 12),
+        _ResetOptionTile(
+          icon: Icons.lock_outline,
+          title: 'Try password again',
+          onTap: _sendingReset
+              ? null
+              : () {
+                  setState(() {
+                    _step = LoginStep.password;
+                    _resetMessage = null;
+                  });
+                  Future.delayed(const Duration(milliseconds: 60), () {
+                    if (mounted) {
+                      FocusScope.of(context).requestFocus(passwordFocusNode);
+                    }
+                  });
+                },
+        ),
+        const SizedBox(height: 12),
+        _ResetOptionTile(
+          icon: Icons.verified_user_outlined,
+          title: 'Verify identity a different way',
+          subtitle: 'Contact our office for help with access.',
+          onTap: () => _openLink('https://www.axumecpas.com/contact.php'),
+        ),
+      ],
+    );
+  }
+
+  Widget _resetCodeSentStep(ThemeData theme) {
+    return Column(
+      key: const ValueKey('reset-code-sent-step'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Icon(
+          Icons.mark_email_read_outlined,
+          color: AppColors.brandBlue,
+          size: 50,
+        ),
+        const SizedBox(height: 14),
+        if (_resetMessage != null) ...[
+          _InlineBanner(tone: _InlineBannerTone.error, message: _resetMessage!),
+          const SizedBox(height: 12),
+        ],
+        TextField(
+          controller: resetCodeController,
+          enabled: !_verifyingReset,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(6),
+          ],
+          onChanged: (_) {
+            if (_resetMessage != null) {
+              setState(() => _resetMessage = null);
+            }
+          },
+          onSubmitted: (_) => _verifyResetCode(),
+          decoration: const InputDecoration(
+            labelText: 'Verification code',
+            prefixIcon: Icon(Icons.pin_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 42,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.brandBlue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            onPressed: _verifyingReset ? null : _verifyResetCode,
+            child: Text(_verifyingReset ? 'Verifying...' : 'Continue'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: _sendingReset ? null : _sendPasswordResetCode,
+          child: Text(_sendingReset ? 'Sending...' : "I didn't get an email"),
+        ),
+        TextButton(
+          onPressed: () {
+            setState(() {
+              _step = LoginStep.email;
+              _resetMessage = null;
+            });
+          },
+          child: const Text('Use different email'),
+        ),
+      ],
+    );
+  }
+
+  Widget _resetUpdatePasswordStep(ThemeData theme) {
+    return Column(
+      key: const ValueKey('reset-update-password-step'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_resetMessage != null) ...[
+          _InlineBanner(tone: _InlineBannerTone.error, message: _resetMessage!),
+          const SizedBox(height: 12),
+        ],
+        IntuitTextField(
+          controller: newPasswordController,
+          label: 'New password',
+          enabled: !_sendingReset,
+          obscureText: obscureNewPassword,
+          textInputAction: TextInputAction.next,
+          onChanged: (_) {
+            if (_resetMessage != null) {
+              setState(() => _resetMessage = null);
+            }
+          },
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscureNewPassword ? Icons.visibility_off : Icons.visibility,
+              size: 20,
+            ),
+            onPressed: _sendingReset
+                ? null
+                : () =>
+                      setState(() => obscureNewPassword = !obscureNewPassword),
+          ),
+        ),
+        const SizedBox(height: 12),
+        IntuitTextField(
+          controller: confirmPasswordController,
+          label: 'Confirm new password',
+          enabled: !_sendingReset,
+          obscureText: obscureConfirmPassword,
+          textInputAction: TextInputAction.done,
+          onSubmitted: _completeResetAndLogin,
+          onChanged: (_) {
+            if (_resetMessage != null) {
+              setState(() => _resetMessage = null);
+            }
+          },
+          suffixIcon: IconButton(
+            icon: Icon(
+              obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+              size: 20,
+            ),
+            onPressed: _sendingReset
+                ? null
+                : () => setState(
+                    () => obscureConfirmPassword = !obscureConfirmPassword,
+                  ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 42,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.brandBlue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            onPressed: _sendingReset ? null : _completeResetAndLogin,
+            child: Text(_sendingReset ? 'Updating...' : 'Update password'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextButton(
+          onPressed: _sendingReset
+              ? null
+              : () {
+                  setState(() {
+                    _step = LoginStep.password;
+                    _resetMessage = null;
+                    _resetToken = null;
+                  });
+                },
+          child: const Text('Try password again'),
+        ),
+      ],
     );
   }
 
@@ -842,7 +1072,7 @@ class _LoginScreenState extends State<LoginScreen>
       body: AbsorbPointer(
         absorbing: !_pageReady, // âœ… prevent interaction while loading
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 280),
+          duration: const Duration(milliseconds: 160),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeIn,
           child: _pageReady
@@ -899,6 +1129,148 @@ class _LoginScreenState extends State<LoginScreen>
                     'login-loading',
                   ), // âœ… required for AnimatedSwitcher
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _InlineBannerTone { info, error }
+
+class _InlineBanner extends StatelessWidget {
+  const _InlineBanner({required this.tone, required this.message});
+
+  final _InlineBannerTone tone;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final isError = tone == _InlineBannerTone.error;
+    final bg = isError
+        ? const Color(0xFFFFF5F5)
+        : AppColors.brandBlue.withOpacity(0.08);
+    final fg = isError ? const Color(0xFFB42318) : AppColors.brandBlue;
+    final icon = isError ? Icons.error_outline : Icons.info_outline;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: fg.withOpacity(0.20)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: isError
+                    ? const Color(0xFF7A271A)
+                    : const Color(0xFF344054),
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResetOptionTile extends StatelessWidget {
+  const _ResetOptionTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback? onTap;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE4E7EC)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 10,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                height: 38,
+                width: 38,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF0F2F5),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: busy
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(icon, size: 20, color: const Color(0xFF111827)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (subtitle != null && subtitle!.trim().isNotEmpty)
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF667085),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                color: Color(0xFF98A2B3),
+                size: 20,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -976,4 +1348,3 @@ class _LoginLoadingScreen extends StatelessWidget {
     );
   }
 }
-

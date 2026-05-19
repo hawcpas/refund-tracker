@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../theme/app_colors.dart';
+import '../theme/brand_logo_svg.dart';
+import 'otp_verify_screen.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class AuthActionScreen extends StatefulWidget {
   const AuthActionScreen({super.key});
@@ -154,8 +157,35 @@ class _ResetPasswordFormState extends State<_ResetPasswordForm> {
   final _pw1 = TextEditingController();
   final _pw2 = TextEditingController();
   bool _busy = false;
+  bool _loadingEmail = true;
   String? _error;
+  String? _email;
   bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadResetEmail();
+  }
+
+  Future<void> _loadResetEmail() async {
+    try {
+      final email = await FirebaseAuth.instance.verifyPasswordResetCode(
+        widget.oobCode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _email = email;
+        _loadingEmail = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'This reset link is invalid or expired.';
+        _loadingEmail = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -187,6 +217,18 @@ class _ResetPasswordFormState extends State<_ResetPasswordForm> {
         code: widget.oobCode,
         newPassword: p1,
       );
+      final email = _email;
+      if (email != null && email.isNotEmpty) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: p1,
+        );
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const OtpVerifyScreen()),
+        );
+        return;
+      }
       setState(() => _done = true);
     } catch (_) {
       setState(
@@ -201,6 +243,13 @@ class _ResetPasswordFormState extends State<_ResetPasswordForm> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (_loadingEmail) {
+      return _Shell(
+        title: 'Reset password',
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     if (_done) {
       return _Shell(
@@ -247,12 +296,30 @@ class _ResetPasswordFormState extends State<_ResetPasswordForm> {
     }
 
     return _Shell(
-      title: 'Reset your password',
+      title: 'Update password',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Center(
+            child: SvgPicture.string(
+              kBrandLogoSvg2,
+              height: 62,
+              fit: BoxFit.contain,
+            ),
+          ),
+          const SizedBox(height: 18),
           Text(
-            'Enter and confirm a new password to complete the reset request.',
+            "It's time to update your password",
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: const Color(0xFF111827),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Enter and confirm a new password to protect your account.',
+            textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: const Color(0xFF475467),
               height: 1.35,
@@ -260,6 +327,15 @@ class _ResetPasswordFormState extends State<_ResetPasswordForm> {
             ),
           ),
           const SizedBox(height: 14),
+          TextFormField(
+            initialValue: _email ?? '',
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'User ID',
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _pw1,
             obscureText: true,
