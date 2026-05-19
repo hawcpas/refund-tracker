@@ -315,6 +315,63 @@ class AuthService {
     }
   }
 
+  Future<AuthResult<void>> requestPasswordResetCode(String email) async {
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('requestPasswordResetCode')
+          .call({'email': email.trim().toLowerCase()});
+      return const AuthResult();
+    } on FirebaseFunctionsException catch (e) {
+      return AuthResult(code: e.code, message: e.message);
+    } catch (e) {
+      return AuthResult(code: 'unknown-error', message: e.toString());
+    }
+  }
+
+  Future<AuthResult<String>> verifyPasswordResetCode({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('verifyPasswordResetCode')
+          .call({'email': email.trim().toLowerCase(), 'code': code.trim()});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return AuthResult(data: (data['resetToken'] ?? '').toString());
+    } on FirebaseFunctionsException catch (e) {
+      return AuthResult(code: e.code, message: e.message);
+    } catch (e) {
+      return AuthResult(code: 'unknown-error', message: e.toString());
+    }
+  }
+
+  Future<AuthResult<void>> completePasswordResetWithCode({
+    required String email,
+    required String resetToken,
+    required String newPassword,
+  }) async {
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('completePasswordResetWithCode').call({
+        'email': email.trim().toLowerCase(),
+        'resetToken': resetToken,
+        'newPassword': newPassword,
+      });
+      await _auth.signInWithEmailAndPassword(
+        email: email.trim().toLowerCase(),
+        password: newPassword,
+      );
+      return const AuthResult();
+    } on FirebaseFunctionsException catch (e) {
+      return AuthResult(code: e.code, message: e.message);
+    } on FirebaseAuthException catch (e) {
+      return AuthResult(code: e.code, message: e.message);
+    } catch (e) {
+      return AuthResult(code: 'unknown-error', message: e.toString());
+    }
+  }
+
   // =========================
   // GOOGLE SIGN-IN
   // =========================
@@ -365,35 +422,19 @@ class AuthService {
       final user = result.user;
       if (user == null) return null;
 
-      try {
-        await sendLoginOtp();
-        // ✅ Pull latest claims (if backend cleared otp_verified on OTP send)
-        await user.getIdToken(true);
-      } catch (e) {
-        // ignore: avoid_print
-        print('OTP SEND FAILED (non-blocking): $e');
-      }
+      Future<void>.microtask(() async {
+        try {
+          await FirebaseFunctions.instanceFor(
+            region: 'us-central1',
+          ).httpsCallable('markUserActive').call();
+          await _markActiveIfEmailVerified(user);
+        } catch (e) {
+          // ignore: avoid_print
+          print("Post-login Firestore update failed (non-blocking): $e");
+        }
+      });
 
-      await user.reload();
-      final refreshedUser = _auth.currentUser;
-      if (refreshedUser == null) return user;
-
-      // Firestore updates should NEVER block login
-      try {
-        await FirebaseFunctions.instanceFor(
-          region: 'us-central1',
-        ).httpsCallable('markUserActive').call();
-        await _markActiveIfEmailVerified(refreshedUser);
-
-        await FirebaseFunctions.instanceFor(
-          region: 'us-central1',
-        ).httpsCallable('markUserActive').call();
-      } catch (e) {
-        // ignore: avoid_print
-        print("Post-login Firestore update failed (non-blocking): $e");
-      }
-
-      return refreshedUser;
+      return user;
     } on FirebaseAuthException catch (e) {
       // ignore: avoid_print
       print("LOGIN AUTH ERROR: ${e.code} - ${e.message}");

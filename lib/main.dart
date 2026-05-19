@@ -645,6 +645,15 @@ class _MyAppState extends State<MyApp> {
 /// Prevents blank refresh by waiting for FirebaseAuth to restore session.
 /// Firebase notes currentUser can be null until auth finishes initializing,
 /// so authStateChanges() is the correct source of truth. [1](https://www.valimail.com/blog/understanding-email-authentication-headers/)[2](https://www.youtube.com/watch?v=S7LhAmuJGVA)
+Future<IdTokenResult> _fastTokenResult(User user) async {
+  final cached = await user.getIdTokenResult();
+  final claims = cached.claims ?? {};
+  if (claims['otp_verified'] == true && claims['otp_verified_at'] != null) {
+    return cached;
+  }
+  return user.getIdTokenResult(true);
+}
+
 class _AuthGate extends StatelessWidget {
   final Widget Function(User user) builder;
   final String requestedRoute;
@@ -667,8 +676,8 @@ class _AuthGate extends StatelessWidget {
         if (!user.emailVerified) return const VerifyEmailScreen();
 
         return FutureBuilder<IdTokenResult>(
-          // 🔐 Force refresh so OTP + timestamp claims are authoritative
-          future: user.getIdTokenResult(true),
+          // Use cached claims when available; refresh only if OTP claims are missing.
+          future: _fastTokenResult(user),
           builder: (context, tokenSnap) {
             if (tokenSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
