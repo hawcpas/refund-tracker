@@ -849,7 +849,11 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
     final overlay = Overlay.of(ctx);
     if (overlay == null) return;
 
-    const double appBarHeight = _ContentUtilityBar.height;
+    final isMobileShell = MediaQuery.of(ctx).size.width < 900;
+    final appBarHeight = isMobileShell ? 228.0 : _ContentUtilityBar.height;
+    final flyoutWidth = isMobileShell
+        ? (MediaQuery.of(ctx).size.width - 24).clamp(300.0, 360.0)
+        : 360.0;
 
     _notificationsEntry = OverlayEntry(
       builder: (context) {
@@ -871,7 +875,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
             // ✅ anchored flyout (matches avatar/settings)
             Positioned(
               top: appBarHeight,
-              right: 72, // 👈 aligns left of avatar
+              right: isMobileShell ? 12 : 72,
               child: Material(
                 color: Colors.transparent,
                 child: FadeTransition(
@@ -889,7 +893,7 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
                     ),
                     alignment: Alignment.topRight,
                     child: _ShellFlyoutSurface(
-                      width: 360,
+                      width: flyoutWidth,
                       constraints: const BoxConstraints(maxHeight: 420),
                       child: _NotificationsPanel(
                         onOpenRequest: (rid) {
@@ -1355,6 +1359,10 @@ Please describe the issue below:
     final isMobileShell = MediaQuery.of(context).size.width < 900;
     final isAdminConsole = _currentRoute.startsWith('/admin');
 
+    if (isMobileShell) {
+      return _buildMobileShell(uid: uid);
+    }
+
     // Enterprise behavior:
     // - On mobile: show back if inner stack can pop, else show menu
     // - On desktop: optional back if inner stack can pop
@@ -1564,6 +1572,652 @@ Please describe the issue below:
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMobileShell({required String uid}) {
+    final isBackRoute = _currentRoute == '/dropoff-details';
+
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: AppColors.pageCanvas,
+      body: SafeArea(
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .snapshots(),
+          builder: (context, userSnap) {
+            final userCursor =
+                (userSnap.data?.data()?['lastNotificationsViewedAt']
+                    as Timestamp?) ??
+                Timestamp(0, 0);
+            final userCursorMs = userCursor.millisecondsSinceEpoch;
+            final overrideMs =
+                _notifViewedOverrideAt?.millisecondsSinceEpoch ?? -1;
+            final effectiveCursor = (overrideMs > userCursorMs)
+                ? _notifViewedOverrideAt!
+                : userCursor;
+
+            if (_notifViewedOverrideAt != null && userCursorMs >= overrideMs) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _notifViewedOverrideAt = null);
+              });
+            }
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('notifications')
+                  .where('userUid', isEqualTo: uid)
+                  .where('createdAt', isGreaterThan: effectiveCursor)
+                  .orderBy('createdAt', descending: true)
+                  .limit(200)
+                  .snapshots(),
+              builder: (context, snap) {
+                final notificationCount = snap.hasData
+                    ? snap.data!.docs.length
+                    : 0;
+
+                return Column(
+                  children: [
+                    _MobileShellHeader(
+                      title: _titleFor(_currentRoute),
+                      showBack: isBackRoute,
+                      notificationCount: notificationCount,
+                      onBack: _closeDropoffDetails,
+                      onSearchTap: () => _navigate('/file-box'),
+                      onOpenNotifications: () =>
+                          _toggleNotificationsMenu(context),
+                      onOpenMore: _showMobileMoreMenu,
+                    ),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        color: AppColors.contentCanvas,
+                        child: _buildContent(),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+      bottomNavigationBar: _MobileBottomNav(
+        currentRoute: _currentRoute,
+        onNavigate: _navigate,
+        onCreate: _showMobileCreateMenu,
+      ),
+    );
+  }
+
+  void _showMobileCreateMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Create',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _MobileCreateAction(
+                  icon: Icons.upload_file_outlined,
+                  title: 'Upload file',
+                  subtitle: 'Add files directly to File Box.',
+                  onTap: () {
+                    _navigateFromMobileSheet(ctx, '/file-box/upload');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.send_outlined,
+                  title: 'Send files',
+                  subtitle: 'Create a password-protected link.',
+                  onTap: () {
+                    _navigateFromMobileSheet(ctx, '/send-files/new');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.request_page_outlined,
+                  title: 'Request files',
+                  subtitle: 'Send a client upload request.',
+                  onTap: () {
+                    _navigateFromMobileSheet(ctx, '/generate-upload-link/new');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.add_link_outlined,
+                  title: 'Create secure link',
+                  subtitle: 'Prepare a share link without sending email.',
+                  onTap: () {
+                    _navigateFromMobileSheet(ctx, '/send-files/new');
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _navigateFromMobileSheet(BuildContext sheetContext, String route) {
+    Navigator.pop(sheetContext);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _navigate(route);
+    });
+  }
+
+  void _showMobileMoreMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'More',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_isAdminUser) ...[
+                  _MobileCreateAction(
+                    icon: Icons.admin_panel_settings_outlined,
+                    title: 'Admin',
+                    subtitle: 'Manage users and firm access.',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _navigate(kAdminUsersRoute);
+                    },
+                  ),
+                  _MobileCreateAction(
+                    icon: Icons.receipt_long_outlined,
+                    title: 'Audit Log',
+                    subtitle: 'Review firm activity and file events.',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _navigate(kAdminAuditRoute);
+                    },
+                  ),
+                  Divider(height: 18, color: AppColors.divider),
+                ],
+                _MobileCreateAction(
+                  icon: Icons.business_center_outlined,
+                  title: 'Firm Documents',
+                  subtitle: 'Open shared company files.',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _navigate('/shared-files');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.public_outlined,
+                  title: 'Resources',
+                  subtitle: 'Open websites and firm resources.',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _navigate('/resources');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.person_outline,
+                  title: 'Account settings',
+                  subtitle: 'Update profile and communication settings.',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _navigate('/account-settings');
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.help_outline,
+                  title: 'Support',
+                  subtitle: 'Contact portal support.',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openSupportEmail();
+                  },
+                ),
+                _MobileCreateAction(
+                  icon: Icons.logout,
+                  title: 'Sign out',
+                  subtitle: 'End this portal session.',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _logout();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MobileShellHeader extends StatelessWidget {
+  const _MobileShellHeader({
+    required this.title,
+    required this.showBack,
+    required this.notificationCount,
+    required this.onBack,
+    required this.onSearchTap,
+    required this.onOpenNotifications,
+    required this.onOpenMore,
+  });
+
+  final String title;
+  final bool showBack;
+  final int notificationCount;
+  final VoidCallback onBack;
+  final VoidCallback onSearchTap;
+  final VoidCallback onOpenNotifications;
+  final VoidCallback onOpenMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.contentCanvas,
+        border: Border(bottom: BorderSide(color: AppColors.divider)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              if (showBack) ...[
+                _MobileIconButton(
+                  icon: Icons.arrow_back,
+                  tooltip: 'Back',
+                  onPressed: onBack,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF101828),
+                    fontSize: 28,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _MobileNotificationButton(
+                count: notificationCount,
+                onPressed: onOpenNotifications,
+              ),
+              const SizedBox(width: 6),
+              _MobileIconButton(
+                icon: Icons.more_horiz,
+                tooltip: 'More',
+                onPressed: onOpenMore,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: onSearchTap,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0xFFD0D5DD)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.search, color: Color(0xFF667085), size: 24),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Search files, requests, links...',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Color(0xFF667085),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileBottomNav extends StatelessWidget {
+  const _MobileBottomNav({
+    required this.currentRoute,
+    required this.onNavigate,
+    required this.onCreate,
+  });
+
+  final String currentRoute;
+  final ValueChanged<String> onNavigate;
+  final VoidCallback onCreate;
+
+  bool _isActive(String route) {
+    if (route == '/dashboard') {
+      return currentRoute == '/dashboard' || currentRoute == '/overview';
+    }
+    if (route == '/file-box') return currentRoute.startsWith('/file-box');
+    if (route == '/send-files') return currentRoute.startsWith('/send-files');
+    if (route == '/generate-upload-link') {
+      return currentRoute.startsWith('/generate-upload-link') ||
+          currentRoute == '/dropoff-details';
+    }
+    return currentRoute == route;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: 74,
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+        decoration: BoxDecoration(
+          color: AppColors.contentCanvas,
+          border: Border(top: BorderSide(color: AppColors.divider)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 12,
+              offset: Offset(0, -4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            _MobileBottomNavItem(
+              icon: Icons.home_outlined,
+              activeIcon: Icons.home,
+              label: 'Home',
+              active: _isActive('/dashboard'),
+              onTap: () => onNavigate('/dashboard'),
+            ),
+            _MobileBottomNavItem(
+              icon: Icons.folder_outlined,
+              activeIcon: Icons.folder,
+              label: 'Files',
+              active: _isActive('/file-box'),
+              onTap: () => onNavigate('/file-box'),
+            ),
+            Expanded(
+              child: Center(
+                child: SizedBox(
+                  height: 54,
+                  width: 82,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brandBlue,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      padding: EdgeInsets.zero,
+                    ),
+                    onPressed: onCreate,
+                    child: const Icon(Icons.add, size: 30),
+                  ),
+                ),
+              ),
+            ),
+            _MobileBottomNavItem(
+              icon: Icons.send_outlined,
+              activeIcon: Icons.send,
+              label: 'Send',
+              active: _isActive('/send-files'),
+              onTap: () => onNavigate('/send-files'),
+            ),
+            _MobileBottomNavItem(
+              icon: Icons.request_page_outlined,
+              activeIcon: Icons.request_page,
+              label: 'Request',
+              active: _isActive('/generate-upload-link'),
+              onTap: () => onNavigate('/generate-upload-link'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileBottomNavItem extends StatelessWidget {
+  const _MobileBottomNavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.brandBlue : const Color(0xFF667085);
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(active ? activeIcon : icon, color: color, size: 24),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 11.5,
+                fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileNotificationButton extends StatelessWidget {
+  const _MobileNotificationButton({
+    required this.count,
+    required this.onPressed,
+  });
+
+  final int count;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _MobileIconButton(
+          icon: Icons.notifications_outlined,
+          tooltip: 'Notifications',
+          onPressed: onPressed,
+        ),
+        if (count > 0)
+          Positioned(
+            right: -1,
+            top: -2,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD92D20),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MobileIconButton extends StatelessWidget {
+  const _MobileIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 24, color: const Color(0xFF344054)),
+      style: IconButton.styleFrom(
+        backgroundColor: const Color(0xFFF8FAFC),
+        hoverColor: const Color(0xFFEFF4FF),
+        fixedSize: const Size(42, 42),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE4E7EC)),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileCreateAction extends StatelessWidget {
+  const _MobileCreateAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE4E7EC)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                height: 38,
+                width: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.brandBlue.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: AppColors.brandBlue, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFF101828),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF667085),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF98A2B3)),
+            ],
+          ),
+        ),
       ),
     );
   }

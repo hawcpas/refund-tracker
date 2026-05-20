@@ -63,14 +63,14 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   String? _resetMessage;
   String? _resetToken;
 
-  // âœ… Refined density (matches your â€œless bulkyâ€ direction)
+  // Refined density for the login card.
   static const double _cardRadius = 18;
   static const double _cardPad = 16;
   static const double _fieldGap = 12;
   static const double _blockGap = 16;
   static const double _buttonH = 46;
 
-  // âœ… Logo inside card (larger, no box)
+  // Logo inside card.
   static const double _logoSize = 80;
   static const double _accentH = 4;
   static const double _accentW = 72;
@@ -113,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // âœ… iOS Safari fix: force pointer + focus restoration
+      // iOS Safari fix: force pointer and focus restoration.
       if (!mounted) return;
 
       FocusScope.of(context).unfocus();
@@ -425,7 +425,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'We canâ€™t find an account with what you entered.',
+                  "We can't find an account with what you entered.",
                   style: TextStyle(
                     color: Color(0xFF374151),
                     height: 1.35,
@@ -440,7 +440,12 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _loginCard(ThemeData theme, bool showAuthError) {
+  Widget _loginCard(
+    ThemeData theme,
+    bool showAuthError, {
+    bool showLogo = true,
+    double maxWidth = 380,
+  }) {
     final VoidCallback? primaryAction = (isLoading || _checkingEmail)
         ? null
         : (_step == LoginStep.password
@@ -468,7 +473,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     };
 
     return CenteredForm(
-      maxWidth: 380,
+      maxWidth: maxWidth,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -492,22 +497,21 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // âœ… Logo INSIDE card (Intuit-style)
-                  Center(
-                    child: SvgPicture.string(
-                      kBrandLogoSvg2,
-                      height: 80,
-                      fit: BoxFit.contain,
+                  if (showLogo) ...[
+                    Center(
+                      child: SvgPicture.string(
+                        kBrandLogoSvg2,
+                        height: 80,
+                        fit: BoxFit.contain,
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(
-                    height: 18,
-                  ), // instead of 16, above or below logo
+                    const SizedBox(height: 18),
+                  ],
 
                   Text(
                     title,
-                    textAlign: TextAlign.center, // âœ… CENTERED
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w700,
                       color: const Color(0xFF393A3D),
@@ -518,7 +522,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
 
                   Text(
                     subtitle,
-                    textAlign: TextAlign.center, // âœ… CENTERED
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: _step == LoginStep.password
                           ? const Color(0xFF60646C)
@@ -560,7 +564,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                               errorText: _emailError,
                             ),
 
-                            // âœ… REMEMBER ME â€” EXACT PLACEMENT
+                            // Remember-me placement.
                             const SizedBox(height: 8),
 
                             Row(
@@ -595,7 +599,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                           key: const ValueKey('password-step'),
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // âœ… Centered identity block (polished)
+                            // Centered identity block.
                             Column(
                               children: [
                                 _HoverUnderlineLink(
@@ -953,7 +957,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       key: const ValueKey("password-step"),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // âœ… Readâ€‘only email (Intuit style)
+        // Read-only email.
         Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
@@ -1015,16 +1019,16 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       child: Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 6, // âœ… closer together
+        spacing: 6,
         children: [
           link(context, "Legal", () {
             Navigator.pushNamed(context, '/legal');
           }),
-          const Text("Â·", style: TextStyle(color: Colors.grey)),
+          const Text("|", style: TextStyle(color: Colors.grey)),
           link(context, "Privacy", () {
             Navigator.pushNamed(context, '/privacy');
           }),
-          const Text("Â·", style: TextStyle(color: Colors.grey)),
+          const Text("|", style: TextStyle(color: Colors.grey)),
           link(context, "Security", () {
             Navigator.pushNamed(context, '/security');
           }),
@@ -1042,13 +1046,13 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     return CenteredForm(
       child: Column(
         children: [
-          // âœ… ALWAYS above copyright (Intuit-style)
+          // Keep legal links above copyright.
           _legalLinksRow(),
 
           const SizedBox(height: 12),
 
           Text(
-            "Â© 2026 Axume & Associates CPAs, AAC",
+            "(c) 2026 Axume & Associates CPAs, AAC",
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               color: footerColor,
@@ -1071,24 +1075,121 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _mobileLoginExperience(ThemeData theme, bool showAuthError) {
+    final isResetFlow =
+        _step == LoginStep.resetOptions ||
+        _step == LoginStep.resetCodeSent ||
+        _step == LoginStep.resetUpdatePassword;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: AbsorbPointer(
+        absorbing: !_pageReady,
+        child: _pageReady
+            ? SafeArea(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final topHeight = isResetFlow ? 190.0 : 330.0;
+                    final overlap = isResetFlow ? -58.0 : -78.0;
+                    final footerLift = isResetFlow ? -38.0 : -56.0;
+
+                    return SingleChildScrollView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              height: topHeight,
+                              width: double.infinity,
+                              color: AppColors.brandBlue,
+                              alignment: Alignment.topCenter,
+                              padding: const EdgeInsets.only(top: 52),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.10),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: SvgPicture.string(
+                                  kBrandLogoSvg2,
+                                  height: 58,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                            Transform.translate(
+                              offset: Offset(0, overlap),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                ),
+                                child: _loginCard(
+                                  theme,
+                                  showAuthError,
+                                  showLogo: false,
+                                  maxWidth: 520,
+                                ),
+                              ),
+                            ),
+                            Transform.translate(
+                              offset: Offset(0, footerLift),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  0,
+                                  18,
+                                  20,
+                                ),
+                                child: _footer(theme),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              )
+            : const _LoginLoadingScreen(key: ValueKey('login-loading-mobile')),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bool showAuthError = _authError != null;
+    final isMobile = MediaQuery.of(context).size.width < 700;
+
+    if (isMobile) {
+      return _mobileLoginExperience(theme, showAuthError);
+    }
 
     return Scaffold(
       backgroundColor: AppColors.pageBackgroundSoft,
       body: AbsorbPointer(
-        absorbing: !_pageReady, // âœ… prevent interaction while loading
+        absorbing: !_pageReady, // Prevent interaction while loading.
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 160),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeIn,
           child: _pageReady
               ? SafeArea(
-                  key: const ValueKey(
-                    'login-ui',
-                  ), // âœ… required for AnimatedSwitcher
+                  key: const ValueKey('login-ui'),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       const double footerBreakpoint = 620;
@@ -1133,11 +1234,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                     },
                   ),
                 )
-              : const _LoginLoadingScreen(
-                  key: ValueKey(
-                    'login-loading',
-                  ), // âœ… required for AnimatedSwitcher
-                ),
+              : const _LoginLoadingScreen(key: ValueKey('login-loading')),
         ),
       ),
     );
@@ -1318,10 +1415,7 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
                 : TextDecoration.none,
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 4, // âœ… tighter than before
-              vertical: 2,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             child: Text(widget.label),
           ),
         ),
