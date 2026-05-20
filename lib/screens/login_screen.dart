@@ -271,8 +271,11 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     }
 
     setState(() => _sendingReset = false);
+    final initialOtpSend = _auth.sendLoginOtp();
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const OtpVerifyScreen()),
+      MaterialPageRoute(
+        builder: (_) => OtpVerifyScreen(initialOtpSend: initialOtpSend),
+      ),
     );
   }
 
@@ -376,8 +379,14 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
 
     final nextRoute = pendingPostLoginRoute;
     pendingPostLoginRoute = null;
+    final initialOtpSend = _auth.sendLoginOtp();
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => OtpVerifyScreen(nextRoute: nextRoute)),
+      MaterialPageRoute(
+        builder: (_) => OtpVerifyScreen(
+          nextRoute: nextRoute,
+          initialOtpSend: initialOtpSend,
+        ),
+      ),
     );
   }
 

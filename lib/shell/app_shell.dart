@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/session_policy.dart';
 
 // Content screens (these should NOT contain sidebars/appbars after refactor)
 import '../screens/dashboard_screen.dart';
@@ -943,29 +944,12 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       final token = await user.getIdTokenResult(); // <-- no "true"
       final claims = token.claims ?? {};
 
-      final otp = claims['otp_verified'] == true;
+      if (!isAbsoluteSessionFresh(claims)) {
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
 
-      // otp_verified_at (ms)
-      final at = claims['otp_verified_at'];
-      final otpAtMs = (at is int) ? at : (at is num ? at.toInt() : 0);
-
-      // auth_time (seconds since epoch) -> ms
-      final authTime = claims['auth_time'];
-      final authMs = (authTime is int)
-          ? authTime * 1000
-          : (authTime is num ? authTime.toInt() * 1000 : 0);
-
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-      // OTP must be after this login (allow 5s skew)
-      final otpAfterThisLogin = authMs == 0 || otpAtMs >= (authMs - 5000);
-
-      // 1 hour validity
-      final otpFresh =
-          otp &&
-          otpAtMs > 0 &&
-          otpAfterThisLogin &&
-          (nowMs - otpAtMs) <= (60 * 60 * 1000);
+      final otpFresh = isOtpSessionFresh(claims);
 
       // ✅ Only setState when values actually change (prevents churn)
       if (!_authReady || _otpVerified != otpFresh) {

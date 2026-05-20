@@ -121,10 +121,15 @@ class AuthService {
   // OTP (2FA)
   // =========================
 
-  Future<void> sendLoginOtp() async {
-    await FirebaseFunctions.instanceFor(
+  Future<Map<String, dynamic>> sendLoginOtp() async {
+    final res = await FirebaseFunctions.instanceFor(
       region: 'us-central1',
     ).httpsCallable('sendLoginOtp').call();
+
+    if (res.data is Map) {
+      return Map<String, dynamic>.from(res.data as Map);
+    }
+    return const {};
   }
 
   Future<void> verifyLoginOtp(String code) async {
@@ -134,6 +139,17 @@ class AuthService {
 
     // 🔄 Force-refresh token so otp_verified claim is available
     await _auth.currentUser?.getIdToken(true);
+  }
+
+  Future<void> clearOtpSession() async {
+    try {
+      await FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('clearOtpSession').call();
+      await _auth.currentUser?.getIdToken(true);
+    } catch (_) {
+      await _auth.currentUser?.getIdToken(true);
+    }
   }
 
   bool get isOtpVerified {
@@ -606,11 +622,7 @@ class AuthService {
   // =========================
 
   Future<void> logout() async {
-    try {
-      await FirebaseFunctions.instanceFor(
-        region: 'us-central1',
-      ).httpsCallable('clearOtpSession').call();
-    } catch (_) {}
+    await clearOtpSession();
 
     await stopSessionGuard();
     await _auth.signOut();
