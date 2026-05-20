@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'dart:async';
 
 import 'package:refund_tracker/theme/app_colors.dart';
 import 'firebase_options.dart';
@@ -24,6 +25,7 @@ import 'screens/otp_verify_screen.dart';
 import 'screens/secure_share_screen.dart';
 
 import 'services/auth_service.dart';
+import 'services/session_policy.dart';
 import 'shell/app_shell.dart';
 import 'services/post_login_route.dart';
 import 'screens/terms_of_service_screen.dart';
@@ -72,6 +74,8 @@ class _MyAppState extends State<MyApp> {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldMessengerState> _messengerKey =
       GlobalKey<ScaffoldMessengerState>();
+  Timer? _idleTimer;
+  bool _idleLocking = false;
 
   @override
   void initState() {
@@ -94,12 +98,42 @@ class _MyAppState extends State<MyApp> {
         );
       },
     );
+    _resetIdleTimer();
   }
 
   @override
   void dispose() {
+    _idleTimer?.cancel();
     _authService.stopSessionGuard();
     super.dispose();
+  }
+
+  void _resetIdleTimer() {
+    _idleTimer?.cancel();
+    _idleTimer = Timer(SessionPolicy.idleLockDuration, _lockIdleSession);
+  }
+
+  Future<void> _lockIdleSession() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (!mounted || user == null || user.isAnonymous || _idleLocking) return;
+
+    _idleLocking = true;
+    try {
+      await _authService.clearOtpSession();
+      _messengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('Your session was locked after inactivity.'),
+        ),
+      );
+    } finally {
+      _idleLocking = false;
+      _resetIdleTimer();
+    }
+  }
+
+  void _handleUserActivity([PointerEvent? _]) {
+    if (FirebaseAuth.instance.currentUser == null) return;
+    _resetIdleTimer();
   }
 
   @override
@@ -205,438 +239,444 @@ class _MyAppState extends State<MyApp> {
       );
     }
 
-    return MaterialApp(
-      title: 'Axume & Associates CPAs Portal',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: _navKey,
-      scaffoldMessengerKey: _messengerKey,
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handleUserActivity,
+      onPointerMove: _handleUserActivity,
+      onPointerSignal: _handleUserActivity,
+      child: MaterialApp(
+        title: 'Axume & Associates CPAs Portal',
+        debugShowCheckedModeBanner: false,
+        navigatorKey: _navKey,
+        scaffoldMessengerKey: _messengerKey,
 
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: colorScheme,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: colorScheme,
 
-        // ✅ Office 365 page background
-        scaffoldBackgroundColor: AppColors.pageCanvas,
+          // ✅ Office 365 page background
+          scaffoldBackgroundColor: AppColors.pageCanvas,
 
-        // ✅ REGISTER APP THEME (THIS IS THE KEY)
-        extensions: const [
-          AppTheme(
-            pageBackground: AppColors.pageCanvas, // #F7F5F2
-            contentBackground: AppColors.contentCanvas, // #FFFFFF
-            navigationBackground: AppColors.navigationCanvas,
-            divider: AppColors.divider,
+          // ✅ REGISTER APP THEME (THIS IS THE KEY)
+          extensions: const [
+            AppTheme(
+              pageBackground: AppColors.pageCanvas, // #F7F5F2
+              contentBackground: AppColors.contentCanvas, // #FFFFFF
+              navigationBackground: AppColors.navigationCanvas,
+              divider: AppColors.divider,
+            ),
+          ],
+
+          // ✅ Fluent / Microsoft typography ramp (KEEP — this is good)
+          textTheme: ThemeData.light().textTheme.copyWith(
+            titleLarge: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 20,
+              height: 26 / 20,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.1,
+              color: Color(0xFF111827),
+            ),
+
+            titleMedium: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 16,
+              height: 22 / 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF111827),
+            ),
+
+            bodyMedium: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 14,
+              height: 20 / 14,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF323130), // ✅ Fluent neutral text
+            ),
+
+            bodySmall: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 12,
+              height: 16 / 12,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF605E5C), // ✅ Fluent secondary text
+            ),
+
+            labelLarge: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 12,
+              height: 16 / 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: Color(0xFF323130),
+            ),
+
+            labelMedium: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 12,
+              height: 16 / 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: Color(0xFF323130),
+            ),
+
+            labelSmall: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 10,
+              height: 14 / 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: Color(0xFF605E5C),
+            ),
+
+            headlineSmall: const TextStyle(
+              fontFamily: 'Segoe UI',
+              fontFamilyFallback: [
+                'Segoe UI Variable',
+                'Segoe UI Web',
+                'Segoe UI',
+                'Helvetica Neue',
+                'Arial',
+                'sans-serif',
+              ],
+              fontSize: 24,
+              height: 32 / 24,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2,
+              color: Color(0xFF111827),
+            ),
           ),
-        ],
 
-        // ✅ Fluent / Microsoft typography ramp (KEEP — this is good)
-        textTheme: ThemeData.light().textTheme.copyWith(
-          titleLarge: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 20,
-            height: 26 / 20,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.1,
-            color: Color(0xFF111827),
-          ),
-
-          titleMedium: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 16,
-            height: 22 / 16,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF111827),
-          ),
-
-          bodyMedium: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 14,
-            height: 20 / 14,
-            fontWeight: FontWeight.w400,
-            color: Color(0xFF323130), // ✅ Fluent neutral text
-          ),
-
-          bodySmall: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 12,
-            height: 16 / 12,
-            fontWeight: FontWeight.w400,
-            color: Color(0xFF605E5C), // ✅ Fluent secondary text
-          ),
-
-          labelLarge: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 12,
-            height: 16 / 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-            color: Color(0xFF323130),
-          ),
-
-          labelMedium: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 12,
-            height: 16 / 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-            color: Color(0xFF323130),
-          ),
-
-          labelSmall: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 10,
-            height: 14 / 10,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-            color: Color(0xFF605E5C),
-          ),
-
-          headlineSmall: const TextStyle(
-            fontFamily: 'Segoe UI',
-            fontFamilyFallback: [
-              'Segoe UI Variable',
-              'Segoe UI Web',
-              'Segoe UI',
-              'Helvetica Neue',
-              'Arial',
-              'sans-serif',
-            ],
-            fontSize: 24,
-            height: 32 / 24,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.2,
-            color: Color(0xFF111827),
-          ),
-        ),
-
-        // ✅ No page transitions (keep — enterprise correct)
-        pageTransitionsTheme: const PageTransitionsTheme(
-          builders: {
-            TargetPlatform.android: NoTransitionsBuilder(),
-            TargetPlatform.iOS: NoTransitionsBuilder(),
-            TargetPlatform.linux: NoTransitionsBuilder(),
-            TargetPlatform.macOS: NoTransitionsBuilder(),
-            TargetPlatform.windows: NoTransitionsBuilder(),
-          },
-        ),
-
-        // ✅ Neutral AppBar (Office365 does NOT use brand blue chrome)
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFFE9E9E9),
-          foregroundColor: Color(0xFF323130),
-          elevation: 0,
-          centerTitle: false,
-          surfaceTintColor: Colors.transparent,
-        ),
-      ),
-
-      // ✅ KEEP EVERYTHING BELOW EXACTLY THE SAME
-      onGenerateRoute: (settings) {
-        final raw = settings.name ?? '/';
-        final uri = Uri.parse(raw);
-        final route = uri.path; // ✅ path only (no query)
-        final rid = uri.queryParameters['rid'];
-
-        // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
-        if (route.startsWith('/dropoff') && route != '/file-box') {
-          return MaterialPageRoute(
-            settings: settings,
-            builder: (_) => route == '/dropoff/success'
-                ? const DropoffSuccessScreen()
-                : const DropoffClientScreen(),
-          );
-        }
-
-        // ✅ ✅ ✅ HARD SHORT-CIRCUIT AUTH ACTION ROUTES (public)
-        if (route.startsWith('/auth/action')) {
-          return MaterialPageRoute(
-            settings: settings,
-            builder: (_) => const AuthActionScreen(),
-          );
-        }
-
-        // ✅ Public routes (no auth, no shell)
-        if (route == '/' ||
-            route == '/login' ||
-            route == '/secure-share' ||
-            route == '/forgot-password' ||
-            route == '/verify-email' ||
-            route == '/terms' ||
-            route == '/privacy' ||
-            route == '/legal' ||
-            route == '/security') {
-          return MaterialPageRoute(
-            settings: settings,
-            builder: (_) {
-              switch (route) {
-                case '/secure-share':
-                  return const SecureShareScreen();
-                case '/forgot-password':
-                  return const ForgotPasswordScreen();
-                case '/privacy':
-                  return const PrivacyPolicyScreen();
-                case '/terms':
-                  return const TermsOfServiceScreen();
-                case '/legal':
-                  return const LegalScreen();
-                case '/security':
-                  return const SecurityScreen();
-                case '/verify-email':
-                  return const VerifyEmailScreen();
-                case '/':
-                case '/login':
-                default:
-                  return const LoginScreen();
-              }
+          // ✅ No page transitions (keep — enterprise correct)
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {
+              TargetPlatform.android: NoTransitionsBuilder(),
+              TargetPlatform.iOS: NoTransitionsBuilder(),
+              TargetPlatform.linux: NoTransitionsBuilder(),
+              TargetPlatform.macOS: NoTransitionsBuilder(),
+              TargetPlatform.windows: NoTransitionsBuilder(),
             },
-          );
-        }
+          ),
 
-        // ✅ Protected routes — unchanged
-        switch (route) {
-          case '/dashboard':
-          case '/overview':
+          // ✅ Neutral AppBar (Office365 does NOT use brand blue chrome)
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Color(0xFFE9E9E9),
+            foregroundColor: Color(0xFF323130),
+            elevation: 0,
+            centerTitle: false,
+            surfaceTintColor: Colors.transparent,
+          ),
+        ),
+
+        // ✅ KEEP EVERYTHING BELOW EXACTLY THE SAME
+        onGenerateRoute: (settings) {
+          final raw = settings.name ?? '/';
+          final uri = Uri.parse(raw);
+          final route = uri.path; // ✅ path only (no query)
+          final rid = uri.queryParameters['rid'];
+
+          // ✅ ✅ ✅ HARD SHORT-CIRCUIT DROP-OFF ROUTES (public)
+          if (route.startsWith('/dropoff') && route != '/file-box') {
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (_) => AppShell(initialRoute: route),
-              ),
+              builder: (_) => route == '/dropoff/success'
+                  ? const DropoffSuccessScreen()
+                  : const DropoffClientScreen(),
             );
+          }
 
-          case '/account-settings':
+          // ✅ ✅ ✅ HARD SHORT-CIRCUIT AUTH ACTION ROUTES (public)
+          if (route.startsWith('/auth/action')) {
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (_) =>
-                    const AppShell(initialRoute: '/account-settings'),
-              ),
+              builder: (_) => const AuthActionScreen(),
             );
+          }
 
-          case '/resources':
+          // ✅ Public routes (no auth, no shell)
+          if (route == '/' ||
+              route == '/login' ||
+              route == '/secure-share' ||
+              route == '/forgot-password' ||
+              route == '/verify-email' ||
+              route == '/terms' ||
+              route == '/privacy' ||
+              route == '/legal' ||
+              route == '/security') {
             return MaterialPageRoute(
               settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (_) => const AppShell(initialRoute: '/resources'),
-              ),
+              builder: (_) {
+                switch (route) {
+                  case '/secure-share':
+                    return const SecureShareScreen();
+                  case '/forgot-password':
+                    return const ForgotPasswordScreen();
+                  case '/privacy':
+                    return const PrivacyPolicyScreen();
+                  case '/terms':
+                    return const TermsOfServiceScreen();
+                  case '/legal':
+                    return const LegalScreen();
+                  case '/security':
+                    return const SecurityScreen();
+                  case '/verify-email':
+                    return const VerifyEmailScreen();
+                  case '/':
+                  case '/login':
+                  default:
+                    return const LoginScreen();
+                }
+              },
             );
+          }
 
-          case '/shared-files':
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (_) => const AppShell(initialRoute: '/shared-files'),
-              ),
-            );
+          // ✅ Protected routes — unchanged
+          switch (route) {
+            case '/dashboard':
+            case '/overview':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (_) => AppShell(initialRoute: route),
+                ),
+              );
 
-          case '/admin-users':
-          case '/admin-audit':
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (user) =>
-                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .get(),
-                      builder: (context, snap) {
-                        if (snap.connectionState != ConnectionState.done) {
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        if (!snap.hasData) {
-                          return const AppShell(initialRoute: '/dashboard');
-                        }
-                        final data = snap.data!.data() ?? {};
-                        final role = (data['role'] ?? '')
-                            .toString()
-                            .toLowerCase()
-                            .trim();
-                        if (role != 'admin') {
-                          return const AppShell(initialRoute: '/dashboard');
-                        }
-                        return AppShell(initialRoute: route);
-                      },
-                    ),
-              ),
-            );
+            case '/account-settings':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (_) =>
+                      const AppShell(initialRoute: '/account-settings'),
+                ),
+              );
 
-          case '/file-box':
-          case '/file-box/upload':
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (user) =>
-                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .get(),
-                      builder: (context, snap) {
-                        if (!snap.hasData) {
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final data = snap.data!.data() ?? {};
-                        final role = (data['role'] ?? '')
-                            .toString()
-                            .toLowerCase()
-                            .trim();
-                        final hasDropoffAccess =
-                            role == 'admin' ||
-                            (data['capabilities']?['dropoffs'] == true);
-                        if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
-                        }
-                        return AppShell(initialRoute: route);
-                      },
-                    ),
-              ),
-            );
+            case '/resources':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (_) => const AppShell(initialRoute: '/resources'),
+                ),
+              );
 
-          case '/send-files':
-          case '/send-files/new':
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (user) =>
-                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .get(),
-                      builder: (context, snap) {
-                        if (!snap.hasData) {
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final data = snap.data!.data() ?? {};
-                        final role = (data['role'] ?? '')
-                            .toString()
-                            .toLowerCase()
-                            .trim();
-                        final hasDropoffAccess =
-                            role == 'admin' ||
-                            (data['capabilities']?['dropoffs'] == true);
-                        if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
-                        }
-                        return AppShell(initialRoute: route);
-                      },
-                    ),
-              ),
-            );
+            case '/shared-files':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (_) => const AppShell(initialRoute: '/shared-files'),
+                ),
+              );
 
-          case '/generate-upload-link':
-          case '/generate-upload-link/new':
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (user) =>
-                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(user.uid)
-                          .get(),
-                      builder: (context, snap) {
-                        if (!snap.hasData) {
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        final data = snap.data!.data() ?? {};
-                        final role = (data['role'] ?? '')
-                            .toString()
-                            .toLowerCase()
-                            .trim();
-                        final hasDropoffAccess =
-                            role == 'admin' ||
-                            (data['capabilities']?['dropoffs'] == true);
-                        if (!hasDropoffAccess) {
-                          return const AppShell(initialRoute: '/dashboard');
-                        }
-                        return AppShell(initialRoute: route);
-                      },
-                    ),
-              ),
-            );
+            case '/admin-users':
+            case '/admin-audit':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (user) =>
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .get(),
+                        builder: (context, snap) {
+                          if (snap.connectionState != ConnectionState.done) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          if (!snap.hasData) {
+                            return const AppShell(initialRoute: '/dashboard');
+                          }
+                          final data = snap.data!.data() ?? {};
+                          final role = (data['role'] ?? '')
+                              .toString()
+                              .toLowerCase()
+                              .trim();
+                          if (role != 'admin') {
+                            return const AppShell(initialRoute: '/dashboard');
+                          }
+                          return AppShell(initialRoute: route);
+                        },
+                      ),
+                ),
+              );
 
-          default:
-            return MaterialPageRoute(
-              settings: settings,
-              builder: (_) => _AuthGate(
-                requestedRoute: route,
-                builder: (_) => const AppShell(initialRoute: '/dashboard'),
-              ),
-            );
-        }
-      },
+            case '/file-box':
+            case '/file-box/upload':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (user) =>
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .get(),
+                        builder: (context, snap) {
+                          if (!snap.hasData) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          final data = snap.data!.data() ?? {};
+                          final role = (data['role'] ?? '')
+                              .toString()
+                              .toLowerCase()
+                              .trim();
+                          final hasDropoffAccess =
+                              role == 'admin' ||
+                              (data['capabilities']?['dropoffs'] == true);
+                          if (!hasDropoffAccess) {
+                            return const AppShell(initialRoute: '/dashboard');
+                          }
+                          return AppShell(initialRoute: route);
+                        },
+                      ),
+                ),
+              );
+
+            case '/send-files':
+            case '/send-files/new':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (user) =>
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .get(),
+                        builder: (context, snap) {
+                          if (!snap.hasData) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          final data = snap.data!.data() ?? {};
+                          final role = (data['role'] ?? '')
+                              .toString()
+                              .toLowerCase()
+                              .trim();
+                          final hasDropoffAccess =
+                              role == 'admin' ||
+                              (data['capabilities']?['dropoffs'] == true);
+                          if (!hasDropoffAccess) {
+                            return const AppShell(initialRoute: '/dashboard');
+                          }
+                          return AppShell(initialRoute: route);
+                        },
+                      ),
+                ),
+              );
+
+            case '/generate-upload-link':
+            case '/generate-upload-link/new':
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (user) =>
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .get(),
+                        builder: (context, snap) {
+                          if (!snap.hasData) {
+                            return const Scaffold(
+                              body: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          final data = snap.data!.data() ?? {};
+                          final role = (data['role'] ?? '')
+                              .toString()
+                              .toLowerCase()
+                              .trim();
+                          final hasDropoffAccess =
+                              role == 'admin' ||
+                              (data['capabilities']?['dropoffs'] == true);
+                          if (!hasDropoffAccess) {
+                            return const AppShell(initialRoute: '/dashboard');
+                          }
+                          return AppShell(initialRoute: route);
+                        },
+                      ),
+                ),
+              );
+
+            default:
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => _AuthGate(
+                  requestedRoute: route,
+                  builder: (_) => const AppShell(initialRoute: '/dashboard'),
+                ),
+              );
+          }
+        },
+      ),
     );
   }
 }
@@ -676,7 +716,6 @@ class _AuthGate extends StatelessWidget {
         if (!user.emailVerified) return const VerifyEmailScreen();
 
         return FutureBuilder<IdTokenResult>(
-          // Use cached claims when available; refresh only if OTP claims are missing.
           future: _fastTokenResult(user),
           builder: (context, tokenSnap) {
             if (tokenSnap.connectionState == ConnectionState.waiting) {
@@ -687,30 +726,21 @@ class _AuthGate extends StatelessWidget {
 
             final claims = tokenSnap.data?.claims ?? {};
 
-            final otpVerified = claims['otp_verified'] == true;
+            if (!isAbsoluteSessionFresh(claims)) {
+              FirebaseAuth.instance.signOut();
+              return const LoginScreen();
+            }
 
-            final at = claims['otp_verified_at'];
-            final atMs = (at is int) ? at : (at is num ? at.toInt() : 0);
-
-            final nowMs = DateTime.now().millisecondsSinceEpoch;
-
-            // ✅ OTP valid for 1 hour
-            final otpFresh =
-                otpVerified && atMs > 0 && (nowMs - atMs) <= (60 * 60 * 1000);
-
-            // ✅ If someone deep-links to an admin route and OTP is expired,
-            // force post-OTP navigation to a safe destination.
+            final otpFresh = isOtpSessionFresh(claims);
             final isProtected = requestedRoute.startsWith('/admin');
             final safeRoute = (isProtected && !otpFresh)
                 ? '/dashboard'
                 : requestedRoute;
 
-            // ✅ HARD STOP: never render protected UI until OTP is fresh
             if (!otpFresh) {
               return OtpVerifyScreen(nextRoute: safeRoute);
             }
 
-            // ✅ OTP verified and fresh → allow the requested screen
             return builder(user);
           },
         );

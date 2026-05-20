@@ -707,6 +707,29 @@ exports.verifyLoginOtp = onCall(
   }
 );
 
+exports.clearOtpSession = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated");
+    }
+
+    const uid = request.auth.uid;
+    const user = await admin.auth().getUser(uid);
+    const existingClaims = user.customClaims || {};
+
+    await admin.auth().setCustomUserClaims(uid, {
+      ...existingClaims,
+      otp_verified: false,
+      otp_verified_at: 0,
+    });
+
+    await db.collection("auth_otps").doc(uid).delete().catch(() => {});
+
+    return { ok: true };
+  }
+);
+
 
 exports.sendLoginOtp = onCall(
   { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
@@ -759,16 +782,6 @@ exports.sendLoginOtp = onCall(
       }
     }
 
-    // ✅ Clear previous OTP trust
-    const user = await admin.auth().getUser(uid);
-    const existingClaims = user.customClaims || {};
-
-    await admin.auth().setCustomUserClaims(uid, {
-      ...existingClaims,
-      otp_verified: false,
-      otp_verified_at: 0,
-    });
-
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
     await ref.set({
@@ -789,6 +802,26 @@ exports.sendLoginOtp = onCall(
         code,
       }),
     });
+
+    // Clear previous OTP trust after Graph accepts the email so delivery starts
+    // as early as possible. Firestore rules still require otp_verified_at to be
+    // newer than the current auth_time, so old OTP claims cannot authorize this
+    // new sign-in while this cleanup runs.
+    try {
+      const user = await admin.auth().getUser(uid);
+      const existingClaims = user.customClaims || {};
+
+      await admin.auth().setCustomUserClaims(uid, {
+        ...existingClaims,
+        otp_verified: false,
+        otp_verified_at: 0,
+      });
+    } catch (err) {
+      console.error("Failed to clear OTP claims after sending code", {
+        uid,
+        error: err,
+      });
+    }
 
     return {
       ok: true,

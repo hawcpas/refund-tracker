@@ -124,7 +124,8 @@ class _AdminAuditScreenState extends State<AdminAuditScreen> {
   Widget build(BuildContext context) {
     return PageScaffold(
       title: 'Audit Log',
-      subtitle: 'Review file activity by person, file, action, and time period.',
+      subtitle:
+          'Review file activity by person, file, action, and time period.',
       wrapInCard: false,
       maxContentWidth: 1280,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -324,7 +325,10 @@ class _AuditFilters extends StatelessWidget {
           SegmentedButton<_AuditRange>(
             segments: const [
               ButtonSegment(value: _AuditRange.today, label: Text('Today')),
-              ButtonSegment(value: _AuditRange.sevenDays, label: Text('7 days')),
+              ButtonSegment(
+                value: _AuditRange.sevenDays,
+                label: Text('7 days'),
+              ),
               ButtonSegment(
                 value: _AuditRange.thirtyDays,
                 label: Text('30 days'),
@@ -524,22 +528,32 @@ class _AuditTimeline extends StatelessWidget {
   List<_AuditTimelineItem> _compactTimeline(List<_AuditEvent> events) {
     final result = <_AuditTimelineItem>[];
     final viewGroups = <String, List<_AuditEvent>>{};
+    final downloadGroups = <String, List<_AuditEvent>>{};
 
     for (final event in events) {
       if (event.action == 'view' && event.surface == 'sent_files') {
         viewGroups.putIfAbsent(event.linkKey, () => []).add(event);
+      } else if (event.action == 'download') {
+        downloadGroups.putIfAbsent(event.downloadKey, () => []).add(event);
       } else {
         result.add(_AuditTimelineItem(event: event));
       }
     }
 
-    for (final group in viewGroups.values) {
+    void addLatestItem(List<_AuditEvent> group) {
       group.sort((a, b) {
         final aMs = a.occurredAt?.millisecondsSinceEpoch ?? 0;
         final bMs = b.occurredAt?.millisecondsSinceEpoch ?? 0;
         return bMs.compareTo(aMs);
       });
       result.add(_AuditTimelineItem(event: group.first, count: group.length));
+    }
+
+    for (final group in viewGroups.values) {
+      addLatestItem(group);
+    }
+    for (final group in downloadGroups.values) {
+      addLatestItem(group);
     }
 
     result.sort((a, b) {
@@ -571,9 +585,9 @@ class _AuditEventRow extends StatelessWidget {
     final event = item.event;
     final time = event.occurredAt == null
         ? '-'
-        : MaterialLocalizations.of(context).formatTimeOfDay(
-            TimeOfDay.fromDateTime(event.occurredAt!),
-          );
+        : MaterialLocalizations.of(
+            context,
+          ).formatTimeOfDay(TimeOfDay.fromDateTime(event.occurredAt!));
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
@@ -721,6 +735,16 @@ class _AuditTimelineItem {
       ];
       return parts.join(' - ');
     }
+    if (event.action == 'download') {
+      final parts = <String>[
+        'Latest download',
+        if (count > 1) '$count download events',
+        if (event.clientName.isNotEmpty) event.clientName,
+        if (event.recipientEmail.isNotEmpty) event.recipientEmail,
+        if (event.surface.isNotEmpty) event.surfaceLabel,
+      ];
+      return parts.join(' - ');
+    }
     return base;
   }
 }
@@ -818,9 +842,19 @@ class _AuditEvent {
 
   String get linkKey {
     if (shareId.isNotEmpty) return 'share:$shareId';
-    if (recipientEmail.isNotEmpty) return 'recipient:${recipientEmail.toLowerCase()}';
+    if (recipientEmail.isNotEmpty)
+      return 'recipient:${recipientEmail.toLowerCase()}';
     if (clientEmail.isNotEmpty) return 'client:${clientEmail.toLowerCase()}';
     return 'file:$fileKey';
+  }
+
+  String get downloadKey {
+    final actor = actorKey.isNotEmpty ? actorKey : 'unknown_actor';
+    final file = fileKey.isNotEmpty ? fileKey : id.toLowerCase();
+    final recipient = recipientEmail.isNotEmpty
+        ? recipientEmail.toLowerCase()
+        : clientEmail.toLowerCase();
+    return [actor, file, recipient].where((p) => p.isNotEmpty).join('|');
   }
 
   String get shortShareId {
@@ -876,10 +910,17 @@ class _AuditEvent {
     final parts = <String>[
       _actionLabel,
       if (clientName.isNotEmpty) clientName,
-      if (requestId.isNotEmpty) 'Request $requestId',
+      if (sourceLabel.isNotEmpty) sourceLabel,
       if (surface.isNotEmpty) _surfaceLabel,
     ];
     return parts.join(' - ');
+  }
+
+  String get sourceLabel {
+    if (surface == 'sent_files' || shareId.isNotEmpty) return 'Secure share';
+    if (requestId.startsWith('firm_file_box_')) return 'File Box upload';
+    if (requestId.isNotEmpty) return 'Request files';
+    return '';
   }
 
   String get _actionLabel {
@@ -904,6 +945,10 @@ class _AuditEvent {
   }
 
   String get _surfaceLabel {
+    return surfaceLabel;
+  }
+
+  String get surfaceLabel {
     switch (surface) {
       case 'details':
         return 'File details';

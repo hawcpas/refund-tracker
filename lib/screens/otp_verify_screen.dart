@@ -13,11 +13,13 @@ import '../theme/brand_logo_svg.dart';
 class OtpVerifyScreen extends StatefulWidget {
   final String? nextRoute;
   final bool otpAlreadySent;
+  final Future<Map<String, dynamic>>? initialOtpSend;
 
   const OtpVerifyScreen({
     super.key,
     this.nextRoute,
     this.otpAlreadySent = false,
+    this.initialOtpSend,
   });
 
   @override
@@ -55,29 +57,34 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
     // ✅ SAFE OTP AUTO-SEND
     // =========================
     if (!widget.otpAlreadySent) {
-      Future.microtask(() async {
-        if (!mounted) return;
+      Future.microtask(() => _sendInitialCode(widget.initialOtpSend));
+    }
+  }
 
-        try {
-          final res = await FirebaseFunctions.instanceFor(
-            region: 'us-central1',
-          ).httpsCallable('sendLoginOtp').call();
+  Future<void> _sendInitialCode(
+    Future<Map<String, dynamic>>? initialOtpSend,
+  ) async {
+    if (!mounted) return;
 
-          // ✅ Honor server throttle window
-          if (res.data is Map) {
-            final data = Map<String, dynamic>.from(res.data as Map);
-            final remaining = (data['remainingSeconds'] is num)
-                ? (data['remainingSeconds'] as num).toInt()
-                : 0;
+    try {
+      final data = initialOtpSend != null
+          ? await initialOtpSend
+          : Map<String, dynamic>.from(
+              (await FirebaseFunctions.instanceFor(
+                    region: 'us-central1',
+                  ).httpsCallable('sendLoginOtp').call()).data
+                  as Map,
+            );
 
-            if (remaining > 0) {
-              _startCooldown(remaining);
-            }
-          }
-        } catch (_) {
-          // ✅ Non-blocking: user can still tap "resend"
-        }
-      });
+      final remaining = (data['remainingSeconds'] is num)
+          ? (data['remainingSeconds'] as num).toInt()
+          : 0;
+
+      if (mounted && remaining > 0) {
+        _startCooldown(remaining);
+      }
+    } catch (_) {
+      // Non-blocking: user can still tap "resend".
     }
   }
 
