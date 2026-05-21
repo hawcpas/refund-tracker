@@ -52,6 +52,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
   bool _showValidationHints = false;
   bool _passwordRequired = true;
   bool _detailsProtected = true;
+  bool _notifyOnFirstDownload = false;
   bool _draggingFiles = false;
   bool _showCustomExpiration = false;
   String _customPeriod = 'PM';
@@ -514,6 +515,7 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
         if (_customExpiresAt != null)
           'expiresAtMillis': _customExpiresAt!.millisecondsSinceEpoch,
         'sendEmail': _sendEmail,
+        'notifyOnFirstDownload': _notifyOnFirstDownload,
       });
 
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -1539,6 +1541,22 @@ class _CreateSecureShareScreenState extends State<CreateSecureShareScreen> {
           onChanged: _submitting
               ? null
               : (v) => setState(() => _detailsProtected = v != false),
+        ),
+        const SizedBox(height: 8),
+        CheckboxListTile(
+          value: _notifyOnFirstDownload,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          title: const Text(
+            'Email me on first download',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: const Text(
+            'Send one notification to the sender when the client downloads from this link for the first time.',
+          ),
+          onChanged: _submitting
+              ? null
+              : (v) => setState(() => _notifyOnFirstDownload = v == true),
         ),
         const SizedBox(height: 8),
         CheckboxListTile(
@@ -3376,7 +3394,10 @@ class _FileBoxPickerPanel extends StatelessWidget {
                         children: const [
                           SizedBox(width: 34),
                           Expanded(child: _PickerHeaderText('Name')),
-                          SizedBox(width: 112, child: _PickerHeaderText('Client')),
+                          SizedBox(
+                            width: 112,
+                            child: _PickerHeaderText('Client'),
+                          ),
                           SizedBox(width: 72, child: _PickerHeaderText('Size')),
                           SizedBox(width: 44),
                         ],
@@ -3473,11 +3494,11 @@ class _FileBoxPickerRow extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       [
-                        if (businessOrEmail.isNotEmpty) businessOrEmail,
-                        if (compact && file.clientName.isNotEmpty)
-                          file.clientName,
-                        if (compact) formatSize(file.sizeBytes),
-                      ].isEmpty
+                            if (businessOrEmail.isNotEmpty) businessOrEmail,
+                            if (compact && file.clientName.isNotEmpty)
+                              file.clientName,
+                            if (compact) formatSize(file.sizeBytes),
+                          ].isEmpty
                           ? 'File Box'
                           : [
                               if (businessOrEmail.isNotEmpty) businessOrEmail,

@@ -183,7 +183,8 @@ class _RecentUploadsFromActivity extends StatefulWidget {
       _RecentUploadsFromActivityState();
 }
 
-class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> {
+class _RecentUploadsFromActivityState
+    extends State<_RecentUploadsFromActivity> {
   _RecentFileFilter _filter = _RecentFileFilter.all;
   final Set<String> _pinnedFileIds = {};
 
@@ -230,10 +231,15 @@ class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> 
     }
   }
 
-  bool _passesFilter(Map<String, dynamic> m, String fileName, String contentType) {
+  bool _passesFilter(
+    Map<String, dynamic> m,
+    String fileName,
+    String contentType,
+  ) {
     final createdAt = _asDate(m['createdAt']);
     final now = DateTime.now();
-    final client = _s(m['requestClientName']).isNotEmpty ||
+    final client =
+        _s(m['requestClientName']).isNotEmpty ||
         _s(m['requestClientEmail']).isNotEmpty ||
         _s(m['requestBusinessName']).isNotEmpty;
     final lastAction = _s(m['lastActivityAction']).toLowerCase();
@@ -272,7 +278,9 @@ class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> 
     if (storagePath.isEmpty) return;
 
     try {
-      final fn = widget.isAdmin ? 'getAdminDownloadUrl' : 'getDropoffDownloadUrl';
+      final fn = widget.isAdmin
+          ? 'getAdminDownloadUrl'
+          : 'getDropoffDownloadUrl';
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable(fn)
           .call({
@@ -293,9 +301,9 @@ class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> 
       }
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
     }
   }
 
@@ -641,20 +649,20 @@ class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> 
           );
         }
 
-        final visibleDocs = docs.where((d) {
-          final m = d.data();
-          final fileName = _s(m['originalName']).isEmpty
-              ? 'Untitled'
-              : _s(m['originalName']);
-          final contentType = _s(m['contentType']);
-          return _passesFilter(m, fileName, contentType);
-        }).toList()
-          ..sort((a, b) {
-            final aPinned = _pinnedFileIds.contains(a.id);
-            final bPinned = _pinnedFileIds.contains(b.id);
-            if (aPinned == bPinned) return 0;
-            return aPinned ? -1 : 1;
-          });
+        final visibleDocs =
+            docs.where((d) {
+              final m = d.data();
+              final fileName = _s(m['originalName']).isEmpty
+                  ? 'Untitled'
+                  : _s(m['originalName']);
+              final contentType = _s(m['contentType']);
+              return _passesFilter(m, fileName, contentType);
+            }).toList()..sort((a, b) {
+              final aPinned = _pinnedFileIds.contains(a.id);
+              final bPinned = _pinnedFileIds.contains(b.id);
+              if (aPinned == bPinned) return 0;
+              return aPinned ? -1 : 1;
+            });
 
         if (visibleDocs.isEmpty) {
           return _DashboardListSection(
@@ -773,10 +781,8 @@ class _RecentUploadsFromActivityState extends State<_RecentUploadsFromActivity> 
                     _DashboardMenuAction(
                       icon: Icons.open_in_new_outlined,
                       label: 'Open request',
-                      onPressed: () => Navigator.pushNamed(
-                        context,
-                        '/generate-upload-link',
-                      ),
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/generate-upload-link'),
                     ),
                 ],
               ),
@@ -952,7 +958,9 @@ class _NeedsAttentionSectionState extends State<_NeedsAttentionSection> {
       final shares = (sharesData['shares'] is List)
           ? sharesData['shares'] as List
           : const [];
-      return shares.map((raw) => Map<String, dynamic>.from(raw as Map)).toList();
+      return shares
+          .map((raw) => Map<String, dynamic>.from(raw as Map))
+          .toList();
     } catch (_) {
       return const [];
     }
@@ -972,7 +980,8 @@ class _NeedsAttentionSectionState extends State<_NeedsAttentionSection> {
                   _DashboardListRow(
                     leadingIcon: Icons.warning_amber_outlined,
                     title: 'Needs attention is unavailable',
-                    subtitle: 'Open File Box, Sent Files, or Requests directly.',
+                    subtitle:
+                        'Open File Box, Sent Files, or Requests directly.',
                     onTap: () => setState(() => _future = _load()),
                     trailing: TextButton(
                       onPressed: () => setState(() => _future = _load()),
@@ -1026,7 +1035,9 @@ class _MetricRow extends StatelessWidget {
     return _DashboardListRow(
       leadingIcon: metric.icon,
       title: metric.label,
-      subtitle: metric.value == 0 ? 'Nothing waiting right now' : 'Review these items',
+      subtitle: metric.value == 0
+          ? 'Nothing waiting right now'
+          : 'Review these items',
       onTap: onTap,
       badges: [_StatusBadge(label: metric.value.toString())],
     );
@@ -1040,9 +1051,9 @@ class _RecentSentLinksSection extends StatelessWidget {
 
   Future<List<Map<String, dynamic>>> _load() async {
     if (!hasDropoffAccess) return const [];
-    final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('listSecureFileShares')
-        .call();
+    final res = await FirebaseFunctions.instanceFor(
+      region: 'us-central1',
+    ).httpsCallable('listSecureFileShares').call();
     final data = Map<String, dynamic>.from(res.data as Map);
     final raw = (data['shares'] is List) ? data['shares'] as List : const [];
     return raw.take(5).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -1056,15 +1067,18 @@ class _RecentSentLinksSection extends StatelessWidget {
         final rows = snap.data ?? const <Map<String, dynamic>>[];
         return _DashboardListSection(
           title: 'Recently sent',
-          subtitle: 'File links sent to clients and their latest access status.',
+          subtitle:
+              'File links sent to clients and their latest access status.',
           children: snap.hasData
               ? [
                   if (rows.isEmpty)
                     _DashboardListRow(
                       leadingIcon: Icons.send_outlined,
                       title: 'No sent links yet',
-                      subtitle: 'Create a file link when you are ready to send files.',
-                      onTap: () => Navigator.pushNamed(context, '/send-files/new'),
+                      subtitle:
+                          'Create a file link when you are ready to send files.',
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/send-files/new'),
                       enabled: hasDropoffAccess,
                     )
                   else
@@ -1092,10 +1106,16 @@ class _RecentSentLinksSection extends StatelessWidget {
                       return _DashboardListRow(
                         leadingIcon: Icons.link_outlined,
                         title: name,
-                        subtitle:
-                            '${_dashS(m['recipientEmail'])} - $activity',
-                        onTap: () => Navigator.pushNamed(context, '/send-files'),
-                        badges: [_StatusBadge(label: _dashS(m['status']).isEmpty ? 'Active' : _dashS(m['status']))],
+                        subtitle: '${_dashS(m['recipientEmail'])} - $activity',
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/send-files'),
+                        badges: [
+                          _StatusBadge(
+                            label: _dashS(m['status']).isEmpty
+                                ? 'Active'
+                                : _dashS(m['status']),
+                          ),
+                        ],
                         trailing: _DashboardRowMenu(
                           actions: [
                             _DashboardMenuAction(
@@ -1118,7 +1138,8 @@ class _RecentSentLinksSection extends StatelessWidget {
                   _DashboardFooterAction(
                     label: 'View all sent links',
                     icon: Icons.send_outlined,
-                    onPressed: () => Navigator.pushNamed(context, '/send-files'),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/send-files'),
                   ),
                 ]
               : const [
@@ -1164,10 +1185,8 @@ class _OpenRequestsSection extends StatelessWidget {
                       leadingIcon: Icons.task_alt_outlined,
                       title: 'No open requests',
                       subtitle: 'All file requests are currently quiet.',
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        '/generate-upload-link',
-                      ),
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/generate-upload-link'),
                     )
                   else
                     ...docs.map((doc) {
@@ -1178,7 +1197,8 @@ class _OpenRequestsSection extends StatelessWidget {
                           ? _dashS(m['clientEmail'])
                           : 'Client request';
                       final expires = _dashDate(m['expiresAt']);
-                      final count = m['fileCount'] ?? m['filesCount'] ?? m['uploadCount'];
+                      final count =
+                          m['fileCount'] ?? m['filesCount'] ?? m['uploadCount'];
                       final fileCount = count is num ? count.toInt() : 0;
                       return _DashboardListRow(
                         leadingIcon: Icons.request_page_outlined,
@@ -1240,7 +1260,10 @@ class _ActivityTodaySection extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('file_activity')
-          .where('occurredAt', isGreaterThanOrEqualTo: Timestamp.fromDate(_startOfToday()))
+          .where(
+            'occurredAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(_startOfToday()),
+          )
           .orderBy('occurredAt', descending: true)
           .limit(8)
           .snapshots(),
@@ -1272,19 +1295,22 @@ class _ActivityTodaySection extends StatelessWidget {
                           : _dashS(m['originalName']);
                       return _DashboardListRow(
                         leadingIcon: Icons.timeline_outlined,
-                        title: '${action[0].toUpperCase()}${action.substring(1)}',
+                        title:
+                            '${action[0].toUpperCase()}${action.substring(1)}',
                         subtitle: [
                           if (actor.isNotEmpty) actor,
                           if (file.isNotEmpty) file,
                           _dashRelative(_dashDate(m['occurredAt'])),
                         ].join(' - '),
-                        onTap: () => Navigator.pushNamed(context, '/admin-audit'),
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/admin-audit'),
                       );
                     }),
                   _DashboardFooterAction(
                     label: 'Open full audit timeline',
                     icon: Icons.manage_search_outlined,
-                    onPressed: () => Navigator.pushNamed(context, '/admin-audit'),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/admin-audit'),
                   ),
                 ]
               : const [
@@ -1827,7 +1853,11 @@ class _RecentFileFilterBar extends StatelessWidget {
               child: Row(
                 children: [
                   if (filter == selected)
-                    const Icon(Icons.check, size: 16, color: AppColors.brandBlue)
+                    const Icon(
+                      Icons.check,
+                      size: 16,
+                      color: AppColors.brandBlue,
+                    )
                   else
                     const SizedBox(width: 16),
                   const SizedBox(width: 8),
@@ -2270,6 +2300,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (uid.isEmpty) return const SizedBox.shrink();
 
+    void openRoute(String route) {
+      final shell = context.findAncestorStateOfType<AppShellState>();
+      if (shell != null) {
+        shell.openRoute(route);
+      } else {
+        Navigator.pushNamed(context, route);
+      }
+    }
+
     return PageScaffold(
       title: '',
       hideHeader: true,
@@ -2279,6 +2318,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       preCommandBar: _DashboardIntroHeader(
         title: welcomeText, // "Welcome, Guillermo"
         subtitle: 'Choose a common workflow or review recent activity.',
+      ),
+
+      commandBar: FluentCommandBar(
+        actions: [
+          FluentCommandAction(
+            icon: Icons.upload_file_outlined,
+            label: 'Upload file',
+            onPressed: _hasDropoffAccess
+                ? () => openRoute('/file-box/upload')
+                : null,
+            accent: true,
+          ),
+          FluentCommandAction(
+            icon: Icons.send_outlined,
+            label: 'Send files',
+            onPressed: _hasDropoffAccess
+                ? () => openRoute('/send-files/new')
+                : null,
+          ),
+          FluentCommandAction(
+            icon: Icons.request_page_outlined,
+            label: 'Request files',
+            onPressed: _hasDropoffAccess
+                ? () => openRoute('/generate-upload-link/new')
+                : null,
+          ),
+        ],
       ),
 
       child: ContentTextZoom(

@@ -97,7 +97,7 @@ class PageScaffold extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!hideHeader) PageHeader(child: header),
+          if (!hideHeader && !isMobile) PageHeader(child: header),
 
           // ✅ Optional content ABOVE command bar (Dashboard welcome)
           if (preCommandBar != null) ...[
@@ -241,39 +241,43 @@ class FluentCommandBar extends StatelessWidget {
           ),
         ],
       ),
-      child: isNarrow ? SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-        // ✅ THIS IS THE LINE YOU ASKED ABOUT
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final a in inlineActions)
-            FluentCommandButton(
-              icon: a.icon,
-              label: a.label,
-              onPressed: a.onPressed,
-              accent: a.accent,
-            ),
+      child: isNarrow
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                // ✅ THIS IS THE LINE YOU ASKED ABOUT
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final a in inlineActions)
+                    FluentCommandButton(
+                      icon: a.icon,
+                      label: a.label,
+                      onPressed: a.onPressed,
+                      accent: a.accent,
+                    ),
 
-          if (!isNarrow) const Spacer(),
+                  if (!isNarrow) const Spacer(),
 
-          if (overflow.isNotEmpty) FluentOverflowMenuButton(actions: overflow),
-        ],
-        ),
-      ) : Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final a in inlineActions)
-            FluentCommandButton(
-              icon: a.icon,
-              label: a.label,
-              onPressed: a.onPressed,
-              accent: a.accent,
+                  if (overflow.isNotEmpty)
+                    FluentOverflowMenuButton(actions: overflow),
+                ],
+              ),
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final a in inlineActions)
+                  FluentCommandButton(
+                    icon: a.icon,
+                    label: a.label,
+                    onPressed: a.onPressed,
+                    accent: a.accent,
+                  ),
+                const Spacer(),
+                if (overflow.isNotEmpty)
+                  FluentOverflowMenuButton(actions: overflow),
+              ],
             ),
-          const Spacer(),
-          if (overflow.isNotEmpty) FluentOverflowMenuButton(actions: overflow),
-        ],
-      ),
     );
   }
 }

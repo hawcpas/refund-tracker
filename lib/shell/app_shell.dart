@@ -13,6 +13,7 @@ import '../screens/resources_screen.dart';
 import '../screens/account_settings_screen.dart';
 import '../screens/file_box.dart';
 import '../screens/generate_upload_link.dart';
+import '../screens/create_upload_link_screen.dart';
 import '../screens/send_files_screen.dart';
 import '../screens/create_secure_share_screen.dart';
 import '../screens/admin_users_screen.dart';
@@ -258,6 +259,9 @@ class AppShellState extends State<AppShell> with TickerProviderStateMixin {
       _currentRoute = '/dropoff-details';
     });
   }
+
+  /// Public API: let child pages use the shell navigation surface.
+  void openRoute(String route) => _navigate(route);
 
   /// ✅ Refresh profile-dependent UI (avatar, menus, etc.)
   /// ✅ Refresh profile-dependent UI (avatar, menus, flyouts)
@@ -1146,6 +1150,97 @@ Please describe the issue below:
     // - Show overlay results
   }
 
+  bool _searchMatches(String haystack, String query) {
+    final tokens = query
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty);
+    if (tokens.isEmpty) return false;
+    final hay = haystack.toLowerCase();
+    return tokens.every(hay.contains);
+  }
+
+  Future<List<_MobileSearchHit>> _loadMobileSearchResults(String query) async {
+    final q = query.trim();
+    if (q.length < 2) return const [];
+
+    final hits = <_MobileSearchHit>[];
+
+    try {
+      final files = await FirebaseFirestore.instance
+          .collectionGroup('files')
+          .where('deleted', isEqualTo: false)
+          .limit(80)
+          .get();
+
+      for (final doc in files.docs) {
+        final m = doc.data();
+        final name = (m['originalName'] ?? 'Untitled').toString().trim();
+        final client = (m['clientName'] ?? m['requestClientName'] ?? '')
+            .toString()
+            .trim();
+        final business = (m['businessName'] ?? m['requestBusinessName'] ?? '')
+            .toString()
+            .trim();
+        final hay = '$name $client $business ${m['requestId'] ?? ''}';
+        if (!_searchMatches(hay, q)) continue;
+
+        hits.add(
+          _MobileSearchHit(
+            icon: Icons.insert_drive_file_outlined,
+            title: name.isEmpty ? 'Untitled file' : name,
+            subtitle: [
+              'File Box',
+              if (client.isNotEmpty) client,
+              if (business.isNotEmpty) business,
+            ].join(' - '),
+            route: '/file-box',
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Mobile file search failed: $e');
+    }
+
+    try {
+      final requests = await FirebaseFirestore.instance
+          .collection('dropoff_requests')
+          .limit(60)
+          .get();
+
+      for (final doc in requests.docs) {
+        final m = doc.data();
+        final client = (m['clientName'] ?? '').toString().trim();
+        final email = (m['clientEmail'] ?? '').toString().trim();
+        final business = (m['businessName'] ?? '').toString().trim();
+        final hay = '$client $email $business ${doc.id}';
+        if (!_searchMatches(hay, q)) continue;
+
+        hits.add(
+          _MobileSearchHit(
+            icon: Icons.request_page_outlined,
+            title: client.isNotEmpty
+                ? client
+                : email.isNotEmpty
+                ? email
+                : 'File request',
+            subtitle: [
+              'Request Files',
+              if (business.isNotEmpty) business,
+              if (email.isNotEmpty) email,
+            ].join(' - '),
+            route: '/generate-upload-link',
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Mobile request search failed: $e');
+    }
+
+    return hits.take(20).toList();
+  }
+
   Widget _buildContent() {
     switch (_currentRoute) {
       case '/dropoff-details':
@@ -1180,9 +1275,8 @@ Please describe the issue below:
       case '/generate-upload-link':
         return GenerateUploadLinkScreen(onOpenDetails: _openDropoffDetails);
       case '/generate-upload-link/new':
-        return GenerateUploadLinkScreen(
-          onOpenDetails: _openDropoffDetails,
-          autoOpenCreate: true,
+        return CreateUploadLinkScreen(
+          onCancel: () => _navigate('/generate-upload-link'),
         );
       case '/admin-users':
         return const AdminUsersScreen();
@@ -1626,7 +1720,7 @@ Please describe the issue below:
                       showBack: isBackRoute,
                       notificationCount: notificationCount,
                       onBack: _closeDropoffDetails,
-                      onSearchTap: () => _navigate('/file-box'),
+                      onSearchTap: _showMobileSearch,
                       onOpenNotifications: () =>
                           _toggleNotificationsMenu(context),
                       onOpenMore: _showMobileMoreMenu,
@@ -1718,6 +1812,103 @@ Please describe the issue below:
     );
   }
 
+  void _showMobileSearch() {
+    final searchCtrl = TextEditingController();
+    var query = '';
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void openRoute(String route) {
+              Navigator.pop(ctx);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _navigate(route);
+              });
+            }
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.78,
+              minChildSize: 0.46,
+              maxChildSize: 0.94,
+              builder: (context, scrollController) {
+                return SafeArea(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                    children: [
+                      const Text(
+                        'Search',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF101828),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: searchCtrl,
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        onChanged: (value) =>
+                            setSheetState(() => query = value),
+                        decoration: InputDecoration(
+                          hintText: 'Search files, clients, or requests',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: query.trim().isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Clear search',
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () {
+                                    searchCtrl.clear();
+                                    setSheetState(() => query = '');
+                                  },
+                                ),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD0D5DD),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD0D5DD),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (query.trim().length < 2)
+                        _MobileSearchShortcuts(onOpenRoute: openRoute)
+                      else
+                        _MobileSearchResults(
+                          query: query,
+                          future: _loadMobileSearchResults(query),
+                          onOpenRoute: openRoute,
+                        ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    ).whenComplete(searchCtrl.dispose);
+  }
+
   void _navigateFromMobileSheet(BuildContext sheetContext, String route) {
     Navigator.pop(sheetContext);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1729,96 +1920,102 @@ Please describe the issue below:
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'More',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF101828),
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.42,
+          maxChildSize: 0.92,
+          builder: (context, scrollController) {
+            return SafeArea(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                children: [
+                  const Text(
+                    'More',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF101828),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                if (_isAdminUser) ...[
+                  const SizedBox(height: 12),
+                  if (_isAdminUser) ...[
+                    _MobileCreateAction(
+                      icon: Icons.admin_panel_settings_outlined,
+                      title: 'Admin',
+                      subtitle: 'Manage users and firm access.',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _navigate(kAdminUsersRoute);
+                      },
+                    ),
+                    _MobileCreateAction(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Audit Log',
+                      subtitle: 'Review firm activity and file events.',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _navigate(kAdminAuditRoute);
+                      },
+                    ),
+                    Divider(height: 18, color: AppColors.divider),
+                  ],
                   _MobileCreateAction(
-                    icon: Icons.admin_panel_settings_outlined,
-                    title: 'Admin',
-                    subtitle: 'Manage users and firm access.',
+                    icon: Icons.business_center_outlined,
+                    title: 'Firm Documents',
+                    subtitle: 'Open shared company files.',
                     onTap: () {
                       Navigator.pop(ctx);
-                      _navigate(kAdminUsersRoute);
+                      _navigate('/shared-files');
                     },
                   ),
                   _MobileCreateAction(
-                    icon: Icons.receipt_long_outlined,
-                    title: 'Audit Log',
-                    subtitle: 'Review firm activity and file events.',
+                    icon: Icons.public_outlined,
+                    title: 'Resources',
+                    subtitle: 'Open websites and firm resources.',
                     onTap: () {
                       Navigator.pop(ctx);
-                      _navigate(kAdminAuditRoute);
+                      _navigate('/resources');
                     },
                   ),
-                  Divider(height: 18, color: AppColors.divider),
+                  _MobileCreateAction(
+                    icon: Icons.person_outline,
+                    title: 'Account settings',
+                    subtitle: 'Update profile and communication settings.',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _navigate('/account-settings');
+                    },
+                  ),
+                  _MobileCreateAction(
+                    icon: Icons.help_outline,
+                    title: 'Support',
+                    subtitle: 'Contact portal support.',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openSupportEmail();
+                    },
+                  ),
+                  _MobileCreateAction(
+                    icon: Icons.logout,
+                    title: 'Sign out',
+                    subtitle: 'End this portal session.',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _logout();
+                    },
+                  ),
                 ],
-                _MobileCreateAction(
-                  icon: Icons.business_center_outlined,
-                  title: 'Firm Documents',
-                  subtitle: 'Open shared company files.',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _navigate('/shared-files');
-                  },
-                ),
-                _MobileCreateAction(
-                  icon: Icons.public_outlined,
-                  title: 'Resources',
-                  subtitle: 'Open websites and firm resources.',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _navigate('/resources');
-                  },
-                ),
-                _MobileCreateAction(
-                  icon: Icons.person_outline,
-                  title: 'Account settings',
-                  subtitle: 'Update profile and communication settings.',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _navigate('/account-settings');
-                  },
-                ),
-                _MobileCreateAction(
-                  icon: Icons.help_outline,
-                  title: 'Support',
-                  subtitle: 'Contact portal support.',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _openSupportEmail();
-                  },
-                ),
-                _MobileCreateAction(
-                  icon: Icons.logout,
-                  title: 'Sign out',
-                  subtitle: 'End this portal session.',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _logout();
-                  },
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -2219,6 +2416,153 @@ class _MobileCreateAction extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MobileSearchHit {
+  const _MobileSearchHit({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.route,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String route;
+}
+
+class _MobileSearchShortcuts extends StatelessWidget {
+  const _MobileSearchShortcuts({required this.onOpenRoute});
+
+  final ValueChanged<String> onOpenRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Common places',
+          style: TextStyle(
+            color: Color(0xFF667085),
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _MobileCreateAction(
+          icon: Icons.folder_open_outlined,
+          title: 'File Box',
+          subtitle: 'Search and manage uploaded files.',
+          onTap: () => onOpenRoute('/file-box'),
+        ),
+        _MobileCreateAction(
+          icon: Icons.send_outlined,
+          title: 'Send Files',
+          subtitle: 'Open secure file shares.',
+          onTap: () => onOpenRoute('/send-files'),
+        ),
+        _MobileCreateAction(
+          icon: Icons.request_page_outlined,
+          title: 'Request Files',
+          subtitle: 'Open client upload requests.',
+          onTap: () => onOpenRoute('/generate-upload-link'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileSearchResults extends StatelessWidget {
+  const _MobileSearchResults({
+    required this.query,
+    required this.future,
+    required this.onOpenRoute,
+  });
+
+  final String query;
+  final Future<List<_MobileSearchHit>> future;
+  final ValueChanged<String> onOpenRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<_MobileSearchHit>>(
+      future: future,
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                height: 22,
+                width: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+
+        final hits = snap.data ?? const [];
+        if (hits.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE4E7EC)),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.search_off_outlined, color: Color(0xFF98A2B3)),
+                const SizedBox(height: 8),
+                Text(
+                  'No results for "$query"',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF344054),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Try a file name, client name, email, or request detail.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF667085),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${hits.length} result${hits.length == 1 ? '' : 's'}',
+              style: const TextStyle(
+                color: Color(0xFF667085),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final hit in hits)
+              _MobileCreateAction(
+                icon: hit.icon,
+                title: hit.title,
+                subtitle: hit.subtitle,
+                onTap: () => onOpenRoute(hit.route),
+              ),
+          ],
+        );
+      },
     );
   }
 }

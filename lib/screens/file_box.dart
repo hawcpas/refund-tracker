@@ -162,7 +162,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
-      withReadStream: true,
+      withReadStream: !kIsWeb,
     );
     if (result == null) return const [];
 
@@ -2062,7 +2062,7 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                 if (!isMobile || _selected.isNotEmpty)
                                   Container(
                                     height: isMobile && _selected.isNotEmpty
-                                        ? 48
+                                        ? 92
                                         : 42,
                                     padding: EdgeInsets.symmetric(
                                       horizontal: isMobile ? 6 : 10,
@@ -2113,222 +2113,237 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                                 _selectedDocsCache,
                                               );
                                             },
-                                            onDelete: () => _deleteSelectedAdmin(
-                                              _selectedDocsCache,
-                                            ),
+                                            onDelete: () =>
+                                                _deleteSelectedAdmin(
+                                                  _selectedDocsCache,
+                                                ),
                                             allVisibleSelected:
                                                 allVisibleSelected,
                                             onToggleAll: (v) {
                                               setState(() {
                                                 if (allVisibleSelected) {
-                                                  _selected.removeAll(visibleIds);
+                                                  _selected.removeAll(
+                                                    visibleIds,
+                                                  );
                                                 } else {
                                                   _selected.addAll(visibleIds);
                                                 }
                                               });
                                             },
                                           )
-                                      : Row(
-                                          children: [
-                                            Checkbox(
-                                              value: allVisibleSelected,
-                                              onChanged: _busy
-                                                  ? null
-                                                  : (v) {
-                                                      setState(() {
-                                                        if (v == true) {
-                                                          _selected.addAll(
-                                                            visibleIds,
-                                                          );
-                                                        } else {
-                                                          _selected.removeAll(
-                                                            visibleIds,
-                                                          );
-                                                        }
-                                                      });
-                                                    },
-                                            ),
-                                            const SizedBox(width: 4),
+                                        : Row(
+                                            children: [
+                                              Checkbox(
+                                                value: allVisibleSelected,
+                                                onChanged: _busy
+                                                    ? null
+                                                    : (v) {
+                                                        setState(() {
+                                                          if (v == true) {
+                                                            _selected.addAll(
+                                                              visibleIds,
+                                                            );
+                                                          } else {
+                                                            _selected.removeAll(
+                                                              visibleIds,
+                                                            );
+                                                          }
+                                                        });
+                                                      },
+                                              ),
+                                              const SizedBox(width: 4),
 
-                                            // File column header.
-                                            Expanded(
-                                              child: InkWell(
-                                                onTap: () => _toggleSort(
-                                                  _SortField.name,
+                                              // File column header.
+                                              Expanded(
+                                                child: InkWell(
+                                                  onTap: () => _toggleSort(
+                                                    _SortField.name,
+                                                  ),
+                                                  child: Row(
+                                                    children: [
+                                                      const Text(
+                                                        'Name',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: Color(
+                                                            0xFF475467,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      _SortIndicator(
+                                                        active:
+                                                            _sortField ==
+                                                            _SortField.name,
+                                                        asc: _sortAsc,
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
-                                                child: Row(
-                                                  children: [
-                                                    const Text(
-                                                      'Name',
-                                                      style: TextStyle(
+                                              ),
+
+                                              if (!isMobile)
+                                                SizedBox(
+                                                  width: 90,
+                                                  child: InkWell(
+                                                    onTap: () => _toggleSort(
+                                                      _SortField.size,
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment.end,
+                                                      children: [
+                                                        const Text(
+                                                          'Size',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            color: Color(
+                                                              0xFF475467,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 6,
+                                                        ),
+                                                        _SortIndicator(
+                                                          active:
+                                                              _sortField ==
+                                                              _SortField.size,
+                                                          asc: _sortAsc,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+
+                                              if (!isMobile)
+                                                SizedBox(
+                                                  width: 160,
+                                                  child: InkWell(
+                                                    onTap: () => _toggleSort(
+                                                      _SortField.date,
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment.end,
+                                                      children: [
+                                                        const Text(
+                                                          'Date uploaded',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            color: Color(
+                                                              0xFF475467,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 6,
+                                                        ),
+                                                        _SortIndicator(
+                                                          active:
+                                                              _sortField ==
+                                                              _SortField.date,
+                                                          asc: _sortAsc,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+
+                                              if (!isMobile)
+                                                SizedBox(
+                                                  width: 130,
+                                                  child: InkWell(
+                                                    onTap: () => _toggleSort(
+                                                      _SortField.expires,
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment.end,
+                                                      children: [
+                                                        const Text(
+                                                          'Expires',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            color: Color(
+                                                              0xFF475467,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 6,
+                                                        ),
+                                                        _SortIndicator(
+                                                          active:
+                                                              _sortField ==
+                                                              _SortField
+                                                                  .expires,
+                                                          asc: _sortAsc,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+
+                                              if (!isMobile)
+                                                SizedBox(
+                                                  width: 170,
+                                                  child: InkWell(
+                                                    onTap: () => _toggleSort(
+                                                      _SortField.creator,
+                                                    ),
+                                                    child: Row(
+                                                      children: [
+                                                        const Text(
+                                                          'Creator',
+                                                          style: TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                            color: Color(
+                                                              0xFF475467,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 6,
+                                                        ),
+                                                        _SortIndicator(
+                                                          active:
+                                                              _sortField ==
+                                                              _SortField
+                                                                  .creator,
+                                                          asc: _sortAsc,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+
+                                              const SizedBox(width: 8),
+                                              SizedBox(
+                                                width: 78,
+                                                child: Text(
+                                                  'Actions',
+                                                  textAlign: TextAlign.right,
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
                                                         fontWeight:
                                                             FontWeight.w800,
-                                                        color: Color(
+                                                        color: const Color(
                                                           0xFF475467,
                                                         ),
                                                       ),
-                                                    ),
-                                                    const SizedBox(width: 6),
-                                                    _SortIndicator(
-                                                      active:
-                                                          _sortField ==
-                                                          _SortField.name,
-                                                      asc: _sortAsc,
-                                                    ),
-                                                  ],
                                                 ),
                                               ),
-                                            ),
-
-                                            if (!isMobile)
-                                              SizedBox(
-                                                width: 90,
-                                                child: InkWell(
-                                                  onTap: () => _toggleSort(
-                                                    _SortField.size,
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment.end,
-                                                    children: [
-                                                      const Text(
-                                                        'Size',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: Color(
-                                                            0xFF475467,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      _SortIndicator(
-                                                        active:
-                                                            _sortField ==
-                                                            _SortField.size,
-                                                        asc: _sortAsc,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-
-                                            if (!isMobile)
-                                              SizedBox(
-                                                width: 160,
-                                                child: InkWell(
-                                                  onTap: () => _toggleSort(
-                                                    _SortField.date,
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment.end,
-                                                    children: [
-                                                      const Text(
-                                                        'Date uploaded',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: Color(
-                                                            0xFF475467,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      _SortIndicator(
-                                                        active:
-                                                            _sortField ==
-                                                            _SortField.date,
-                                                        asc: _sortAsc,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-
-                                            if (!isMobile)
-                                              SizedBox(
-                                                width: 130,
-                                                child: InkWell(
-                                                  onTap: () => _toggleSort(
-                                                    _SortField.expires,
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment.end,
-                                                    children: [
-                                                      const Text(
-                                                        'Expires',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: Color(
-                                                            0xFF475467,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      _SortIndicator(
-                                                        active:
-                                                            _sortField ==
-                                                            _SortField.expires,
-                                                        asc: _sortAsc,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-
-                                            if (!isMobile)
-                                              SizedBox(
-                                                width: 170,
-                                                child: InkWell(
-                                                  onTap: () => _toggleSort(
-                                                    _SortField.creator,
-                                                  ),
-                                                  child: Row(
-                                                    children: [
-                                                      const Text(
-                                                        'Creator',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: Color(
-                                                            0xFF475467,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 6),
-                                                      _SortIndicator(
-                                                        active:
-                                                            _sortField ==
-                                                            _SortField.creator,
-                                                        asc: _sortAsc,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-
-                                            const SizedBox(width: 8),
-                                            SizedBox(
-                                              width: 78,
-                                              child: Text(
-                                                'Actions',
-                                                textAlign: TextAlign.right,
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      color: const Color(
-                                                        0xFF475467,
-                                                      ),
-                                                    ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                ),
+                                            ],
+                                          ),
+                                  ),
 
                                 // ===== Rows =====
                                 Expanded(
@@ -2349,8 +2364,12 @@ class _FileBoxScreenState extends State<FileBoxScreen> {
                                         )
                                       : ListView.separated(
                                           itemCount: visible.length,
-                                          separatorBuilder: (_, __) =>
-                                              const Divider(height: 1),
+                                          separatorBuilder: (_, __) => Divider(
+                                            height: 1,
+                                            color: Colors.black.withValues(
+                                              alpha: 0.08,
+                                            ),
+                                          ),
                                           itemBuilder: (c, i) {
                                             final row = visible[i];
                                             return _UploadRowEnhanced(
@@ -3126,9 +3145,79 @@ class _FileBoxSelectionToolbar extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 760) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: toolbarRow(compact: true),
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                children: [
+                  Checkbox(
+                    value: allVisibleSelected ? true : null,
+                    tristate: true,
+                    onChanged: busy ? null : onToggleAll,
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '$selectedCount selected',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF344054),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : onClear,
+                    child: const Text('Clear'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 34,
+                      child: FilledButton.icon(
+                        onPressed: disabled ? null : onSecureShare,
+                        icon: const Icon(Icons.lock_outline, size: 15),
+                        label: const FittedBox(child: Text('Send')),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SizedBox(
+                      height: 34,
+                      child: OutlinedButton.icon(
+                        onPressed: disabled ? null : onDownload,
+                        icon: Icon(downloadIcon, size: 15),
+                        label: FittedBox(child: Text(downloadLabel)),
+                      ),
+                    ),
+                  ),
+                  if (isAdmin) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SizedBox(
+                        height: 34,
+                        child: TextButton.icon(
+                          onPressed: disabled ? null : onDelete,
+                          icon: const Icon(Icons.delete_outline, size: 15),
+                          label: FittedBox(child: Text(deleteLabel)),
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFFB42318),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           );
         }
 
@@ -3378,34 +3467,44 @@ class _UploadRowEnhanced extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        hoverColor: const Color(0xFF101828).withValues(alpha: 0.06),
-        splashColor: const Color(0xFF101828).withValues(alpha: 0.04),
-        highlightColor: const Color(0xFF101828).withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(4),
+        overlayColor: MaterialStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(MaterialState.pressed)) {
+            return const Color(0xFFE2E8F0);
+          }
+          if (states.contains(MaterialState.hovered)) {
+            return const Color(0xFFF1F5F9);
+          }
+          return null;
+        }),
         onTap: busy ? null : onShowDetails,
         child: SizedBox(
-          height: isMobile ? 64 : 56,
+          height: isMobile ? 68 : 58,
           child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isMobile ? 8 : 10,
-              vertical: isMobile ? 2 : 4,
+            padding: EdgeInsets.fromLTRB(
+              isMobile ? 10 : 16,
+              isMobile ? 6 : 12,
+              isMobile ? 10 : 16,
+              isMobile ? 6 : 12,
             ),
             child: Row(
               children: [
                 SizedBox(
-                  width: isMobile ? 34 : 48,
-                  child: Checkbox(
-                    value: selected,
-                    onChanged: busy ? null : (v) => onSelect(v ?? false),
-                    visualDensity: isMobile
-                        ? VisualDensity.compact
-                        : VisualDensity.standard,
+                  width: isMobile ? 34 : 36,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Checkbox(
+                      value: selected,
+                      onChanged: busy ? null : (v) => onSelect(v ?? false),
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ),
                 ),
                 Tooltip(
                   message: meta.tooltip,
                   child: _FileKindIconTile(meta: meta),
                 ),
-                SizedBox(width: isMobile ? 8 : 10),
+                const SizedBox(width: 12),
 
                 Expanded(
                   child: Column(
@@ -3418,8 +3517,8 @@ class _UploadRowEnhanced extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            height: 1.05,
+                            fontWeight: FontWeight.w700,
+                            height: 1.12,
                             color: isDeleted
                                 ? const Color(0xFFB42318)
                                 : const Color(0xFF101828),
@@ -3434,7 +3533,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                           maxLines: 1,
                           onTap: busy ? null : onShowDetails,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             color: isDeleted
                                 ? const Color(0xFFB42318)
                                 : const Color(0xFF101828),
@@ -3454,8 +3553,8 @@ class _UploadRowEnhanced extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: const Color(0xFF667085),
-                                fontWeight: FontWeight.w600,
-                                height: 1.05,
+                                fontWeight: FontWeight.w500,
+                                height: 1.15,
                               ),
                             ),
                             if (notableActivity != null)
@@ -3465,9 +3564,9 @@ class _UploadRowEnhanced extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelSmall?.copyWith(
                                   color: const Color(0xFF98A2B3),
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w500,
                                   fontSize: 10.5,
-                                  height: 1.05,
+                                  height: 1.15,
                                 ),
                               ),
                           ],
@@ -3478,7 +3577,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                           maxLines: 1,
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: const Color(0xFF98A2B3),
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
 
@@ -3527,7 +3626,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                       textAlign: TextAlign.right,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -3547,7 +3646,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                           textAlign: TextAlign.right,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: const Color(0xFF667085),
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                         if (notableActivity != null) ...[
@@ -3558,7 +3657,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                             textAlign: TextAlign.right,
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: const Color(0xFF98A2B3),
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                               fontSize: 10.5,
                             ),
                           ),
@@ -3580,7 +3679,7 @@ class _UploadRowEnhanced extends StatelessWidget {
                       textAlign: TextAlign.right,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -3595,17 +3694,21 @@ class _UploadRowEnhanced extends StatelessWidget {
                       maxLines: 1,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
                 ],
 
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
 
                 IconButton(
                   tooltip: 'Download',
-                  icon: const Icon(Icons.download_outlined, size: 16),
+                  icon: const Icon(
+                    Icons.download_outlined,
+                    size: 16,
+                    color: Color(0xFF475467),
+                  ),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints.tightFor(
                     width: 34,

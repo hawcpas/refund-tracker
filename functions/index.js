@@ -4041,6 +4041,117 @@ function renderSecureShareEmail({
 </div>`;
 }
 
+function renderFirstDownloadNotificationEmail({
+  appName,
+  senderName,
+  recipientName,
+  recipientEmail,
+  fileCount,
+  files,
+  shareUrl,
+}) {
+  const safeAppName = escapeHtml(appName || "Axume Portal");
+  const safeSenderName = escapeHtml(senderName || "there");
+  const clientLabel = escapeHtml(recipientName || recipientEmail || "The client");
+  const safeRecipientEmail = escapeHtml(recipientEmail || "");
+  const safeShareUrl = escapeHtml(shareUrl || "");
+  const safeFileCount = Number(fileCount || 0);
+  const fileLabel = `${safeFileCount} ${safeFileCount === 1 ? "file" : "files"}`;
+  const visibleFiles = Array.isArray(files) ? files.slice(0, 6) : [];
+  const extraCount = Math.max(0, safeFileCount - visibleFiles.length);
+  const fileRows = visibleFiles.map((file) => {
+    const name = escapeHtml(String(file?.originalName || "File").trim());
+    return `<li style="margin:0 0 6px 0;">${name}</li>`;
+  }).join("");
+
+  return `
+<div style="margin:0; padding:0; background:#F4F6F8; font-family:Segoe UI, Arial, Helvetica, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F8; padding:28px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; background:#FFFFFF; border:1px solid #D0D5DD;">
+          <tr>
+            <td style="padding:28px 32px 24px 32px; border-bottom:1px solid #E4E7EC; background:#FFFFFF;">
+              <img src="${getEmailLogoUrl()}" alt="${safeAppName}" width="360" style="display:block; border:0; outline:none; text-decoration:none; max-width:360px; width:100%; height:auto;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:30px 32px 28px 32px;">
+              <h1 style="margin:0 0 14px 0; font-size:22px; line-height:1.25; color:#101828; font-weight:700;">First download completed</h1>
+              <p style="margin:0 0 16px 0; font-size:15px; line-height:1.55; color:#344054;">Hello ${safeSenderName},</p>
+              <p style="margin:0 0 18px 0; font-size:15px; line-height:1.55; color:#344054;">
+                ${clientLabel}${safeRecipientEmail ? ` (${safeRecipientEmail})` : ""} downloaded from the secure file link for the first time.
+              </p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px 0; background:#F9FAFB; border:1px solid #E4E7EC;">
+                <tr>
+                  <td style="padding:14px 16px; font-size:13.5px; line-height:1.5; color:#475467;">
+                    <strong style="color:#344054;">Shared content:</strong> ${fileLabel}
+                    ${fileRows ? `<ul style="margin:10px 0 0 18px; padding:0;">${fileRows}${extraCount > 0 ? `<li style="margin:0;">${extraCount} more</li>` : ""}</ul>` : ""}
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 22px 0;">
+                <a href="${safeShareUrl}" style="display:inline-block; background:#0B62D6; color:#FFFFFF; text-decoration:none; font-size:15px; font-weight:700; padding:12px 18px; border-radius:6px;">
+                  Open secure share
+                </a>
+              </p>
+              <p style="margin:0; font-size:13px; line-height:1.45; color:#667085;">
+                This notification is sent only once for this secure link.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>`;
+}
+
+async function maybeSendFirstDownloadNotification({ ref, shareId, share, files }) {
+  if (share?.notifyOnFirstDownload !== true) return;
+
+  const creatorEmail = normalizeEmail(share.createdByEmail);
+  if (!creatorEmail) return;
+
+  let shouldSend = false;
+  await db.runTransaction(async (tx) => {
+    const latest = await tx.get(ref);
+    if (!latest.exists) return;
+    const latestData = latest.data() || {};
+    if (latestData.firstDownloadNotificationSentAt) return;
+    if (latestData.notifyOnFirstDownload !== true) return;
+
+    tx.set(ref, {
+      firstDownloadNotificationSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    shouldSend = true;
+  });
+
+  if (!shouldSend) return;
+
+  try {
+    await sendAccountEmail({
+      to: creatorEmail,
+      subject: "A client downloaded files from your secure link",
+      html: renderFirstDownloadNotificationEmail({
+        appName: APP_NAME.value() || "Axume Portal",
+        senderName: share.createdByName || share.createdByEmail || "there",
+        recipientName: share.recipientName || "",
+        recipientEmail: share.recipientEmail || "",
+        fileCount: Array.isArray(share.files) ? share.files.length : files.length,
+        files,
+        shareUrl: secureShareUrl(shareId),
+      }),
+    });
+  } catch (err) {
+    console.error("first download notification failed:", err);
+    await ref.set({
+      firstDownloadNotificationFailedAt: admin.firestore.FieldValue.serverTimestamp(),
+      firstDownloadNotificationError: String(err?.message || err).slice(0, 300),
+    }, { merge: true });
+  }
+}
+
 exports.createSecureFileShare = onCall(
   { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
@@ -4090,6 +4201,7 @@ exports.createSecureFileShare = onCall(
       const accessNote = clampText(data?.accessNote, 220);
       const message = normalizeName(data?.message);
       const sendEmail = data?.sendEmail === true;
+      const notifyOnFirstDownload = data?.notifyOnFirstDownload === true;
       if (sendEmail && !recipientEmail) {
         throw new HttpsError("invalid-argument", "Client email is required to send email.");
       }
@@ -4162,6 +4274,8 @@ exports.createSecureFileShare = onCall(
         fileCount: metas.length,
         lastViewedAt: null,
         lastDownloadedAt: null,
+        notifyOnFirstDownload,
+        firstDownloadNotificationSentAt: null,
       });
 
       await markFileBoxFilesSent(metas, senderName);
@@ -4372,7 +4486,7 @@ exports.getSecureShareStatus = onCall(
 );
 
 exports.getSecureShareDownloadUrl = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     const shareId = String(request.data?.shareId || "").trim();
     const password = String(request.data?.password || "").trim();
@@ -4451,12 +4565,19 @@ exports.getSecureShareDownloadUrl = onCall(
       occurredAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    await maybeSendFirstDownloadNotification({
+      ref,
+      shareId,
+      share,
+      files: [meta],
+    });
+
     return { ok: true, url };
   }
 );
 
 exports.getSecureShareZipDownloadUrl = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", secrets: [GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET] },
   async (request) => {
     const shareId = String(request.data?.shareId || "").trim();
     const password = String(request.data?.password || "").trim();
@@ -4535,6 +4656,12 @@ exports.getSecureShareZipDownloadUrl = onCall(
         });
       }
       await batch.commit();
+      await maybeSendFirstDownloadNotification({
+        ref,
+        shareId,
+        share,
+        files: selectedFiles,
+      });
     }
 
     if (files.length === 1) {

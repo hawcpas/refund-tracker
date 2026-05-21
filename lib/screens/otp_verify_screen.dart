@@ -433,7 +433,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFF7F8FA),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: const Color(0xFFB8BDC7)),
         boxShadow: const [
@@ -451,8 +451,8 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              height: 42,
-              padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+              height: 48,
+              padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
               decoration: const BoxDecoration(
                 border: Border(bottom: BorderSide(color: Color(0xFFD9DCE3))),
               ),
@@ -502,7 +502,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+              padding: const EdgeInsets.fromLTRB(22, 18, 22, 14),
               child: Column(
                 children: [
                   Text(
@@ -529,8 +529,8 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
               ),
             ),
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+              margin: const EdgeInsets.symmetric(horizontal: 22),
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
               decoration: BoxDecoration(
                 color: const Color(0xFFF7F8FA),
                 border: Border.all(color: const Color(0xFFF0F2F5)),
@@ -592,7 +592,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
                     children: [
                       Expanded(
                         child: SizedBox(
-                          height: 30,
+                          height: 34,
                           child: FilledButton(
                             onPressed: canContinue ? _verify : null,
                             style: FilledButton.styleFrom(
@@ -632,7 +632,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
                       const SizedBox(width: 12),
                       Expanded(
                         child: SizedBox(
-                          height: 30,
+                          height: 34,
                           child: OutlinedButton(
                             onPressed: _cancelVerification,
                             style: OutlinedButton.styleFrom(
@@ -656,7 +656,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
               ),
             ),
             Container(
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              margin: const EdgeInsets.fromLTRB(22, 10, 22, 0),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               color: const Color(0xFFEFF5FF),
               child: Row(
@@ -700,22 +700,26 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
               decoration: const BoxDecoration(
                 border: Border(top: BorderSide(color: Color(0xFFD9DCE3))),
               ),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    'Having trouble signing in? ',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF111827),
-                      fontWeight: FontWeight.w500,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Having trouble signing in? ',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF111827),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  _HoverUnderlineLink(
-                    label: 'Contact Us',
-                    onTap: _openContactPage,
-                  ),
-                ],
+                    _HoverUnderlineLink(
+                      label: 'Contact Us',
+                      onTap: _openContactPage,
+                      fontSize: theme.textTheme.bodySmall?.fontSize ?? 12,
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -733,7 +737,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: const Color(0xFFF7F8FA),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: const Color(0xFFD4D7DC)),
             boxShadow: [
@@ -1006,16 +1010,17 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackgroundSoft,
+      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             const double footerBreakpoint = 620;
             final bool pinFooter = constraints.maxHeight >= footerBreakpoint;
+            final bool isMobile = constraints.maxWidth < 700;
 
             final footerWidget = Padding(
-              padding: const EdgeInsets.only(bottom: 14),
+              padding: EdgeInsets.only(bottom: isMobile ? 86 : 14),
               child: _footer(theme),
             );
 
@@ -1030,16 +1035,16 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const SizedBox(
-                          height: 88,
+                          height: 124,
                         ), // ✅ same top anchor as Login
 
                         CenteredForm(
-                          maxWidth: 560,
+                          maxWidth: 620,
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
                               CenteredForm(
-                                maxWidth: 380,
+                                maxWidth: 430,
                                 child: _passwordContextCard(theme),
                               ),
                               _otpCard(theme),
@@ -1054,7 +1059,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
                           footerWidget,
                         ],
 
-                        const SizedBox(height: 32),
+                        SizedBox(height: isMobile ? 96 : 32),
                       ],
                     ),
                   ),
@@ -1075,8 +1080,13 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen>
 class _HoverUnderlineLink extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
+  final double fontSize;
 
-  const _HoverUnderlineLink({required this.label, required this.onTap});
+  const _HoverUnderlineLink({
+    required this.label,
+    required this.onTap,
+    this.fontSize = 10,
+  });
 
   @override
   State<_HoverUnderlineLink> createState() => _HoverUnderlineLinkState();
@@ -1098,35 +1108,16 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
           style: TextStyle(
             color: AppColors.brandBlue,
             fontWeight: FontWeight.w700,
-            fontSize: 10,
+            fontSize: widget.fontSize,
             decoration: _hovering
                 ? TextDecoration.underline
                 : TextDecoration.none,
           ),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: SizedBox(), // placeholder, replaced below
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Text(widget.label),
           ),
         ),
-      ),
-    );
-  }
-}
-
-// Patch: AnimatedDefaultTextStyle needs actual child text; keep it clean:
-extension on _HoverUnderlineLinkState {
-  Widget buildText() {
-    return AnimatedDefaultTextStyle(
-      duration: const Duration(milliseconds: 120),
-      style: TextStyle(
-        color: AppColors.brandBlue,
-        fontWeight: FontWeight.w700,
-        fontSize: 10,
-        decoration: _hovering ? TextDecoration.underline : TextDecoration.none,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Text(widget.label),
       ),
     );
   }
