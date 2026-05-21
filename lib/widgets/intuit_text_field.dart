@@ -45,7 +45,8 @@ class IntuitTextField extends StatelessWidget {
 
         floatingLabelBehavior: FloatingLabelBehavior.auto,
 
-        filled: false, // ✅ Intuit = flat
+        filled: true,
+        fillColor: Colors.white,
         isDense: true,
 
         contentPadding: const EdgeInsets.symmetric(

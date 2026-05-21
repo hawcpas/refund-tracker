@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/local_auth_prefs.dart';
@@ -62,6 +64,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   bool _verifyingReset = false;
   String? _resetMessage;
   String? _resetToken;
+  Timer? _resetResendTimer;
+  int _resetResendSecondsRemaining = 0;
 
   // Refined density for the login card.
   static const double _cardRadius = 18;
@@ -132,9 +136,30 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     confirmPasswordController.dispose();
     emailFocusNode.dispose();
     passwordFocusNode.dispose();
+    _resetResendTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
     super.dispose();
+  }
+
+  void _startResetResendCooldown([int seconds = 60]) {
+    _resetResendTimer?.cancel();
+    setState(() => _resetResendSecondsRemaining = seconds);
+
+    _resetResendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_resetResendSecondsRemaining <= 1) {
+        timer.cancel();
+        setState(() => _resetResendSecondsRemaining = 0);
+        return;
+      }
+
+      setState(() => _resetResendSecondsRemaining--);
+    });
   }
 
   void _clearInlineErrors() {
@@ -181,9 +206,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     final result = await _auth.requestPasswordResetCode(email);
     if (!mounted) return;
 
+    final sentCode = result.isSuccess;
     setState(() {
       _sendingReset = false;
-      if (result.isSuccess) {
+      if (sentCode) {
         resetCodeController.clear();
         _resetToken = null;
         _step = LoginStep.resetCodeSent;
@@ -196,6 +222,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
             'We could not send a reset code right now. Please try again.';
       }
     });
+
+    if (sentCode) {
+      _startResetResendCooldown();
+    }
   }
 
   Future<void> _verifyResetCode() async {
@@ -446,17 +476,16 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     bool showLogo = true,
     double maxWidth = 380,
   }) {
+    final isMobile = MediaQuery.of(context).size.width < 700;
     final VoidCallback? primaryAction = (isLoading || _checkingEmail)
         ? null
-        : (_step == LoginStep.password
+        : (_step == LoginStep.email || _step == LoginStep.password
               ? _login
-              : _step == LoginStep.email
-              ? _continueToPassword
               : null);
 
     final title = switch (_step) {
       LoginStep.email => 'Sign in',
-      LoginStep.password => 'Enter your password',
+      LoginStep.password => 'Sign in',
       LoginStep.resetOptions => "Verify it's you",
       LoginStep.resetCodeSent => 'Check your email',
       LoginStep.resetUpdatePassword => 'Update your password',
@@ -464,13 +493,14 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
 
     final subtitle = switch (_step) {
       LoginStep.email => 'Use your Axume & Associates account',
-      LoginStep.password => emailController.text.trim(),
+      LoginStep.password => 'Use your Axume & Associates account',
       LoginStep.resetOptions => 'Choose how you want to verify your identity.',
       LoginStep.resetCodeSent =>
         'To protect your account, we sent a 6-digit verification code to:',
       LoginStep.resetUpdatePassword =>
         'Create a new password for ${emailController.text.trim().toLowerCase()}',
     };
+    final showHeading = _step != LoginStep.email && _step != LoginStep.password;
 
     return CenteredForm(
       maxWidth: maxWidth,
@@ -480,7 +510,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: isMobile ? const Color(0xFFF7F8FA) : Colors.white,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: const Color(0xFFD4D7DC)),
               boxShadow: [
@@ -501,38 +531,36 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                     Center(
                       child: SvgPicture.string(
                         kBrandLogoSvg2,
-                        height: 80,
+                        height: 108,
                         fit: BoxFit.contain,
                       ),
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 22),
                   ],
 
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF393A3D),
+                  if (showHeading) ...[
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF393A3D),
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 6),
+                    const SizedBox(height: 6),
 
-                  Text(
-                    subtitle,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: _step == LoginStep.password
-                          ? const Color(0xFF60646C)
-                          : const Color(0xFF6B6C72),
-                      fontWeight: _step == LoginStep.password
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                      height: 1.25,
+                    Text(
+                      subtitle,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF6B6C72),
+                        fontWeight: FontWeight.w500,
+                        height: 1.25,
+                      ),
                     ),
-                  ),
+                  ],
                   if (_step == LoginStep.resetCodeSent) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -545,9 +573,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                     ),
                   ],
 
-                  SizedBox(height: _step == LoginStep.password ? 14 : 20),
+                  SizedBox(height: showHeading ? 20 : 4),
 
-                  _step == LoginStep.email
+                  (_step == LoginStep.email || _step == LoginStep.password)
                       ? Column(
                           key: const ValueKey('email-step'),
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -558,15 +586,39 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                               focusNode: emailFocusNode,
                               label: "Email",
                               enabled: !isLoading && !_checkingEmail,
-                              textInputAction: TextInputAction.done,
+                              textInputAction: TextInputAction.next,
                               onChanged: (_) => _clearInlineErrors(),
-                              onSubmitted: _continueToPassword,
+                              onSubmitted: () => FocusScope.of(
+                                context,
+                              ).requestFocus(passwordFocusNode),
                               errorText: _emailError,
                             ),
-
-                            // Remember-me placement.
+                            const SizedBox(height: 12),
+                            IntuitTextField(
+                              controller: passwordController,
+                              focusNode: passwordFocusNode,
+                              label: "Password",
+                              enabled: !isLoading,
+                              obscureText: obscurePassword,
+                              onChanged: (_) => _clearInlineErrors(),
+                              onSubmitted: _login,
+                              errorText: _passwordError ?? _authError,
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  size: 20,
+                                ),
+                                onPressed: isLoading
+                                    ? null
+                                    : () => setState(
+                                        () =>
+                                            obscurePassword = !obscurePassword,
+                                      ),
+                              ),
+                            ),
                             const SizedBox(height: 8),
-
                             Row(
                               children: [
                                 Checkbox(
@@ -592,64 +644,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                 ),
                               ],
                             ),
-                          ],
-                        )
-                      : _step == LoginStep.password
-                      ? Column(
-                          key: const ValueKey('password-step'),
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Centered identity block.
-                            Column(
-                              children: [
-                                _HoverUnderlineLink(
-                                  label: "Use a different account",
-                                  onTap: isLoading
-                                      ? () {}
-                                      : () {
-                                          setState(() {
-                                            _step = LoginStep.email;
-                                            passwordController.clear();
-                                          });
-                                        },
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 18),
-
-                            IntuitTextField(
-                              controller: passwordController,
-                              focusNode: passwordFocusNode,
-                              label: "Password",
-                              enabled: !isLoading,
-                              obscureText: obscurePassword,
-                              onChanged: (_) => _clearInlineErrors(),
-                              onSubmitted: _login,
-                              errorText: _passwordError ?? _authError,
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                  size: 20,
-                                ),
-                                onPressed: isLoading
-                                    ? null
-                                    : () => setState(
-                                        () =>
-                                            obscurePassword = !obscurePassword,
-                                      ),
-                              ),
-                            ),
                             const SizedBox(height: 12),
-                            Align(
-                              alignment: Alignment.center,
-                              child: _HoverUnderlineLink(
-                                label: 'Forgot password?',
-                                onTap: isLoading ? () {} : _showResetOptions,
-                              ),
-                            ),
                           ],
                         )
                       : _step == LoginStep.resetOptions
@@ -690,9 +685,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                                       ),
                                     )
                                   : Text(
-                                      _step == LoginStep.password
-                                          ? "Sign in"
-                                          : "Continue",
+                                      "Sign in",
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w600,
@@ -701,6 +694,15 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.center,
+                      child: _HoverUnderlineLink(
+                        label: 'Forgot password?',
+                        onTap: isLoading ? () {} : _showResetOptions,
+                        fontSize: isMobile ? 15 : 12,
                       ),
                     ),
                   ],
@@ -756,7 +758,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               ? null
               : () {
                   setState(() {
-                    _step = LoginStep.password;
+                    _step = LoginStep.email;
                     _resetMessage = null;
                   });
                   Future.delayed(const Duration(milliseconds: 60), () {
@@ -778,6 +780,11 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   }
 
   Widget _resetCodeSentStep(ThemeData theme) {
+    final canResend = !_sendingReset && _resetResendSecondsRemaining == 0;
+    final resendText = _resetResendSecondsRemaining > 0
+        ? 'Request another code in $_resetResendSecondsRemaining s'
+        : "I didn't get an email";
+
     return Column(
       key: const ValueKey('reset-code-sent-step'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -828,9 +835,40 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           ),
         ),
         const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF5FF),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFFD8E6FF)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.schedule_outlined,
+                size: 16,
+                color: AppColors.brandBlue,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _resetResendSecondsRemaining > 0
+                      ? 'For your security, you can request another reset code in $_resetResendSecondsRemaining seconds.'
+                      : 'You can request a new reset code if the email did not arrive.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF344054),
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         TextButton(
-          onPressed: _sendingReset ? null : _sendPasswordResetCode,
-          child: Text(_sendingReset ? 'Sending...' : "I didn't get an email"),
+          onPressed: canResend ? _sendPasswordResetCode : null,
+          child: Text(_sendingReset ? 'Sending...' : resendText),
         ),
         TextButton(
           onPressed: () {
@@ -922,7 +960,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
               ? null
               : () {
                   setState(() {
-                    _step = LoginStep.password;
+                    _step = LoginStep.email;
                     _resetMessage = null;
                     _resetToken = null;
                   });
@@ -1076,11 +1114,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   }
 
   Widget _mobileLoginExperience(ThemeData theme, bool showAuthError) {
-    final isResetFlow =
-        _step == LoginStep.resetOptions ||
-        _step == LoginStep.resetCodeSent ||
-        _step == LoginStep.resetUpdatePassword;
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: AbsorbPointer(
@@ -1089,10 +1122,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
             ? SafeArea(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final topHeight = isResetFlow ? 190.0 : 330.0;
-                    final overlap = isResetFlow ? -58.0 : -78.0;
-                    final footerLift = isResetFlow ? -38.0 : -56.0;
-
                     return SingleChildScrollView(
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
@@ -1100,64 +1129,40 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                         constraints: BoxConstraints(
                           minHeight: constraints.maxHeight,
                         ),
-                        child: Column(
-                          children: [
-                            Container(
-                              height: topHeight,
-                              width: double.infinity,
-                              color: AppColors.brandBlue,
-                              alignment: Alignment.topCenter,
-                              padding: const EdgeInsets.only(top: 52),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 12,
+                        child: IntrinsicHeight(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                            child: Column(
+                              children: [
+                                const SizedBox(height: 64),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: SvgPicture.string(
+                                    kBrandLogoSvg2,
+                                    height: 104,
+                                    fit: BoxFit.contain,
+                                  ),
                                 ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.10),
-                                      blurRadius: 18,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
-                                child: SvgPicture.string(
-                                  kBrandLogoSvg2,
-                                  height: 58,
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                            ),
-                            Transform.translate(
-                              offset: Offset(0, overlap),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                ),
-                                child: _loginCard(
+                                const Spacer(flex: 3),
+                                _loginCard(
                                   theme,
                                   showAuthError,
                                   showLogo: false,
                                   maxWidth: 520,
                                 ),
-                              ),
-                            ),
-                            Transform.translate(
-                              offset: Offset(0, footerLift),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  18,
-                                  0,
-                                  18,
-                                  20,
+                                const SizedBox(height: 18),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    0,
+                                    0,
+                                    0,
+                                    86,
+                                  ),
+                                  child: _footer(theme),
                                 ),
-                                child: _footer(theme),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -1180,7 +1185,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.pageBackgroundSoft,
+      backgroundColor: Colors.white,
       body: AbsorbPointer(
         absorbing: !_pageReady, // Prevent interaction while loading.
         child: AnimatedSwitcher(
@@ -1213,7 +1218,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  const SizedBox(height: 88),
+                                  const SizedBox(height: 76),
                                   _loginCard(
                                     Theme.of(context),
                                     _authError != null,
@@ -1315,6 +1320,7 @@ class _ResetOptionTile extends StatelessWidget {
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           decoration: BoxDecoration(
+            color: Colors.white,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: const Color(0xFFE4E7EC)),
             boxShadow: const [
@@ -1331,7 +1337,7 @@ class _ResetOptionTile extends StatelessWidget {
                 height: 38,
                 width: 38,
                 decoration: const BoxDecoration(
-                  color: Color(0xFFF0F2F5),
+                  color: Color(0xFFEAF2FF),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
@@ -1341,7 +1347,7 @@ class _ResetOptionTile extends StatelessWidget {
                         width: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Icon(icon, size: 20, color: const Color(0xFF111827)),
+                    : Icon(icon, size: 20, color: AppColors.brandBlue),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1386,8 +1392,13 @@ class _ResetOptionTile extends StatelessWidget {
 class _HoverUnderlineLink extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
+  final double fontSize;
 
-  const _HoverUnderlineLink({required this.label, required this.onTap});
+  const _HoverUnderlineLink({
+    required this.label,
+    required this.onTap,
+    this.fontSize = 10,
+  });
 
   @override
   State<_HoverUnderlineLink> createState() => _HoverUnderlineLinkState();
@@ -1409,7 +1420,7 @@ class _HoverUnderlineLinkState extends State<_HoverUnderlineLink> {
           style: TextStyle(
             color: AppColors.brandBlue,
             fontWeight: FontWeight.w700,
-            fontSize: 10,
+            fontSize: widget.fontSize,
             decoration: _hovering
                 ? TextDecoration.underline
                 : TextDecoration.none,
